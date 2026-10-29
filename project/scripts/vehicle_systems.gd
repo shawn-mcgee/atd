@@ -5,12 +5,11 @@ const DRILL_COST := 5.0
 func tick(game, dt: float) -> void:
 	for unit in game.units:
 		if not unit.is_vehicle() or unit.hp <= 0: continue
-		var charging := false
-		for source in game.structures:
-			if source.kind in ["generator", "repeater"] and source.complete and source.enabled and source.powered and Power.covers(source, unit.position):
-				charging = true; break
-		if charging: unit.battery = minf(100, unit.battery + 8 * dt)
+		var supplied: bool = unit.auto_recharge and not game.power.grid_for(unit, game.structures, true).is_empty()
+		unit.charging = supplied and unit.battery < 100
+		if supplied: unit.battery = minf(100, unit.battery + 8 * dt)
 		elif unit.motion_velocity.length_squared() > 0.01: unit.battery = maxf(0, unit.battery - 0.25 * dt)
+		unit.charging = supplied and unit.battery < 100
 		unit.update_lights()
 		if unit.kind == "drill" and unit.order == "drill": drill(game, unit, dt)
 

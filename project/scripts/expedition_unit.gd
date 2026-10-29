@@ -6,6 +6,8 @@ const STATS := Rules.UNITS
 const DRIVER_RANK := {"engineer": 0, "marine": 1, "flamer": 2}
 const MINING_DRIVER_RANK := {"marine": 0, "flamer": 1, "engineer": 2}
 var battery := 100.0
+var auto_recharge := true
+var charging := false
 var order_queue: Array[Dictionary] = []
 var combat_target: Node3D
 var combat_last_seen := Vector3.ZERO

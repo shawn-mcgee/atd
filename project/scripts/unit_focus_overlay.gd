@@ -24,7 +24,7 @@ func update_focus(selection: Array, illumination: RefCounted) -> void:
 			if actor.position.distance_to(actor.focus_target.position) < radius:
 				target = actor.focus_target; point = target.position; color = Color(1.0, 0.65, 0.4, 0.65)
 		if not point.is_finite():
-			if actor.order.begins_with("convoy_"):
+			if actor.order.begins_with("convoy_") or actor.order.begins_with("cohort_"):
 				target = actor.target if is_instance_valid(actor.target) else null
 				point = target.position if target != null else actor.goal
 			elif actor.order in ["board", "escort", "to_carrier", "build", "repair", "close_gate", "stock", "deliver", "deposit"] and is_instance_valid(actor.target):
@@ -50,7 +50,7 @@ func update_focus(selection: Array, illumination: RefCounted) -> void:
 			lines.surface_add_vertex(previous + Vector3.UP * 0.3)
 			lines.surface_add_vertex(command.point + Vector3.UP * 0.3)
 			previous = command.point
-		if actor.order == "patrol":
+		if actor.order == "patrol" or (actor.order.begins_with("cohort_") and not actor.patrol_points.is_empty()):
 			for i in range(actor.patrol_points.size()):
 				lines.surface_set_color(Color(0.55, 0.75, 0.95, 0.45))
 				lines.surface_add_vertex(actor.patrol_points[i] + Vector3.UP * 0.3)

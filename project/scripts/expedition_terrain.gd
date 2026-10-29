@@ -5,6 +5,7 @@ const LEVEL := 3.0
 const CELL := 1.0
 const SPACING := 1.7320508075688772
 const NATURAL_RAMP_HIGH := Vector3(45.033320997, 0, 6)
+var natural_enabled := false
 var structures: Array = []
 var cleared_cells: Dictionary = {}
 
@@ -19,8 +20,8 @@ func height(point: Vector3) -> float:
 	var result := 0.0
 	# The walkable mesa is also a cluster of full hex cells.
 	var center := Hex.snap(point, CELL)
-	if natural_mesa_cell(center) and not cleared_cells.has(Hex.to_axial(point, CELL)): result = LEVEL
-	else:
+	if natural_enabled and natural_mesa_cell(center) and not cleared_cells.has(Hex.to_axial(point, CELL)): result = LEVEL
+	elif natural_enabled:
 		var natural_anchor := Hex.snap(Vector3(43.3, 0, 6), CELL)
 		var ramp_height := ramp_sample(point, natural_anchor, 0)
 		if ramp_height >= 0: result = ramp_height

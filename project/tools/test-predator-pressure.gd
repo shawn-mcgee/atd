@@ -9,6 +9,7 @@ func _initialize() -> void: call_deferred("run")
 
 func run() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.begin_run(); game.audio_enabled = false

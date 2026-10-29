@@ -7,6 +7,7 @@ func _initialize() -> void: call_deferred("run")
 
 func scenario(kind: String, mineral_room: int, gas_room: int, minerals: int, gas: int, stop_at_home: bool) -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.begin_run(); game.rocks.clear(); game.rebuild_navigation()
@@ -30,7 +31,7 @@ func scenario(kind: String, mineral_room: int, gas_room: int, minerals: int, gas
 		if i % 100 == 0: await process_frame
 	check(game.economy.minerals == initial_m + mini(mineral_room, minerals) and is_equal_approx(game.economy.gas, initial_g + mini(gas_room, gas)), "%s expedition independently delivers both cargo types into available storage" % kind)
 	check(truck.cargo + worker.cargo == minerals - mini(mineral_room, minerals) and truck.gas_cargo + worker.gas_cargo == gas - mini(gas_room, gas), "undeliverable cargo is conserved rather than dropped")
-	if mineral_room > 0 and gas_room > 0: check(receivers.has("depot") and receivers.has("gas_tank"), "mixed return visits both receiving structures even after one resource fills")
+	if mineral_room > 0 and gas_room > 0: check(receivers.has("core") or (receivers.has("depot") and receivers.has("gas_tank")), "mixed return visits both receivers or the HQ that now accepts both currencies")
 	if stop_at_home:
 		check(truck.complex_id == 0 and not truck.has_driver() and worker.aboard == null and driver.aboard == null and truck.position.distance_to(game.HOME) < 16, "full expedition resource ends at HQ with the crew safely unloaded")
 	else:

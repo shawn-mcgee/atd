@@ -10,6 +10,7 @@ func advance(game, seconds: float) -> void:
 
 func capture() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	if Array(OS.get_cmdline_user_args()).any(func(flag): return flag not in ["--briefing", "--engineer"] and not flag.begins_with("--seed=")): game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game)
 	current_scene = game
 	await process_frame

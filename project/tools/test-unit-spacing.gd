@@ -13,6 +13,7 @@ func step_motion(game, frames: int) -> void:
 
 func run_checks() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.begin_run()

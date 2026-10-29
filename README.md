@@ -6,9 +6,9 @@ Open `project/project.godot`, press **F5**, then **Begin Expedition**. Restart t
 
 ## Mission
 
-1. Send an engineer to the **EX** marker on the minimap and right-click the ruined **Extraction Beacon**. Repairs take 12 seconds.
-2. Send infantry to the **CORE** marker at the **Lightless Hive**. Right-click the hive to take the **Hive Core**. Extraction must be repaired before the initial theft.
-3. Bring the carrier within **7m** of the beacon and hold for **30 seconds**. Boarding a vehicle keeps the core with its carrier.
+1. Scout for the extraction beacon and hive. Their **EX**/**CORE** minimap markers appear only after friendly illumination reveals them, and remain recorded afterward. Send an engineer to the ruined **Extraction Beacon** and right-click it; repairs take 12 seconds.
+2. Send infantry to the discovered **CORE** marker at the **Lightless Hive**. Right-click the hive to take the **Hive Core**. Extraction must be repaired before the initial theft.
+3. Bring the carrier within **7m** of the beacon and hold for **60 seconds**. Boarding a vehicle keeps the core with its carrier.
 
 The Lightless defend their hive aggressively. Theft triggers committed pursuit, twice the population ceiling (32), and faster reinforcements. If the carrier dies, the core drops; another infantry unit can retrieve it with a right-click. A Lightless reaching the dropped core loses the mission. Destroying HQ also loses the mission.
 
@@ -33,7 +33,10 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | Q | Scan from the selected Command Center; costs 120 charged electricity |
 | B / U | Board nearby infantry / unload passengers, then driver |
 | L / J / H | Collect nearby carried cargo / deposit cargo / return a vehicle to a home receiver |
-| G / R / X | Escort a vehicle / repair targeting / stop and clear orders |
+| G / R / X | Escort / repair targeting or selected turret reload / stop and clear orders |
+| Z | Toggle automatic reload on selected ammunition turrets |
+| N | Toggle automatic recharge on selected vehicles |
+| F1 / ? | Open controls and mission help |
 | 1-0 | First ten construction choices for engineers; factory production shortcuts otherwise |
 | T | Rotate a construction footprint, ramp, or gate |
 | Arrows / WSD | Pan; A is reserved for attack-move |
@@ -42,7 +45,29 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | Comma / period / Home / F | Rotate camera / reset camera / focus HQ |
 | Space / Escape | Pause / cancel targeting or selection |
 
-Context commands appear on the right. Engineer construction appears at the bottom left; Extractor, Scanner, Platform, and Ramp are available through their buttons. The command panel scrolls when needed to preserve minimap space at the minimum window size. Selected units show target/destination lines and queued destinations; patrols show their route.
+Selection details and contextual commands share the bottom dock. Engineers have a Build tab, with resource icons beside construction costs. The minimap stays in the bottom-right corner. Hover over commands for keyboard shortcuts; F1 opens the full controls. Selected units show target/destination lines and queued destinations; patrols show their route.
+
+## Starting scenario and generation
+
+Each new mission generates a seeded layout of rock ridges, passages, resource fields, extraction, and the hive. The landing zone and approaches to every resource field/objective stay clear. Restarting generates a different level. The help overlay and end screen show the seed; reproduce a map with `& .\Godot_v4.7.2-stable_win64.exe --path .\project -- --seed=42`.
+
+Start with **HQ, one engineer, and one marine**, **100 MAT**, and **100 CH4**. There are no starting vehicles, generators, repeaters, depots, tanks, barracks, or garages. HQ holds **100 MAT / 100 CH4**, accepts both delivered resources, relays power within **7m**, and supplies **4 auxiliary power** without methane. HQ consumes none of its own output when idle, so all four units are available to connected consumers; scanner charging uses spare power only while needed. Its dim light reaches **5.93m**, one tile step farther than before. HQ produces engineers with **1** and scout vehicles with **2** (60 MAT + 25 CH4, 10 seconds). Scouts still need a driver. Build infrastructure and recruit the rest of the expedition. The starting area has a two-minute damage grace for preparation; leaving it is dangerous immediately after initial probing begins.
+
+Names float over structures only while selected. Mission objectives and their world models remain hidden until scouted. Resource scanning remains available; removing it is still an open idea.
+
+## Coordinated tactics and turret ammunition
+
+Attack-move, defense, and patrol become shared missions when commanding a mixed squad or a crewed vehicle. A vehicle reserves a pilot and boards engineers into available passenger seats; infantry remain outside as escorts. Marching speed follows the slowest walker. Infantry protect engineers on foot when transport is unavailable. A defense command can protect a specific unit or structure and returns from pursuits outside an 8m leash. A patrol shares its waypoints across the crew. Direct unit orders detach that unit, manual unloading cancels vehicle coordination, and Shift can queue a tactical mission after current work.
+
+A crewed scout can investigate approximate sensor contacts during these missions. Investigations stay bounded and time out before resuming the assigned route. A contact does not illuminate or reveal its creature, and weapons still require vision.
+
+| Turret | Power | Magazine | Reload | Attack |
+| --- | --- | --- | --- | --- |
+| Minigun | 3 | 30 | 8 MAT, 4 seconds | Fast targeted bursts |
+| Laser | 8 | Unlimited | None | Slower, stronger targeted shots |
+| Flame | 4 | 12 | 6 CH4, 5 seconds | Area damage to visible enemies |
+
+Ammunition turrets automatically reload when empty. Select turrets and press **R** for a manual reload, or **Z** to toggle automatic reload. Reloads consume their full cost once, cannot start without resources, disable firing, and pause during a power outage. A full magazine cannot be manually reloaded. The three types reuse the existing turret chassis with distinct colors.
 
 ## Economy, construction, and power
 
@@ -54,9 +79,13 @@ Construction spends banked resources immediately, but an engineer must reach and
 
 Hex radius is **1m**, half the earlier size, while the map keeps its world extent. HQ reserves seven cells (center plus six neighbors); generators and barracks reserve compact three-cell triangles; the garage reserves a four-cell diamond. Other buildings use one cell, except two-cell ramps. Footprints rotate with T, and their previews match occupied cells. Adjacent terrain cells no longer cause a circular placement exclusion.
 
-A generator supplies **12 power** within **3.5m** (about two tile steps). A repeater extends the network over **10.4m**. Turning a repeater off disconnects its branch. Power overlays show each source's actual range and planned/offline connections. Consumers receive automatic priority; methane burn follows served demand and scanner charging.
+HQ supplies four free auxiliary power; generators supplement it and burn methane only for demand beyond that auxiliary supply. A generator supplies **12 power** within **3.5m** (about two tile steps). A repeater extends the network over **10.4m**. Turning a repeater off disconnects its branch. Power overlays show each source's actual range and planned/offline connections. Consumers receive automatic priority; methane burn follows served demand and scanner charging.
 
-All vehicles require a driver. Batteries drain **0.25 percentage points per second while driving** and recharge **8 points per second** within an operating generator or repeater's range. An empty battery stops propulsion and headlights; charging resumes the existing route. Emergency beacons remain. The Garage can produce a **Drill** (140 MAT + 45 CH4): clearing a rock or mesa tile takes three seconds and costs exactly **5 CH4**. Insufficient methane leaves the tile and reserves unchanged.
+Select a connected structure, infantry unit, or vehicle to see its local grid usage and spare power beside the power icon. Separate grids are never combined into a global power total.
+
+Health bars appear above damaged units, vehicles, structures, and visible enemies, then disappear at full health. Vehicle battery bars remain below the models.
+
+HQ also recharges vehicles within its operating relay range. All vehicles require a driver. Batteries drain **0.25 percentage points per second while driving** and recharge **8 points per second** within an operating generator or repeater's range. Automatic recharge starts enabled; toggle it with **N** or the vehicle command button. An empty battery stops propulsion and headlights; charging resumes the existing route. Emergency beacons remain. The Garage can produce a **Drill** (140 MAT + 45 CH4): clearing a rock or mesa tile takes three seconds and costs exactly **5 CH4**. Insufficient methane leaves the tile and reserves unchanged.
 
 ## Repository and validation
 
@@ -97,7 +126,7 @@ python tools/test-game.py --name mission-upgrade
 
 The runner treats script errors as failures even if Godot exits with code zero, and writes logs under `project/art_source/.build/test-results/`. The occlusion test requires rendering and is excluded from its headless suite. Existing headless tests cover logistics, navigation, construction clearance, camera/HUD/minimap input, expeditions, selection, power, and predator behavior. `test-mission-upgrade.gd` covers the Hive Recovery lifecycle and new controls/economy systems.
 
-Key new systems: `scripts/hive_mission.gd`, `tactical_orders.gd`, `structure_footprints.gd`, `resource_fields.gd`, and `vehicle_systems.gd`. Balance constants remain in those files and `expedition_rules.gd`.
+Key new systems: `scripts/hive_mission.gd`, `tactical_orders.gd`, `structure_footprints.gd`, `resource_fields.gd`, `vehicle_systems.gd`, `scenario_layout.gd`, `tactical_groups.gd`, and `turret_system.gd`. Balance constants remain in those files and `expedition_rules.gd`.
 
 Rendered previews use `res://tools/preview-prototype.gd`; flags include `--briefing`, `--engineer`, `--outpost`, `--creatures`, `--terrain`, and `--live`. Screenshots and logs remain in ignored `project/art_source/.build/`.
 
@@ -105,4 +134,4 @@ Generated drill, extractor, beacon, and hive models use the project-owned Asset 
 
 ## Current limits
 
-First-pass balance and placeholder art/audio. No save/load, campaign, research tree, or full crowd collision. Gameplay illumination does not cast wall shadows, although weapon sight lines and navigation respect obstacles. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.
+First-pass balance and placeholder art/audio; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Gameplay illumination does not cast wall shadows, although weapon sight lines and navigation respect obstacles. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `project/todo.md`. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.

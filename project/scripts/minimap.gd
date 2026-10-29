@@ -49,9 +49,8 @@ func hex_outline() -> PackedVector2Array:
 	return result
 
 func fit() -> void:
-	# Fit below contextual commands at both minimum and larger window sizes.
-	var available: float = get_viewport_rect().size.y - game.command_panel.get_global_rect().end.y - 30
-	var height := clampf(available, 132, 250)
+	# Stable companion to the command dock, independent of selection or command count.
+	var height := minf(250, get_viewport_rect().size.y * 0.34)
 	offset_left = -268; offset_right = -18; offset_top = -18 - height; offset_bottom = -18
 
 func _process(dt: float) -> void:
@@ -68,6 +67,7 @@ func refresh() -> void:
 	for resource in game.resource_nodes:
 		if resource.discovered and resource.remaining > 0: markers.append({"kind": resource.kind, "point": resource.position, "selected": false})
 	for structure in game.structures:
+		if structure == game.mission.beacon and not game.mission.beacon_discovered: continue
 		if structure.hp > 0: markers.append({"kind": "hq" if structure.kind == "core" else "structure", "point": structure.position, "selected": game.selected.has(structure)})
 	for unit in game.units:
 		if unit.hp > 0 and unit.aboard == null: markers.append({"kind": "vehicle" if unit.is_vehicle() else "unit", "point": unit.position, "selected": game.selected.has(unit)})
@@ -145,7 +145,7 @@ func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	draw_string(font, Vector2(12, 19), "MINIMAP", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, MINT)
 	draw_string(font, Vector2(size.x - 23, 19), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("93aeb8"))
-	draw_string(font, Vector2(12, size.y - 8), "Click / drag to pan", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("93aeb8"))
+
 	var outline := hex_outline()
 	draw_colored_polygon(outline, Color("080f14"))
 	var colors := {"ground": Color("2d454c"), "cliff": Color("849399"), "raised": Color("58756c"), "ramp": Color("827950")}
@@ -164,7 +164,7 @@ func _draw() -> void:
 		if kind in ["hq", "structure"]: draw_rect(Rect2(point - Vector2.ONE * radius, Vector2.ONE * radius * 2), color)
 		else: draw_circle(point, radius, color, true, -1, true)
 		if kind == "hq": draw_circle(point, radius + 2, color, false, 1, true)
-	for objective in [{"point": game.mission.beacon.position, "name": "EX", "color": Color("efbd77")}, {"point": game.mission.item.position, "name": "CORE", "color": Color("cb7de4")}]:
+	for objective in game.mission.map_objectives():
 		var point := world_to_map(objective.point)
 		draw_circle(point, 4, objective.color, false, 1, true)
 		draw_string(font, point + Vector2(5, -3), objective.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, objective.color)

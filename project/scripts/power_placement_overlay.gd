@@ -43,7 +43,7 @@ func update_preview(kind: String, point: Vector3, structures: Array) -> Dictiona
 	ghost_material.albedo_color = status_color()
 	var live: Dictionary = {}
 	for b in structures:
-		if b.kind not in ["generator", "repeater"] or b.hp <= 0: continue
+		if b.kind not in Power.SOURCES or b.hp <= 0: continue
 		var id: int = b.get_instance_id()
 		live[id] = true
 		if not source_rings.has(id): source_rings[id] = Visual.ring(self, Power.LINK_RANGE, READY, 192)

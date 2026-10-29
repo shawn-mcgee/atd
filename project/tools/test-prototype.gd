@@ -10,6 +10,7 @@ func _initialize() -> void:
 
 func fixture():
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.begin_run()
@@ -73,7 +74,7 @@ func crew_checks() -> void:
 	game.select_actor(scout); game.unload()
 	check(not scout.has_driver(), "single-seat scout unloads its driver on first U")
 	game.economy.gas = 0; game.power.tick(game.structures, game.economy, 0); game.rebuild_light()
-	check(game.light.sample(game.core.position) > 0 and game.light.deterrence(game.core.position) == 0, "Command Center emergency light survives total grid fuel loss")
+	check(game.light.sample(game.core.position) > 0 and game.core.powered, "Command Center auxiliary light and power survive total grid fuel loss")
 	await release(game)
 	game = await fixture(); vehicle = game.jeep
 	vehicle.board(game.units[0]); vehicle.board(game.units[1]); vehicle.hp = 0
@@ -87,7 +88,7 @@ func crew_checks() -> void:
 func economy_checks() -> void:
 	var game = await fixture()
 	check(game.economy.minerals == 400 and is_equal_approx(game.economy.gas, 140.0), "starting global resources are already deposited")
-	check(game.economy.mineral_capacity == 500 and game.economy.gas_capacity == 240, "mineral depot and gas tank add the correct global capacity")
+	check(game.economy.mineral_capacity == 500 and game.economy.gas_capacity == 300, "mineral depot and gas tank add the correct global capacity")
 	var worker: ExpeditionUnit = game.units[1]
 	worker.cargo = 10; worker.mined_cargo = 10; worker.gas_cargo = 7
 	var tank: ExpeditionStructure
@@ -127,8 +128,9 @@ func economy_checks() -> void:
 	var refund_m: int = game.economy.minerals
 	game.train_unit("scout"); game.cancel_training()
 	check(game.economy.minerals == refund_m and garage.queue.is_empty(), "canceling a production order refunds its reservation once")
+	game.economy.minerals = 400
 	game.home_depot.hp = 0; game.cleanup_dead(); game.economy.recalculate(game.structures)
-	check(game.economy.mineral_capacity == 100 and game.economy.minerals > 100, "storage destruction reduces capacity while preserving already banked minerals")
+	check(game.economy.mineral_capacity == 100 and game.economy.minerals == 400, "storage destruction reduces capacity while preserving already banked minerals")
 	check(game.economy.deposit("minerals", 20) == 0, "over-capacity bank cannot accept further deliveries")
 	await release(game)
 	game = await fixture(); game.select_actor(game.core); game.scan(); game.select_actor(game.jeep)

@@ -2,23 +2,26 @@ extends RefCounted
 ## The carrier is the single source of truth; boarding keeps the item with its owner.
 const Visual = preload("res://scripts/expedition_visuals.gd")
 const Structure = preload("res://scripts/expedition_structure.gd")
-const EXTRACTION_TIME := 30.0
+const EXTRACTION_TIME := 60.0
 const EXTRACTION_RADIUS := 7.0
 var beacon: ExpeditionStructure
 var hive: ExpeditionStructure
 var item: Node3D
 var carrier: ExpeditionUnit
+var beacon_discovered := false
+var hive_discovered := false
 var stolen := false
 var dropped := false
 var extraction := 0.0
 var swarm_clock := 0.0
 
 func setup(game) -> void:
-	beacon = game.add_structure("beacon", Vector3(-45, 0, 14), false)
-	beacon.funded = true
-	hive = Structure.new(); hive.setup("hive", Vector3(64, 0, -42), true); game.add_child(hive); hive.visible = false
+	beacon = game.add_structure("beacon", game.layout.beacon_position, false)
+	beacon.funded = true; beacon.visible = false
+	hive = Structure.new(); hive.setup("hive", game.layout.hive_position, true); game.add_child(hive); hive.visible = false
 	item = (load("res://scenes/props/power_relay.tscn") as PackedScene).instantiate()
 	item.scale = Vector3.ONE * 0.25; item.position = hive.position + Vector3(0, 1, 0); game.add_child(item)
+	item.visible = false
 	Visual.paint(item, Visual.material(Color("cb7de4"), true))
 	var ring := Visual.ring(beacon, EXTRACTION_RADIUS, Color("efbd77")); ring.position.y = 0.12
 	game.director.add_group(hive.position, 80, 6)
@@ -42,6 +45,13 @@ func drop(unit: ExpeditionUnit) -> void:
 	carrier = null; dropped = true; extraction = 0
 
 func tick(game, dt: float) -> void:
+	if not beacon_discovered and game.light.sample(beacon.position) > 0.05:
+		beacon_discovered = true; game.notify("Extraction beacon discovered / repair it with an engineer")
+	if not hive_discovered and game.light.sample(hive.position) > 0.05:
+		hive_discovered = true; game.notify("Lightless Hive discovered / secure extraction before taking the core")
+	beacon.visible = beacon_discovered and game.light.sample(beacon.position) > 0.05
+	hive.visible = hive_discovered and game.light.sample(hive.position) > 0.05
+	item.visible = stolen or (hive_discovered and game.light.sample(item.position) > 0.05)
 	if beacon.hp <= 0:
 		beacon.hp = 1; beacon.complete = false; beacon.progress = 0; extraction = 0; beacon.update_visual()
 		game.notify("Extraction beacon destroyed / repair it to restart extraction")
@@ -74,4 +84,10 @@ func destination() -> Vector3:
 	return item.position if stolen else hive.position
 
 func describe() -> String:
-	return "%s Repair extraction beacon\n%s Steal Hive Core\nExtract: %.0f / %.0fs\nKeep the carrier inside the beacon radius" % ["[x]" if beacon.complete else "[ ]", "[x]" if stolen else "[ ]", extraction, EXTRACTION_TIME]
+	return "%s\n%s\nExtract: %.0f / %.0fs" % ["[x] Extraction repaired" if beacon.complete else "[ ] Repair extraction beacon" if beacon_discovered else "[?] Scout for extraction", "[x] Hive Core secured" if stolen else "[ ] Steal Hive Core" if hive_discovered else "[?] Scout for the Lightless Hive", extraction, EXTRACTION_TIME]
+
+func map_objectives() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if beacon_discovered: result.append({"point": beacon.position, "name": "EX", "color": Color("efbd77")})
+	if hive_discovered or stolen: result.append({"point": item.position, "name": "CORE", "color": Color("cb7de4")})
+	return result

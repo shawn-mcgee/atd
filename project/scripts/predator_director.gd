@@ -30,7 +30,7 @@ func populate(game) -> void:
 			for i in range(6): spawn_member(game, group, true)
 
 func attack_allowed(game, actor: Node3D) -> bool:
-	return game.elapsed >= FIRST_PROBE_TIME and (game.elapsed >= BASE_GRACE or actor.position.distance_to(game.HOME) > 22)
+	return game.elapsed >= FIRST_PROBE_TIME and (game.elapsed >= game.layout.base_grace or actor.position.distance_to(game.HOME) > 22)
 
 func spawn_member(game, group: Dictionary, initial: bool = false) -> ExpeditionPredator:
 	if game.creatures.filter(func(creature): return creature.hp > 0).size() >= (MAX_CREATURES * 2 if game.mission.stolen else MAX_CREATURES): return null
@@ -76,9 +76,9 @@ func defended(game, prey: Dictionary, memories: Array) -> bool:
 	for memory in memories:
 		if game.elapsed - float(memory.time) > 2 or not is_instance_valid(memory.actor) or memory.actor.hp <= 0: continue
 		if memory.actor is ExpeditionUnit and memory.actor.aboard != null: continue
-		var reach := 11.0 if memory.kind == "marine" else 5.5 if memory.kind == "flamer" else 14.0 if memory.kind == "turret" and memory.get("operational", false) else 0.0
+		var reach := 11.0 if memory.kind == "marine" else 5.5 if memory.kind == "flamer" else float(game.Rules.TURRETS[memory.kind].range) if game.Rules.TURRETS.has(memory.kind) and memory.get("operational", false) else 0.0
 		if reach == 0: continue
-		if memory.actor == prey.actor and memory.kind != "turret": continue
+		if memory.actor == prey.actor and not game.Rules.TURRETS.has(memory.kind): continue
 		if memory.position.distance_to(prey.position) <= reach + 1 and game.navigation.can_see(memory.position, prey.position): return true
 	return false
 

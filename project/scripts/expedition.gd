@@ -20,7 +20,7 @@ const ComplexCommands = preload("res://scripts/complex_commands.gd")
 const Terrain = preload("res://scripts/expedition_terrain.gd")
 const TERRAIN_COLLISION_LAYER := 1 << 19
 const GAS_DEPOSIT := Vector3(51, 3, 7)
-const BUILD_KINDS := ["floodlight", "generator", "repeater", "turret", "wall", "gate", "depot", "gas_tank", "barracks", "garage", "scanner", "platform", "ramp", "extractor"]
+const BUILD_KINDS := ["floodlight", "generator", "repeater", "turret", "wall", "gate", "depot", "gas_tank", "barracks", "garage", "scanner", "platform", "ramp", "extractor", "laser_turret", "flame_turret"]
 const Footprints = preload("res://scripts/structure_footprints.gd")
 const TICK := 0.1
 const HOME := Vector3.ZERO
@@ -28,6 +28,10 @@ const DEPOSIT := Vector3(32, 0, -24)
 const SHIPMENT := 30
 const MINT := Color("7bf4d0")
 const AMBER := Color("efbd77")
+var layout := preload("res://scripts/scenario_layout.gd").new()
+var scenario_seed := 0
+var turret_system := preload("res://scripts/turret_system.gd").new()
+var tactical_groups := preload("res://scripts/tactical_groups.gd").new()
 var tactics := preload("res://scripts/tactical_orders.gd").new()
 var mission := preload("res://scripts/hive_mission.gd").new()
 var resource_fields := preload("res://scripts/resource_fields.gd").new()
@@ -106,6 +110,8 @@ var power_preview_label: Label
 var deposit_mesh: Node3D
 var signal_marker: Node3D
 var effects: Array[Dictionary] = []
+var hud: RefCounted
+var world_bars: Control
 var ui: Control
 var selection_box: Control
 var stats: Label
@@ -130,40 +136,15 @@ var notice_time := 0.0
 
 func _ready() -> void:
 	get_window().min_size = Vector2i(1100, 720)
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--seed="): scenario_seed = int(argument.trim_prefix("--seed="))
+	layout.generate(navigation.terrain, scenario_seed)
+	scenario_seed = layout.seed_value
 	make_world()
 	get_viewport().size_changed.connect(update_camera)
-	core = add_structure("core", HOME)
-	home_depot = add_structure("depot", HOME + Vector3(7, 0, 0))
-	add_structure("gas_tank", HOME + Vector3(-7, 0, 0))
-	add_structure("generator", HOME + Vector3(0, 0, 6))
-	add_structure("floodlight", HOME + Vector3(0, 0, -7))
-	add_structure("barracks", HOME + Vector3(7, 0, 6))
-	add_structure("garage", HOME + Vector3(-7, 0, 6))
-	for i in range(2): add_unit("engineer", HOME + Vector3(-4 + i * 8, 0, -1))
-	for i in range(4): add_unit("marine", HOME + Vector3(-5 + i * 2, 0, -5))
-	jeep = add_unit("jeep", HOME + Vector3(9, 0, -2))
-	resource_nodes = [{"kind": "minerals", "position": DEPOSIT, "remaining": 1200, "discovered": false}, {"kind": "gas", "position": GAS_DEPOSIT, "remaining": 900, "discovered": false}]
-	resource_meshes.append(deposit_mesh)
-	var gas_rocks := Node3D.new(); gas_rocks.position = GAS_DEPOSIT; add_child(gas_rocks)
-	for i in range(4):
-		Visual.sphere(gas_rocks, 0.8, Vector3(cos(i * 1.5), 0.5, sin(i * 1.5)), Color("86aa6a")).material_override = fog_material(Color("80ad66"))
-	resource_meshes.append(gas_rocks); gas_rocks.visible = false
-	gas_marker = Node3D.new(); gas_marker.position = GAS_DEPOSIT; add_child(gas_marker)
-	Visual.ring(gas_marker, 4, Color("a9c97b")); gas_marker.visible = false
-	var gas_tag := Label3D.new(); gas_tag.text = "METHANE SIGNAL / ±4m"; gas_tag.position.y = 2.5
-	gas_tag.font_size = 25; gas_tag.pixel_size = 0.018; gas_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED; gas_marker.add_child(gas_tag)
-	resource_markers.assign([signal_marker, gas_marker])
-	add_resource_patch("minerals", Vector3(-50, 0, 35), 1600)
-	add_resource_patch("minerals", Vector3(65, 0, 40), 1800)
-	add_resource_patch("gas", Vector3(-40, 0, -50), 1100)
-	add_resource_patch("gas", Vector3(15, 0, 68), 1400)
+	layout.setup_base(self)
+	layout.setup_resources(self)
 	power_lines = MeshInstance3D.new(); add_child(power_lines)
-	resource_fields.setup(self)
-	# Small generators feed nearby repeaters; repeaters distribute across the base.
-	add_structure("repeater", Vector3(0, 0, 3))
-	add_structure("repeater", Vector3(0, 0, -3))
-	add_structure("repeater", Vector3(7, 0, 3))
-	add_structure("repeater", Vector3(-7, 0, 3))
 	mission.setup(self)
 	economy.recalculate(structures); power.tick(structures, economy, 0)
 	rebuild_navigation(); rebuild_light(); refresh_visual_lights(); update_power_lines()
@@ -228,28 +209,7 @@ func make_world() -> void:
 	var grid_instance := MeshInstance3D.new()
 	grid_instance.mesh = grid
 	add_child(grid_instance)
-	make_landscape()
-	deposit_mesh = Node3D.new()
-	deposit_mesh.position = DEPOSIT
-	add_child(deposit_mesh)
-	for i in range(5):
-		var crystal := Visual.box(deposit_mesh, Vector3(0.6, 1.7 + i * 0.2, 0.6), Vector3(cos(i * 1.3) * 1.5, 0.6, sin(i * 1.3) * 1.5), Color("71ad9e"))
-		crystal.rotation_degrees.z = i * 9 - 18
-		crystal.material_override = fog_material(Color("88d5bb"))
-	deposit_mesh.visible = false
-	signal_marker = Node3D.new()
-	signal_marker.position = DEPOSIT + Vector3(1.5, 0, 1.5)
-	add_child(signal_marker)
-	Visual.ring(signal_marker, 4.0, AMBER)
-	var tag := Label3D.new()
-	tag.text = "MATERIAL SIGNAL  /  ±4m"
-	tag.position.y = 2.5
-	tag.font_size = 25
-	tag.pixel_size = 0.018
-	tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	tag.modulate = AMBER
-	signal_marker.add_child(tag)
-	signal_marker.visible = false
+	layout.make_landscape(self)
 	camera = Camera3D.new()
 	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
 	camera.size = 48
@@ -272,31 +232,10 @@ func make_world() -> void:
 	power_placement = PowerPlacement.new(); add_child(power_placement); power_placement.setup()
 	wall_placement = WallPlacement.new(); add_child(wall_placement)
 
-func make_landscape() -> void:
-	for r in range(-2, 15):
-		for q in range(16, 42):
-			var point := Hex.to_world(Vector2i(q, r), Terrain.CELL)
-			if not Terrain.natural_mesa_cell(point): continue
-			var mesa := MeshInstance3D.new(); mesa.mesh = Terrain.hex_mesh(3); mesa.position = point; add_child(mesa)
-			mesa.material_override = fog_material(Color("566e70")); mesa.set_meta("pick_occluder", true); add_terrain_collider(mesa)
-			terrain_meshes[Hex.to_axial(point, Terrain.CELL)] = mesa
-	var ramp := MeshInstance3D.new(); ramp.mesh = Terrain.ramp_mesh()
-	ramp.position = Hex.snap(Vector3(43.3, 0, 6), Terrain.CELL); ramp.material_override = fog_material(Color("69847c"))
-	ramp.set_meta("pick_occluder", true); add_child(ramp); add_terrain_collider(ramp)
-	# Alternating gaps make connected canyon passages instead of a clear diagonal.
-	for i in range(-56, 57):
-		var z := i * Terrain.CELL * 1.5
-		if z < -35 or z > -23: add_natural_obstacle(Vector3(18, 0, z), i)
-		if z < 2 or z > 14: add_natural_obstacle(Vector3(35, 0, z), i + 71)
-		if z < 20 or z > 32: add_natural_obstacle(Vector3(-24, 0, z), i + 137)
-	for i in range(-44, -4):
-		var x := i * Terrain.SPACING
-		if x < -48 or x > -37: add_natural_obstacle(Vector3(x, 0, -30), i + 191)
-
 func add_natural_obstacle(point: Vector3, seed_index: int) -> void:
 	point = Hex.snap(point, Terrain.CELL)
-	if not Terrain.contains(point, 1) or point.distance_to(HOME) < 15: return
-	if point.distance_to(DEPOSIT) < 7 or point.distance_to(GAS_DEPOSIT) < 7: return
+	if not Terrain.contains(point, 1) or point.distance_to(HOME) < 10: return
+	if layout.fields.any(func(field): return point.distance_to(field.position) < 5): return
 	var cell := Hex.to_axial(point, Terrain.CELL)
 	for obstacle in rocks:
 		if obstacle.get("cell") == cell: return
@@ -373,6 +312,7 @@ func add_structure(kind: String, point: Vector3, finished: bool = true, directio
 func add_creature(point: Vector3, group: int, kind: String = "stalker", variation: int = 0) -> ExpeditionPredator:
 	var creature := Predator.new()
 	creature.setup(navigation.terrain.surface(point), group, kind, variation)
+	creature.visible = light.sample(creature.position) > 0.065
 	add_child(creature)
 	creatures.append(creature)
 	if picker != null: picker.register_actor(creature)
@@ -404,7 +344,7 @@ func rebuild_light() -> void:
 		if not b.complete or b.hp <= 0: continue
 		if b.kind == "core":
 			light.add_source(b.position, 4, Vector3.ZERO, -1, 0.2, false)
-			if b.powered and b.enabled: light.add_source(b.position, 14)
+			if b.powered and b.enabled: light.add_source(b.position, b.lamp.omni_range, Vector3.ZERO, -1, minf(1.0, b.lamp.light_energy))
 		if b.kind == "floodlight" and b.powered and b.enabled: light.add_source(b.position, 13)
 	for unit in units:
 		if unit.aboard != null or unit.hp <= 0: continue
@@ -491,7 +431,7 @@ func _process(dt: float) -> void:
 	update_power_placement()
 	if notice_time > 0:
 		notice_time -= dt
-		if notice_time <= 0: message.text = "Right click to order. Keep the expedition together."
+		if notice_time <= 0: message.text = ""
 	refresh_ui()
 	update_focus_lines()
 	if occluded_units != null: occluded_units.sync(light)
@@ -504,6 +444,7 @@ func advance_movement(dt: float) -> void:
 		if is_instance_valid(unit.target) and unit.target is ExpeditionUnit and unit.target.is_vehicle():
 			unit.target.escort_speed_limit = minf(unit.target.escort_speed_limit, float(Rules.UNITS[unit.kind].speed))
 	complex_commands.exploration.apply_speed_limits(self)
+	tactical_groups.apply_speed_limits(self)
 	for unit in units: unit.tick_move(dt)
 	soft_spacing.apply(units, navigation, dt)
 	for creature in creatures: creature.move_tick(dt)
@@ -522,6 +463,7 @@ func simulation_tick(dt: float, advance_motion: bool = true) -> void:
 	elif economy.gas >= 30: low_fuel_warned = false
 	vehicles.tick(self, dt)
 	tactics.tick(self, dt)
+	tactical_groups.tick(self, dt)
 	for unit in units: process_order(unit, dt)
 	complex_commands.tick(self, dt)
 	for b in structures:
@@ -535,17 +477,17 @@ func simulation_tick(dt: float, advance_motion: bool = true) -> void:
 				notify("%s ready%s" % [Rules.title(kind), " / needs a driver" if kind in ["jeep", "scout"] else ""])
 	var operating_light := false
 	for b in structures:
-		if b.kind == "floodlight" and b.complete and b.powered and b.position.distance_to(DEPOSIT) < 12: operating_light = true
+		if b.kind == "floodlight" and b.complete and b.powered and b.position.distance_to(layout.fields[0].position) < 12: operating_light = true
 	if operating_light and not outpost_established:
 		outpost_established = true; notify("Mining perimeter illuminated / order an engineer to gather materials")
 	if outpost_established and not director.outpost_group_created:
-		director.outpost_group_created = true; director.add_group(DEPOSIT, 1)
+		director.outpost_group_created = true; director.add_group(layout.fields[0].position, 1)
 		for i in range(4): director.spawn_member(self, director.groups[-1], true)
 	if tick_number % 4 == 0: director.tick(self, dt * 4)
 	mission.tick(self, dt)
 	rebuild_light(); combat_tick(dt); cleanup_dead(); rebuild_light()
 	for creature in creatures: creature.visible = light.sample(creature.position) > 0.065
-	mission.hive.visible = light.sample(mission.hive.position) > 0.05
+	mission.hive.visible = mission.hive_discovered and light.sample(mission.hive.position) > 0.05
 	for i in range(resource_meshes.size()):
 		resource_meshes[i].visible = resource_nodes[i].discovered and resource_nodes[i].remaining > 0 and light.sample(resource_nodes[i].position) > 0.05
 		resource_markers[i].visible = resource_nodes[i].discovered and resource_nodes[i].remaining > 0
@@ -563,6 +505,7 @@ func issue_order(unit: ExpeditionUnit, order: String, point: Vector3, target: No
 func set_order(unit: ExpeditionUnit, order: String, point: Vector3, target: Node3D = null) -> bool:
 	if unit.aboard != null: return false
 	complex_commands.interrupt(unit)
+	tactical_groups.interrupt(unit)
 	if unit.is_vehicle() and not unit.has_driver():
 		notify("%s needs a driver / board infantry first" % Rules.title(unit.kind)); return false
 	unit.order = order; unit.target = target; unit.work_clock = 0
@@ -749,10 +692,7 @@ func combat_tick(_dt: float) -> void:
 				else: enemy.hp -= 10
 			unit.cooldown = 0.85 if unit.kind == "flamer" else 0.65
 			shot(unit.position + Vector3.UP * 1.2, enemy.position + Vector3.UP * 0.7, Color("f28a42") if unit.kind == "flamer" else AMBER)
-	for b in structures:
-		if b.kind != "turret" or not b.complete or not b.powered or not b.enabled or b.cooldown > 0: continue
-		var enemy := visible_target(b.position, 14)
-		if enemy != null: enemy.hurt(15); b.cooldown = 0.6; shot(b.position + Vector3.UP * 1.5, enemy.position + Vector3.UP * 0.7, MINT)
+	turret_system.tick(self, _dt)
 	for creature in creatures:
 		var target := creature.target
 		if creature.hp <= 0 or not is_instance_valid(target) or target.hp <= 0 or creature.cooldown > 0 or creature.state not in ["probing", "assault", "hunting"]: continue
@@ -828,6 +768,19 @@ func scan() -> void:
 	notify("Scan consumed 120 electricity / nearest active mineral and methane signals surveyed")
 	play_cue(440, 0.16, 0.1)
 
+func selected_vehicles() -> Array[ExpeditionUnit]:
+	var result: Array[ExpeditionUnit] = []
+	for actor in selected:
+		if is_instance_valid(actor) and actor is ExpeditionUnit and actor.is_vehicle() and actor.hp > 0: result.append(actor)
+	return result
+
+func toggle_auto_recharge() -> void:
+	var vehicles_selected := selected_vehicles()
+	if vehicles_selected.is_empty(): return
+	var enable := not vehicles_selected.all(func(unit): return unit.auto_recharge)
+	for vehicle in vehicles_selected: vehicle.auto_recharge = enable
+	vehicles.tick(self, 0); refresh_ui()
+
 func selected_jeep() -> ExpeditionUnit:
 	for actor in selected:
 		if is_instance_valid(actor) and actor is ExpeditionUnit and actor.is_vehicle() and actor.hp > 0: return actor
@@ -865,7 +818,7 @@ func board_squad() -> void:
 func unload() -> void:
 	var vehicle := selected_jeep()
 	if vehicle == null: return
-	complex_commands.interrupt(vehicle)
+	complex_commands.interrupt(vehicle); tactical_groups.interrupt(vehicle)
 	vehicle.path.clear(); vehicle.order = "idle"
 	if not vehicle.passengers.is_empty():
 		var passengers: Array[ExpeditionUnit] = vehicle.passengers.duplicate()
@@ -1037,8 +990,7 @@ func repair_click(screen: Vector2) -> void:
 
 
 func select_actor(actor: Node3D, append: bool = false) -> void:
-	if actor is ExpeditionPredator:
-		notify("Lightless %s / HP %d" % [actor.kind.capitalize(), actor.hp]); return
+	if actor is ExpeditionPredator and (not actor.visible or light.sample(actor.position) < 0.065): return
 	if not append: selected.clear()
 	if actor != null and not selected.has(actor): selected.append(actor)
 	update_indicators()
@@ -1048,10 +1000,10 @@ func update_indicators() -> void:
 	wall_placement.cancel()
 	expedition_mode = false; tactical_mode = ""
 	for unit in units: unit.indicator.visible = selected.has(unit) and unit.aboard == null
-	for b in structures:
+	for b in structures + ([mission.hive] if is_instance_valid(mission.hive) else []):
 		b.indicator.visible = selected.has(b)
 		for child in b.get_children():
-			if child is Label3D and child.get_meta("selection_label", false): child.visible = selected.has(b) or not b.complete
+			if child is Label3D and child.get_meta("selection_label", false): child.visible = selected.has(b)
 	refresh_context_commands()
 	update_focus_lines()
 
@@ -1075,10 +1027,10 @@ func expedition_click(screen: Vector2) -> void:
 	if terrain.is_empty(): return
 	var resource := resource_at(terrain.position)
 	if mining_mode:
-		if actor is ExpeditionStructure and actor.kind in ["depot", "gas_tank"]:
+		if actor is ExpeditionStructure and actor.kind in ["depot", "gas_tank", "core"]:
 			var nearest := INF
 			for patch in resource_nodes:
-				if not patch.discovered or patch.remaining <= 0 or patch.kind != ("minerals" if actor.kind == "depot" else "gas"): continue
+				if not patch.discovered or patch.remaining <= 0 or (actor.kind != "core" and patch.kind != ("minerals" if actor.kind == "depot" else "gas")): continue
 				var distance: float = patch.position.distance_squared_to(actor.position)
 				if distance < nearest: resource = patch; nearest = distance
 		if resource.is_empty() or not resource.discovered or resource.remaining <= 0:
@@ -1090,7 +1042,7 @@ func expedition_click(screen: Vector2) -> void:
 	refresh_context_commands(); update_focus_lines()
 
 func choose_tactical(mode: String) -> void:
-	if not selected.any(func(actor): return actor is ExpeditionUnit and actor.kind in ["marine", "flamer", "drill"]): return
+	if not tactical_groups.available(selected) and not selected.any(func(actor): return actor is ExpeditionUnit and actor.kind == "drill"): return
 	tactical_mode = "" if tactical_mode == mode else mode
 	expedition_mode = false; build_kind = ""; repair_mode = false
 	notify(mode.capitalize() + " / choose a destination or target / Shift adds orders")
@@ -1098,11 +1050,17 @@ func choose_tactical(mode: String) -> void:
 func tactical_click(screen: Vector2, append: bool) -> void:
 	var mode := tactical_mode
 	var ordered: Array = selected.duplicate()
+	if ordered.any(func(actor): return actor is ExpeditionUnit and actor.is_vehicle() and complex_commands.is_expedition(actor)): ordered = complex_commands.expedition_selection(ordered)
 	var actor := await pick(screen)
 	if mode != tactical_mode: return
 	var terrain := terrain_raycast(screen)
 	if terrain.is_empty(): return
 	var point: Vector3 = actor.position if actor != null else terrain.position
+	var group_order := "attack" if mode == "attack_move" and (actor is ExpeditionPredator or actor == mission.hive) else mode
+	var crew := tactical_groups.roster(ordered)
+	if mode != "drill" and (crew.members.size() > 1 or not crew.vehicles.is_empty()) and tactical_groups.start(self, ordered, group_order, point, actor if group_order in ["attack", "defend"] else null, append):
+		if not append and mode != "patrol": tactical_mode = ""
+		return
 	for unit in ordered:
 		if not unit is ExpeditionUnit: continue
 		if mode == "drill" and unit.kind == "drill": issue_order(unit, "drill", Hex.snap(point, Terrain.CELL), null, append)
@@ -1160,11 +1118,8 @@ func contextual_order(screen: Vector2, append: bool = false) -> void:
 			issue_order(unit, "close_gate", actor.position, actor, append)
 		elif actor is ExpeditionStructure and unit.kind == "engineer" and (not actor.complete or actor.hp < float(Rules.STRUCTURES[actor.kind].hp)):
 			issue_order(unit, "build" if not actor.complete else "repair", actor.position, actor, append)
-		elif actor is ExpeditionStructure and actor.kind in ["depot", "gas_tank"]:
+		elif actor is ExpeditionStructure and actor.kind in ["depot", "gas_tank", "core"]:
 			issue_order(unit, "stock", actor.position, actor, append)
-		elif actor is ExpeditionStructure and actor.kind == "core" and unit.is_vehicle():
-			var receiver := find_receiver(unit.position, "minerals" if unit.cargo > 0 else "gas", true)
-			if receiver != null: issue_order(unit, "deliver", receiver.position, receiver, append)
 		elif not resource.is_empty() and resource.discovered and unit.kind == "engineer":
 			issue_order(unit, "harvest", resource.position, null, append)
 		else:
@@ -1233,6 +1188,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_O: toggle_gate()
 			KEY_K: toggle_gate_lock()
 			KEY_ESCAPE:
+				if hud.help_overlay.visible: hud.toggle_help(); return
 				tactical_mode = ""
 				wall_placement.cancel()
 				if expedition_mode: expedition_mode = false; click_serial += 1; refresh_context_commands()
@@ -1255,6 +1211,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_C: choose_tactical("drill")
 			KEY_DELETE: destroy_selected()
 			KEY_Y: toggle_repeater()
+			KEY_Z: toggle_turret_reload()
+			KEY_N: toggle_auto_recharge()
+			KEY_F1: hud.toggle_help()
 			KEY_X: stop_selected()
 	if not started or ended: return
 	if event is InputEventMouseButton:
@@ -1305,6 +1264,7 @@ func choose_build(kind: String) -> void:
 		notify("Select an engineer on foot to open construction")
 		return
 	repair_mode = false
+	if hud != null: hud.show_tab("build")
 	build_kind = "" if build_kind == kind else kind
 	if build_kind == "platform": ghost.mesh = Terrain.hex_mesh(Terrain.LEVEL)
 	elif build_kind == "ramp": ghost.mesh = Terrain.ramp_mesh()
@@ -1321,15 +1281,35 @@ func update_power_placement() -> void:
 	if power_preview_label != null:
 		power_preview_label.visible = active
 		if active:
-			power_preview_label.text = "POWER RANGE %.0fm / %s\nSources: mint online · amber offline · blue planned" % [Power.GENERATOR_RANGE if build_kind == "generator" else Power.LINK_RANGE, status.text]
+			power_preview_label.text = status.text
 			power_preview_label.add_theme_color_override("font_color", power_placement.status_color())
 	if active and ghost.visible and valid_site(build_kind, mouse_world): ghost_mat.albedo_color = Color(power_placement.status_color(), 0.4)
 	if wall_placement.active and power_preview_label != null:
 		power_preview_label.visible = true
-		power_preview_label.text = "%d walls / %d materials / release to build\nMint: buildable · red: blocked · amber: insufficient minerals" % [wall_placement.count, wall_placement.count * int(Rules.cost("wall").minerals)]
+		power_preview_label.text = "%d walls / %d materials" % [wall_placement.count, wall_placement.count * int(Rules.cost("wall").minerals)]
 		power_preview_label.add_theme_color_override("font_color", MINT)
 
+func selected_turrets() -> Array[ExpeditionStructure]:
+	var result: Array[ExpeditionStructure] = []
+	for actor in selected:
+		if actor is ExpeditionStructure and Rules.TURRETS.has(actor.kind): result.append(actor)
+	return result
+
+func reload_selected_turrets() -> void:
+	var started_reload := 0
+	for turret in selected_turrets():
+		if turret_system.reload(self, turret): started_reload += 1
+	notify("Reloading %d turrets" % started_reload if started_reload > 0 else "Reload requires an operating ammunition turret and sufficient reserves")
+
+func toggle_turret_reload() -> void:
+	var turrets := selected_turrets()
+	if turrets.is_empty(): return
+	var enable := not turrets[0].auto_reload
+	for turret in turrets: turret.auto_reload = enable
+	refresh_context_commands()
+
 func choose_repair() -> void:
+	if selected_engineers().is_empty() and not selected_turrets().is_empty(): reload_selected_turrets(); return
 	click_serial += 1
 	wall_placement.cancel()
 	expedition_mode = false
@@ -1344,7 +1324,7 @@ func stop_selected() -> void:
 	expedition_mode = false; tactical_mode = ""
 	for actor in selected:
 		if actor is ExpeditionUnit and actor.aboard == null:
-			complex_commands.interrupt(actor)
+			complex_commands.interrupt(actor); tactical_groups.interrupt(actor)
 			actor.path.clear(); actor.order_queue.clear(); actor.combat_target = null
 			actor.order = "idle"
 			actor.target = null
@@ -1364,10 +1344,13 @@ func refresh_context_commands() -> void:
 	var fallback := nearest_vehicle(infantry[0].position, true) if has_infantry else null
 	var visible_commands := {
 		"scan": is_instance_valid(core) and selected.has(core),
+		"reload_turret": selected_turrets().any(func(turret): return Rules.TURRETS[turret.kind].magazine > 0),
+		"auto_reload": selected_turrets().any(func(turret): return Rules.TURRETS[turret.kind].magazine > 0),
 		"mining": complex_commands.mining_available(complex_commands.expedition_selection(selected)),
-		"attack": infantry.any(func(unit): return unit.kind in ["marine", "flamer"]), "defend": infantry.any(func(unit): return unit.kind in ["marine", "flamer"]), "patrol": infantry.any(func(unit): return unit.kind in ["marine", "flamer"]),
+		"attack": tactical_groups.available(selected), "defend": tactical_groups.available(selected), "patrol": tactical_groups.available(selected),
 		"drill_order": selected.any(func(actor): return actor is ExpeditionUnit and actor.kind == "drill"),
-		"destroy": not selected.is_empty(),
+		"destroy": selected.any(func(actor): return actor is ExpeditionUnit or (actor is ExpeditionStructure and actor != mission.hive)),
+		"recharge": has_vehicle,
 		"repeater": selected.any(func(actor): return actor is ExpeditionStructure and actor.kind == "repeater"),
 		"drill": factory != null and factory.kind == "garage",
 		"expedition": complex_commands.expedition_available(complex_commands.expedition_selection(selected)),
@@ -1384,20 +1367,23 @@ func refresh_context_commands() -> void:
 		"engineer": factory != null and factory.kind in ["barracks", "core"],
 		"marine": factory != null and factory.kind == "barracks",
 		"flamer": factory != null and factory.kind == "barracks",
-		"scout": factory != null and factory.kind == "garage",
+		"scout": factory != null and Rules.PRODUCTION[factory.kind].has("scout"),
 		"jeep": factory != null and factory.kind == "garage",
 		"cancel_train": factory != null and not factory.queue.is_empty()
 	}
-	var changed := construction_panel.visible != has_engineer
+	var changed := false
 	if expedition_mode and not visible_commands.expedition:
 		expedition_mode = false; click_serial += 1
 	Input.set_default_cursor_shape(Input.CURSOR_CROSS if expedition_mode or tactical_mode != "" else Input.CURSOR_ARROW)
-	construction_panel.visible = has_engineer
 	for key in context_buttons:
 		var show: bool = visible_commands[key]
 		changed = changed or context_buttons[key].visible != show
 		context_buttons[key].visible = show
-		if Rules.UNITS.has(key): context_buttons[key].disabled = not economy.can_spend(Rules.cost(key))
+		if Rules.UNITS.has(key):
+			context_buttons[key].disabled = not economy.can_spend(Rules.cost(key))
+			if factory != null and Rules.PRODUCTION[factory.kind].has(key):
+				context_buttons[key].text = "%d %s\n%s" % [Rules.PRODUCTION[factory.kind].find(key) + 1, Rules.title(key), cost_label(key)]
+	if not selected_turrets().is_empty(): context_buttons.auto_reload.text = "Auto: %s [Z]" % ("ON" if selected_turrets()[0].auto_reload else "OFF")
 	context_buttons.board.text = "Board units [B]" if has_infantry else "Board squad [B]"
 	context_buttons.expedition.text = "Explore target [E]" if expedition_mode and not mining_mode else "Explore [E]"
 	context_buttons.unload.text = "Unload passengers [U]" if has_vehicle and not vehicle.passengers.is_empty() else "Unload driver [U]"
@@ -1415,35 +1401,27 @@ func refresh_context_commands() -> void:
 		if power_placement != null: power_placement.visible = false
 		if power_preview_label != null: power_preview_label.visible = false
 	for kind in build_buttons: build_buttons[kind].disabled = not economy.can_spend(Rules.cost(kind))
-	message.offset_top = construction_panel.offset_top - 34 if has_engineer else -56
-	message.offset_bottom = construction_panel.offset_top - 8 if has_engineer else -30
 	if power_lines != null:
 		var show_grid := has_engineer
 		for actor in selected:
 			if actor is ExpeditionStructure and int(Rules.STRUCTURES[actor.kind].power) > 0 or actor is ExpeditionStructure and actor.kind in ["generator", "repeater"]: show_grid = true
 		power_lines.visible = show_grid
+	if hud != null: hud.after_context()
 	if changed: call_deferred("fit_command_panel")
 
 func fit_command_panel() -> void:
-	if command_scroll != null:
-		command_scroll.custom_minimum_size.y = minf(command_content.get_combined_minimum_size().y, get_viewport().get_visible_rect().size.y - 104 - 132 - 56)
-	command_panel.size = Vector2(292, command_panel.get_combined_minimum_size().y)
-	if minimap != null: minimap.fit()
+	if hud != null: hud.fit()
 
 func fit_construction_panel() -> void:
-	if construction_panel == null: return
-	construction_panel.offset_top = -18 - construction_panel.get_combined_minimum_size().y
-	construction_panel.offset_bottom = -18
-	if message != null and construction_panel.visible:
-		message.offset_top = construction_panel.offset_top - 34
-		message.offset_bottom = construction_panel.offset_top - 8
+	if hud != null: hud.fit()
 
 func toggle_pause() -> void:
 	paused = not paused
-	pause_button.text = "RESUME [SPACE]" if paused else "PAUSE [SPACE]"
+	pause_button.text = "Resume" if paused else "Pause"
 
 func notify(text: String) -> void:
-	if message != null: message.text = text; notice_time = 8
+	if message != null:
+		message.text = text.split(" / ")[0]; message.tooltip_text = text; notice_time = 3.5
 
 func style(color: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
@@ -1466,6 +1444,7 @@ func panel(parent: Node) -> PanelContainer:
 func label(parent: Node, text: String, size: int = 15, color: Color = Color("d4e4eb")) -> Label:
 	var node := Label.new()
 	node.text = text
+	node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	node.add_theme_font_size_override("font_size", size)
 	node.add_theme_color_override("font_color", color)
 	parent.add_child(node)
@@ -1486,94 +1465,18 @@ func button(parent: Node, text: String, callback: Callable) -> Button:
 	return node
 
 func make_ui() -> void:
-	var layer := CanvasLayer.new(); add_child(layer)
-	ui = Control.new(); ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); ui.mouse_filter = Control.MOUSE_FILTER_IGNORE; layer.add_child(ui)
-	selection_box = SelectionBox.new(); selection_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); selection_box.mouse_filter = Control.MOUSE_FILTER_IGNORE; ui.add_child(selection_box)
-	var header := panel(ui); header.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	header.offset_left = 18; header.offset_right = -18; header.offset_top = 16; header.offset_bottom = 88
-	var row := HBoxContainer.new(); row.add_theme_constant_override("separation", 16); header.add_child(row)
-	var title := VBoxContainer.new(); row.add_child(title)
-	label(title, "AGAINST THE DARKNESS", 20); label(title, "HIVE RECOVERY / MATERIALS - METHANE - POWER", 10, MINT)
-	var spacer := Control.new(); spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL; row.add_child(spacer)
-	stats = label(row, "", 13); stats.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var left := panel(ui); left.position = Vector2(18, 104); left.custom_minimum_size.x = 270
-	var objectives := VBoxContainer.new(); objectives.add_theme_constant_override("separation", 9); left.add_child(objectives)
-	label(objectives, "MISSION / HIVE RECOVERY", 15, MINT)
-	objective_label = label(objectives, "", 13)
-	sensors = label(objectives, "", 12, AMBER)
-	label(objectives, "Arrows / WSD pan - wheel zoom - F home\nAlt + middle drag: orbit / tilt\nQ scan - M mine - E explore\nA attack - V defend - P patrol\nShift queues - Delete destroys", 12, Color("8ca9b8"))
-	command_panel = panel(ui); command_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	command_panel.offset_left = -310; command_panel.offset_right = -18; command_panel.offset_top = 104
-	command_scroll = ScrollContainer.new(); command_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; command_panel.add_child(command_scroll)
-	var commands := VBoxContainer.new(); command_content = commands; commands.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	commands.add_theme_constant_override("separation", 7); command_scroll.add_child(commands)
-	commands.minimum_size_changed.connect(func(): call_deferred("fit_command_panel"))
-	command_title = label(commands, "SELECT A UNIT", 15, MINT)
-	details = label(commands, "", 13); details.custom_minimum_size = Vector2(248, 120); details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var grid := GridContainer.new(); grid.columns = 2; grid.add_theme_constant_override("h_separation", 6); grid.add_theme_constant_override("v_separation", 6); commands.add_child(grid)
-	context_buttons.scan = button(grid, "Scan [Q] / 120 power", scan); scan_button = context_buttons.scan
-	context_buttons.board = button(grid, "Board squad [B]", board_squad)
-	context_buttons.expedition = button(grid, "Explore [E]", func(): choose_expedition(false))
-	context_buttons.mining = button(grid, "Mining [M]", func(): choose_expedition(true))
-	context_buttons.attack = button(grid, "Attack move [A]", func(): choose_tactical("attack_move"))
-	context_buttons.defend = button(grid, "Defend [V]", func(): choose_tactical("defend"))
-	context_buttons.patrol = button(grid, "Patrol [P]", func(): choose_tactical("patrol"))
-	context_buttons.drill_order = button(grid, "Drill terrain [C]", func(): choose_tactical("drill"))
-	context_buttons.destroy = button(grid, "Destroy [Delete]", destroy_selected)
-	context_buttons.repeater = button(grid, "Toggle power [Y]", toggle_repeater)
-	context_buttons.unload = button(grid, "Unload [U]", unload)
-	context_buttons.load = button(grid, "Collect cargo [L]", load_nearest)
-	context_buttons.stock = button(grid, "Deposit cargo [J]", stock_depot)
-	context_buttons.home = button(grid, "Return HQ [H]", return_home)
-	context_buttons.escort = button(grid, "Escort [G]", escort)
-	context_buttons.repair = button(grid, "Repair [R]", choose_repair)
-	context_buttons.stop = button(grid, "Stop [X]", stop_selected)
-	context_buttons.gate = button(grid, "Open gate [O]", toggle_gate)
-	context_buttons.gate_lock = button(grid, "Lock gate [K]", toggle_gate_lock)
-	for kind in Rules.UNITS:
-		var key: String = kind
-		var shortcut: int = {"engineer": 1, "marine": 2, "flamer": 3, "scout": 1, "jeep": 2, "drill": 3}[key]
-		context_buttons[key] = button(grid, "%d %s\n%s" % [shortcut, Rules.title(key), cost_label(key)], func(): train_unit(key))
-		context_buttons[key].tooltip_text = "Production time: %.0f seconds" % float(Rules.UNITS[key].time)
-	context_buttons.cancel_train = button(grid, "Cancel last", cancel_training)
-	for item in context_buttons.values(): item.custom_minimum_size.x = 118
-	pause_button = button(commands, "PAUSE [SPACE]", toggle_pause)
-	button(commands, "RESTART MISSION", func(): get_tree().reload_current_scene())
-	construction_panel = panel(ui); construction_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	construction_panel.offset_left = 18; construction_panel.offset_top = -230; construction_panel.offset_bottom = -18
-	var column := VBoxContainer.new(); construction_panel.add_child(column)
-	label(column, "ENGINEER CONSTRUCTION / GLOBAL RESERVES", 12, Color("8ca9b8"))
-	power_preview_label = label(column, "", 12, MINT); power_preview_label.visible = false
-	power_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	power_preview_label.custom_minimum_size.x = 590
-	var options := GridContainer.new(); options.columns = 4; options.add_theme_constant_override("h_separation", 6); options.add_theme_constant_override("v_separation", 6); column.add_child(options)
-	for i in range(BUILD_KINDS.size()):
-		var kind: String = BUILD_KINDS[i]
-		var shortcut := str((i + 1) % 10) if i < 10 else ""
-		var item := button(options, "%s %s\n%s" % [shortcut, Rules.title(kind), cost_label(kind)], func(): choose_build(kind))
-		item.custom_minimum_size = Vector2(148, 50); build_buttons[kind] = item
-	message = label(ui, "", 13, AMBER); message.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	message.offset_left = 22; message.offset_top = -56; message.offset_bottom = -30
-	overlay = ColorRect.new(); overlay.color = Color(0, 0.012, 0.02, 0.89); overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); ui.add_child(overlay)
-	var card := panel(overlay); card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	card.offset_left = -300; card.offset_right = 300; card.offset_top = -275; card.offset_bottom = 275
-	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 14); card.add_child(content)
-	label(content, "EXPEDITION BRIEF / PLANET NADIR", 12, MINT)
-	overlay_title = label(content, "", 29)
-	overlay_text = label(content, "", 16); overlay_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; overlay_text.custom_minimum_size = Vector2(560, 350); overlay_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	overlay_button = button(content, "BEGIN EXPEDITION [ENTER]", func():
-		if ended: get_tree().reload_current_scene()
-		else: begin_run())
+	hud = preload("res://scripts/game_hud.gd").new()
+	hud.setup(self)
 
 func show_briefing() -> void:
 	overlay_title.text = "People keep the lights on."
-	overlay_text.text = "The Lightless evolved on a world without light. Their hive holds the Hive Core.\n\n1. Repair the marked extraction beacon with an engineer.\n2. Send infantry to the hive and right-click it to steal the core.\n3. Bring the carrier to extraction and hold for 30 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nQ scans resources. M starts mining at a patch or receiver; E explores terrain. A attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
+	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nQ scans resources. M starts mining at a patch or receiver; E explores terrain. A attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
 
 
 func begin_run() -> void:
-	started = true; overlay.visible = false; select_actor(jeep)
+	started = true; overlay.visible = false; select_actor(jeep if is_instance_valid(jeep) else core)
 	if minimap != null: minimap.visible = true
-	notify("Select the Command Center and Q to scan / M starts mining / E explores terrain")
+	refresh_ui()
 
 func finish(won: bool, reason: String) -> void:
 	wall_placement.cancel()
@@ -1582,61 +1485,13 @@ func finish(won: bool, reason: String) -> void:
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 	overlay.visible = true
 	overlay_title.text = "Hive Core secured." if won else "Expedition lost."
-	overlay_text.text = reason + "\n\nMission time  %02d:%02d\n\n" % [int(elapsed) / 60, int(elapsed) % 60] + ("A foothold in the dark. More will follow." if won else "Keep marines close, establish light before mining, and preserve the jeep.")
+	overlay_text.text = reason + "\n\nMission time  %02d:%02d / Seed %d\n\n" % [int(elapsed) / 60, int(elapsed) % 60, scenario_seed] + ("A foothold in the dark. More will follow." if won else "Keep marines close, establish light before mining, and preserve the jeep.")
 	overlay_button.text = "RESTART EXPEDITION"
 
 func refresh_ui() -> void:
-	if stats == null: return
-	stats.text = "MAT %d/%d    METHANE %.1f/%d\nPOWER %d/%d (demand %d)   FUEL %.2f/s   %02d:%02d" % [economy.minerals, economy.mineral_capacity, economy.gas, economy.gas_capacity, power.used, power.capacity, power.demand, power.fuel_rate, int(elapsed) / 60, int(elapsed) % 60]
-	objective_label.text = mission.describe()
-	scan_button.text = "Scan [Q] / 120 power" if scan_cooldown <= 0 else "Scan recharging %ds" % ceili(scan_cooldown)
-	var command_ready := is_instance_valid(core) and core.hp > 0 and core.powered
-	scan_button.disabled = scan_cooldown > 0 or not command_ready or core.scan_charge < Power.SCAN_ENERGY
-	var online := 0
-	for b in structures:
-		if b.kind == "scanner" and b.complete and b.powered: online += 1
-	for unit in units:
-		if unit.kind == "scout" and unit.hp > 0 and unit.has_driver(): online += 1
-	sensors.text = "SENSORS / %d contacts" % sensor_blips.size() if online > 0 else "SENSORS / no enemy scanner online"
-	if sensor_activity > 0 and online > 0: sensors.text = "SENSORS / intermittent movement"
+	if hud == null: return
 	refresh_context_commands()
-	if selected.size() == 1 and is_instance_valid(selected[0]):
-		var actor = selected[0]
-		details.text = "%s / HP %d\n" % [Rules.title(actor.kind), maxi(0, int(actor.hp))]
-		if actor is ExpeditionUnit:
-			details.text += "Order: %s\nQueued: %d\n" % [complex_commands.describe(actor), actor.order_queue.size()]
-			if actor.is_vehicle():
-				var pilot := Rules.title(actor.driver.kind) if actor.has_driver() else "NONE — headlights off"
-				details.text += "Battery %.0f%%\nDriver: %s\nPassengers %d/%d\nCargo %d MAT + %d CH4 / %d" % [actor.battery, pilot, actor.passengers.size(), actor.seat_capacity() - 1, actor.cargo, actor.gas_cargo, actor.capacity]
-			elif actor.kind == "engineer": details.text += "Cargo %d MAT + %d CH4 / %d\nRMB deposits to gather\nRMB damaged buildings to repair" % [actor.cargo, actor.gas_cargo, actor.capacity]
-			else: details.text += "Auto-fire at visible hostiles\nRMB vehicle to board / G escort"
-		else:
-			details.text += "Operational\n" if actor.complete else "Building %d%%\n" % int(actor.progress * 100)
-			details.text += "Footprint: %d cells\n" % Footprints.offsets(actor.kind, actor.build_direction).size()
-			if actor.waiting_for_clearance: details.text += "Waiting for clear space\n"
-			if int(Rules.STRUCTURES[actor.kind].power) > 0: details.text += "Powered\n" if actor.powered else "OFFLINE / connect grid + methane\n"
-			if actor.kind == "generator": details.text += "12 power / %.1fm grid reach\nDemand-based methane burn\n" % Power.GENERATOR_RANGE
-			if actor.kind == "core": details.text += "Scan charge %.0f / 120 electricity\nNearest active patch of each type\n" % actor.scan_charge
-			if actor.kind == "platform": details.text += "Raised deck / 3m elevation\nConnect a ramp for access\n"
-			if actor.kind == "ramp": details.text += "Ground-to-deck access / 3m rise\n"
-			if actor.kind == "repeater": details.text += ("ON" if actor.enabled else "OFF") + " / Grid radius %.1fm / Y toggles\n" % Power.LINK_RANGE
-			if actor.kind == "extractor": details.text += "Powered gathering: 3 per cycle\n"
-			if actor.kind == "beacon": details.text += "Repair with an engineer / carrier must stay within 7m\n"
-			if actor.kind == "depot": details.text += "+400 material capacity / receives materials\n"
-			if actor.kind == "gas_tank": details.text += "+200 methane capacity / receives methane\n"
-			if actor.kind == "scanner": details.text += "Contacts only / no vision or targeting\n"
-			if actor.kind == "gate": details.text += "OPEN\n" if actor.gate_open else "CLOSED\n"
-			if actor.kind == "gate": details.text += "LOCKED\n" if actor.gate_locked else "Automatic passage enabled\n"
-			if not actor.queue.is_empty(): details.text += "Training %s %.0f%%\nQueued %d" % [Rules.title(actor.queue[0]), actor.production_progress / float(Rules.UNITS[actor.queue[0]].time) * 100, actor.queue.size()]
-	elif selected.size() > 1:
-		details.text = "%d selected\n" % selected.size()
-		var counts: Dictionary = {}
-		for actor in selected: counts[actor.kind] = int(counts.get(actor.kind, 0)) + 1
-		for kind in counts: details.text += "%s × %d\n" % [Rules.title(kind), counts[kind]]
-	elif not selected_resource.is_empty():
-		details.text = "%s patch: %d\nField remaining: %d" % ["Materials" if selected_resource.kind == "minerals" else "Methane", selected_resource.remaining, resource_fields.field_remaining(self, selected_resource)]
-	else: details.text = "Select personnel, a vehicle, or a structure.\n\nDrivers stay aboard on the first U. Emergency lighting offers little safety."
-
+	hud.update()
 
 func nearest_vehicle(point: Vector3, free_seat: bool = false) -> ExpeditionUnit:
 	var result: ExpeditionUnit
@@ -1697,7 +1552,7 @@ func find_receiver(point: Vector3, resource: String, home_only: bool = false) ->
 	var result: ExpeditionStructure
 	var distance := INF
 	for b in structures:
-		if not b.complete or b.hp <= 0 or b.kind != ("depot" if resource == "minerals" else "gas_tank"): continue
+		if not b.complete or b.hp <= 0 or b.kind not in ["core", "depot" if resource == "minerals" else "gas_tank"]: continue
 		if home_only and b.position.distance_to(HOME) > 16: continue
 		var candidate := point.distance_to(b.position)
 		if candidate < distance: distance = candidate; result = b
@@ -1710,12 +1565,12 @@ func send_to_receiver(unit: ExpeditionUnit) -> void:
 
 func deposit_cargo(unit: ExpeditionUnit, receiver: ExpeditionStructure) -> void:
 	if not receiver.complete: return
-	if receiver.kind == "depot":
+	if receiver.kind in ["depot", "core"]:
 		var accepted: int = economy.deposit("minerals", unit.cargo)
 		var mined := mini(accepted, unit.mined_cargo)
 		unit.cargo -= accepted; unit.mined_cargo -= mined
 		if receiver.position.distance_to(HOME) < 16: returned_materials += mined
-	elif receiver.kind == "gas_tank":
+	if receiver.kind in ["gas_tank", "core"]:
 		var accepted: int = economy.deposit("gas", unit.gas_cargo)
 		unit.gas_cargo -= accepted
 	# Mixed cargo proceeds to the other appropriate receiving structure.
@@ -1749,7 +1604,7 @@ func selected_gate() -> ExpeditionStructure:
 func train_unit(kind: String) -> bool:
 	if not Rules.UNITS.has(kind): return false
 	var factory := selected_factory()
-	if factory == null or (factory.kind != Rules.UNITS[kind].factory and not (factory.kind == "core" and kind == "engineer")): notify("Select a Command Center for engineers, or the appropriate Barracks/Garage"); return false
+	if factory == null or not Rules.PRODUCTION[factory.kind].has(kind): notify("Select HQ for engineers/scouts, Barracks for infantry, or Garage for vehicles"); return false
 	if factory.queue.size() >= 5: notify("Production queue is full"); return false
 	if not economy.spend(Rules.cost(kind)): notify("Insufficient global materials or methane"); return false
 	factory.queue.append(kind); notify("%s queued" % Rules.title(kind)); return true
@@ -1767,7 +1622,7 @@ func numbered_command(index: int) -> void:
 		return
 	var factory := selected_factory()
 	if factory == null: return
-	var choices := ["engineer"] if factory.kind == "core" else ["engineer", "marine", "flamer"] if factory.kind == "barracks" else ["scout", "jeep", "drill"]
+	var choices: Array = Rules.PRODUCTION[factory.kind]
 	if index < choices.size(): train_unit(choices[index])
 
 func cost_label(kind: String) -> String:

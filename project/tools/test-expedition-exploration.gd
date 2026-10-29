@@ -15,6 +15,7 @@ func step(game, seconds: float) -> void:
 
 func run() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame; await physics_frame
 	game.set_process(false); game.begin_run(); game.audio_enabled = false

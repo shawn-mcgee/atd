@@ -7,6 +7,7 @@ var graph := AStar3D.new()
 var friendly_graph := AStar3D.new()
 var cells: Dictionary = {}
 var obstacles: Array[Dictionary] = []
+var geometry_obstacles: Array[Dictionary] = []
 var solid_cells: Dictionary = {}
 var records: Dictionary = {}
 var surfaces: Dictionary = {}
@@ -45,6 +46,7 @@ func rebuild(blockers: Array[Dictionary]) -> void:
 		if not surfaces.has(key): changes.append(next_surfaces[key])
 	records = next_records; surfaces = next_surfaces
 	obstacles = blockers
+	geometry_obstacles.assign(blockers.filter(func(obstacle): return not obstacle.has("cell")))
 	solid_cells.clear()
 	for obstacle in obstacles:
 		if obstacle.has("cell"): solid_cells[obstacle.cell] = obstacle
@@ -84,7 +86,7 @@ func rebuild(blockers: Array[Dictionary]) -> void:
 func blocked(point: Vector3, friendly: bool = false) -> bool:
 	if not Terrain.contains(point): return true
 	if solid_at(point): return true
-	for obstacle in obstacles:
+	for obstacle in geometry_obstacles:
 		if obstacle.has("cell"): continue
 		if friendly and obstacle.get("auto_gate", false): continue
 		if absf(point.y - obstacle.position.y) > float(obstacle.get("height", 2.4)): continue
@@ -112,7 +114,7 @@ func clear_segment(a: Vector3, b: Vector3, friendly: bool = false) -> bool:
 		var height := terrain.height(sample)
 		if not Terrain.contains(sample) or solid_at(sample) or absf(height - previous) > maximum_rise: return false
 		previous = height
-	for obstacle in obstacles:
+	for obstacle in geometry_obstacles:
 		if obstacle.has("cell"): continue
 		if friendly and obstacle.get("auto_gate", false): continue
 		if absf((a.y + b.y) * 0.5 - obstacle.position.y) > float(obstacle.get("height", 2.4)): continue
@@ -179,7 +181,7 @@ func can_see(a: Vector3, b: Vector3) -> bool:
 	for i in range(steps + 1):
 		var sample := a.lerp(b, float(i) / steps) + Vector3.UP * 1.5
 		if solid_at(sample) or terrain.height(sample) > sample.y: return false
-	for obstacle in obstacles:
+	for obstacle in geometry_obstacles:
 		if obstacle.has("cell"): continue
 		if obstacle.has("end"):
 			var closest := Geometry3D.get_closest_points_between_segments(a, b, obstacle.position, obstacle.end)

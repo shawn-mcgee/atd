@@ -27,6 +27,7 @@ func run() -> void:
 	check(oblique == reversed and oblique.size() == 8, "oblique lines are contiguous and independent of drag direction")
 	check(Hex.line(Vector3.ZERO, Vector3.ZERO, preload("res://scripts/expedition_terrain.gd").CELL).size() == 1, "a stationary click produces one unique cell")
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.begin_run(); game.audio_enabled = false

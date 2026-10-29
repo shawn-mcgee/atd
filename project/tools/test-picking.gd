@@ -14,6 +14,7 @@ func click_point(game, actor: Node3D, local_point: Vector3) -> Node3D:
 
 func run_checks() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	await physics_frame

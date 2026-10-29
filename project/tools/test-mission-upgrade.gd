@@ -7,6 +7,7 @@ func _initialize() -> void: call_deferred("run")
 
 func run() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.audio_enabled = false; game.begin_run()
@@ -113,7 +114,7 @@ func run() -> void:
 	game.mission.beacon.hp = 0; game.mission.tick(game, 0.1)
 	check(not game.mission.beacon.complete and game.mission.extraction == 0 and game.structures.has(game.mission.beacon), "destroyed extraction beacon becomes repairable ruins and resets the timer")
 	game.mission.beacon.complete = true; game.mission.beacon.hp = 280
-	game.mission.tick(game, 30)
+	game.mission.tick(game, game.mission.EXTRACTION_TIME)
 	check(game.ended and game.victorious, "holding the repaired beacon for a complete timer extracts the Hive Core")
 	game.ended = false; game.victorious = false
 	soldier.hp = 0; game.cleanup_dead()

@@ -11,6 +11,7 @@ func _initialize() -> void:
 func run_checks() -> void:
 	root.size = Vector2i(1280, 800)
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game)
 	current_scene = game
 	await process_frame

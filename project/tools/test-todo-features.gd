@@ -7,6 +7,7 @@ func _initialize() -> void: call_deferred("run")
 
 func run() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame
 	game.set_process(false); game.begin_run(); game.rocks.clear(); game.rebuild_navigation()
@@ -57,7 +58,7 @@ func run() -> void:
 	for i in range(6):
 		game.add_structure("wall", Vector3(-50 + i * game.Terrain.SPACING, 0, 24)); game.rebuild_navigation()
 	check(game.navigation.last_dirty.size() < game.navigation.cells.size() / 5, "wall completion updates a local navigation region instead of the whole map")
-	var fresh = game.Navigation.new(); fresh.terrain.structures.assign(game.navigation.terrain.structures); fresh.rebuild(game.navigation.obstacles)
+	var fresh = game.Navigation.new(); fresh.terrain.natural_enabled = game.navigation.terrain.natural_enabled; fresh.terrain.structures.assign(game.navigation.terrain.structures); fresh.rebuild(game.navigation.obstacles)
 	var matching := true
 	for pair in [[fresh.graph, game.navigation.graph], [fresh.friendly_graph, game.navigation.friendly_graph]]:
 		for id in pair[0].get_point_ids():

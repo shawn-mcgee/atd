@@ -15,6 +15,7 @@ func count_kind(map, kind: String) -> int:
 
 func run() -> void:
 	var game = load("res://scenes/prototype.tscn").instantiate()
+	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame; await process_frame
 	game.set_process(false); game.begin_run()
@@ -75,7 +76,7 @@ func run() -> void:
 	check(count_kind(map, "unit") == 5, "boarded infantry are represented by their vehicle rather than duplicate markers")
 	root.size = Vector2i(1100, 720); game.select_actor(game.jeep); game.refresh_ui()
 	await process_frame; await process_frame; await process_frame
-	check(map.get_global_rect().end.x <= 1100 and map.get_global_rect().end.y <= 720 and map.get_global_rect().position.y >= game.command_panel.get_global_rect().end.y + 8, "minimap fits below contextual commands at the minimum window size")
+	check(map.get_global_rect().end.x <= 1100 and map.get_global_rect().end.y <= 720 and not map.get_global_rect().intersects(game.command_panel.get_global_rect()), "minimap fits beside contextual commands at the minimum window size")
 	root.size = Vector2i(1600, 1000)
 	await process_frame; await process_frame
 	check(absf(map.get_global_rect().end.x - 1582) < 1 and absf(map.get_global_rect().end.y - 982) < 1, "minimap stays anchored to the bottom-right when the window grows")
