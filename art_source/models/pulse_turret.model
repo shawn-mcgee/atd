@@ -1,0 +1,15 @@
+# Made using Asset Forge (2.5.3)
+
+:materials
+
+[name:_defaultMat;color:RGBA(0.939, 0.953, 1.000, 1.000);scale:(1.00, 1.00);shader:Default;mapping:0;valueA:0.35;valueB:0.25;]
+[name:dark;color:RGBA(0.224, 0.235, 0.275, 1.000);scale:(1.00, 1.00);shader:Default;mapping:0;valueA:0.35;valueB:0;]
+[name:metal;color:RGBA(0.580, 0.569, 0.769, 1.000);scale:(1.00, 1.00);shader:Default;mapping:0;valueA:0.35;valueB:0.25;]
+[name:metalDark;color:RGBA(0.400, 0.388, 0.647, 1.000);scale:(1.00, 1.00);shader:Default;mapping:0;valueA:0.35;valueB:0.5;]
+[name:metalOrange;color:RGBA(1.000, 0.702, 0.000, 1.000);scale:(1.00, 1.00);shader:Default;mapping:0;valueA:0.5;valueB:0.2;]
+
+:models
+
+[name:;collection:Primitives;type:cylinder;position:(0.0000, 0.1500, 0.0000);rotation:(0.0000, 0.0000, 0.0000);scale:(2.4000, 0.3000, 2.4000);group:;locked:False;hidden:False;materials:_defaultMat;]
+[name:;collection:Primitives;type:cylinder;position:(0.0000, 0.5500, 0.0000);rotation:(0.0000, 0.0000, 0.0000);scale:(1.0000, 0.7000, 1.0000);group:;locked:False;hidden:False;materials:_defaultMat;]
+[name:;collection:Mech;type:weapon_turret;position:(0.0000, 1.1500, 0.0000);rotation:(0.0000, 0.0000, 0.0000);scale:(1.2500, 1.2500, 1.2500);group:;locked:False;hidden:False;materials:dark+metalOrange+_defaultMat;]

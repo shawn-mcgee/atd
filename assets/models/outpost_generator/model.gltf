@@ -1,0 +1,467 @@
+{
+  "asset": {
+    "generator": "UniGLTF-1.28",
+    "version": "2.0"
+  },
+  "buffers": [
+    {
+      "byteLength": 20928,
+      "uri": "model.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 1152,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 1152,
+      "byteLength": 1152,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 2304,
+      "byteLength": 768,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 3072,
+      "byteLength": 528,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 3600,
+      "byteLength": 4320,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 7920,
+      "byteLength": 4320,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 12240,
+      "byteLength": 2880,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 15120,
+      "byteLength": 768,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 15888,
+      "byteLength": 1152,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 17040,
+      "byteLength": 288,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 17328,
+      "byteLength": 1152,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 18480,
+      "byteLength": 1152,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 19632,
+      "byteLength": 768,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 20400,
+      "byteLength": 528,
+      "target": 34963
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 96,
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "min": [
+        -0.5,
+        9.02389264E-17,
+        -0.5
+      ],
+      "normalized": false
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 96,
+      "normalized": false
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 0,
+      "type": "VEC2",
+      "componentType": 5126,
+      "count": 96,
+      "normalized": false
+    },
+    {
+      "bufferView": 3,
+      "byteOffset": 0,
+      "type": "SCALAR",
+      "componentType": 5125,
+      "count": 132,
+      "normalized": false
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 0,
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 360,
+      "max": [
+        0.25,
+        0.6,
+        0.108253181
+      ],
+      "min": [
+        -0.25,
+        0,
+        -0.108253181
+      ],
+      "normalized": false
+    },
+    {
+      "bufferView": 5,
+      "byteOffset": 0,
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 360,
+      "normalized": false
+    },
+    {
+      "bufferView": 6,
+      "byteOffset": 0,
+      "type": "VEC2",
+      "componentType": 5126,
+      "count": 360,
+      "normalized": false
+    },
+    {
+      "bufferView": 7,
+      "byteOffset": 0,
+      "type": "SCALAR",
+      "componentType": 5125,
+      "count": 192,
+      "normalized": false
+    },
+    {
+      "bufferView": 8,
+      "byteOffset": 0,
+      "type": "SCALAR",
+      "componentType": 5125,
+      "count": 288,
+      "normalized": false
+    },
+    {
+      "bufferView": 9,
+      "byteOffset": 0,
+      "type": "SCALAR",
+      "componentType": 5125,
+      "count": 72,
+      "normalized": false
+    },
+    {
+      "bufferView": 10,
+      "byteOffset": 0,
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 96,
+      "max": [
+        0.5,
+        1,
+        0.5
+      ],
+      "min": [
+        -0.5,
+        9.02389264E-17,
+        -0.5
+      ],
+      "normalized": false
+    },
+    {
+      "bufferView": 11,
+      "byteOffset": 0,
+      "type": "VEC3",
+      "componentType": 5126,
+      "count": 96,
+      "normalized": false
+    },
+    {
+      "bufferView": 12,
+      "byteOffset": 0,
+      "type": "VEC2",
+      "componentType": 5126,
+      "count": 96,
+      "normalized": false
+    },
+    {
+      "bufferView": 13,
+      "byteOffset": 0,
+      "type": "SCALAR",
+      "componentType": 5125,
+      "count": 132,
+      "normalized": false
+    }
+  ],
+  "materials": [
+    {
+      "name": "_defaultMat(Clone)",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.866134,
+          0.897240758,
+          1,
+          1
+        ],
+        "metallicFactor": 0.35,
+        "roughnessFactor": 0.75
+      },
+      "alphaMode": "OPAQUE",
+      "doubleSided": false
+    },
+    {
+      "name": "dark(Clone)",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.0409152,
+          0.045186203,
+          0.06124607,
+          1
+        ],
+        "metallicFactor": 0.35,
+        "roughnessFactor": 1
+      },
+      "alphaMode": "OPAQUE",
+      "doubleSided": false
+    },
+    {
+      "name": "metalOrange(Clone)",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          1,
+          0.450785846,
+          0,
+          1
+        ],
+        "metallicFactor": 0.5,
+        "roughnessFactor": 0.8
+      },
+      "alphaMode": "OPAQUE",
+      "doubleSided": false
+    },
+    {
+      "name": "_defaultMat(Clone)",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.866134,
+          0.897240758,
+          1,
+          1
+        ],
+        "metallicFactor": 0.35,
+        "roughnessFactor": 0.75
+      },
+      "alphaMode": "OPAQUE",
+      "doubleSided": false
+    },
+    {
+      "name": "_defaultMat(Clone)",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.866134,
+          0.897240758,
+          1,
+          1
+        ],
+        "metallicFactor": 0.35,
+        "roughnessFactor": 0.75
+      },
+      "alphaMode": "OPAQUE",
+      "doubleSided": false
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Mesh block_bevel Instance",
+      "primitives": [
+        {
+          "mode": 4,
+          "indices": 3,
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Mesh tank_doubleDetailed Instance",
+      "primitives": [
+        {
+          "mode": 4,
+          "indices": 7,
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "material": 1
+        },
+        {
+          "mode": 4,
+          "indices": 8,
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "material": 2
+        },
+        {
+          "mode": 4,
+          "indices": 9,
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "material": 3
+        }
+      ]
+    },
+    {
+      "name": "Mesh block_bevel Instance",
+      "primitives": [
+        {
+          "mode": 4,
+          "indices": 13,
+          "attributes": {
+            "POSITION": 10,
+            "NORMAL": 11,
+            "TEXCOORD_0": 12
+          },
+          "material": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "block_bevel",
+      "translation": [
+        0,
+        0.15,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        3,
+        0.3,
+        2.5
+      ],
+      "mesh": 0,
+      "extras": {}
+    },
+    {
+      "name": "tank_doubleDetailed",
+      "translation": [
+        0,
+        0.8,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1.7,
+        1.7,
+        1.7
+      ],
+      "mesh": 1,
+      "extras": {}
+    },
+    {
+      "name": "block_bevel",
+      "translation": [
+        0,
+        0.55,
+        0.9
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1.8,
+        0.6,
+        0.5
+      ],
+      "mesh": 2,
+      "extras": {}
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0,
+        1,
+        2
+      ]
+    }
+  ],
+  "extensionsUsed": [
+    "KHR_materials_unlit",
+    "KHR_texture_transform"
+  ],
+  "extensions": {},
+  "extras": {}
+}

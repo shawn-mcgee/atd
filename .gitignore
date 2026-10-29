@@ -1,0 +1,9 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Local model tools, temporary jobs, and machine-specific paths.
+/tools/assetforge.local.psd1
+/art_source/.build/
+/.vscode/
+/tools/assetforge/.cache/

@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "name": "pulse_turret",
+  "source": "art_source/models/pulse_turret.lua",
+  "source_sha256": "EF21AF211DC84E07AD03ADF53C01186A5685CA41B359446B1C20FEAF5D7B3783",
+  "scale_percent": 100.0,
+  "merged": false,
+  "blocks": 3,
+  "model": "res://assets/models/pulse_turret/model.gltf",
+  "scene": "res://scenes/props/pulse_turret.tscn",
+  "verification": [
+    {
+      "bounds_position": [
+        -1.20000004768372,
+        0.150000005960464,
+        -1.20000004768372
+      ],
+      "bounds_size": [
+        2.40000009536743,
+        1.62499988079071,
+        2.40000009536743
+      ],
+      "meshes": 3,
+      "resource": "res://assets/models/pulse_turret/model.gltf",
+      "surfaces": 5,
+      "vertices": 444
+    },
+    {
+      "bounds_position": [
+        -1.20000004768372,
+        0.150000005960464,
+        -1.20000004768372
+      ],
+      "bounds_size": [
+        2.40000009536743,
+        1.62499988079071,
+        2.40000009536743
+      ],
+      "meshes": 3,
+      "resource": "res://scenes/props/pulse_turret.tscn",
+      "surfaces": 5,
+      "vertices": 444
+    }
+  ],
+  "generated_utc": "2026-10-29T01:18:53.3228835Z"
+}
