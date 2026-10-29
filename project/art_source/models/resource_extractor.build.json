@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "name": "resource_extractor",
+  "source": "art_source/models/resource_extractor.lua",
+  "source_sha256": "45DA2701D80374B1C5C3BDDD0BED8665DC7FFE983FB108CD843EFD4CDD3CE8D2",
+  "scale_percent": 100.0,
+  "merged": false,
+  "blocks": 5,
+  "model": "res://assets/models/resource_extractor/model.gltf",
+  "scene": "res://scenes/props/resource_extractor.tscn",
+  "verification": [
+    {
+      "bounds_position": [
+        -0.75,
+        2.70716792287823E-17,
+        -0.649999976158142
+      ],
+      "bounds_size": [
+        1.5,
+        2.70000004768372,
+        1.29999995231628
+      ],
+      "meshes": 5,
+      "resource": "res://assets/models/resource_extractor/model.gltf",
+      "surfaces": 5,
+      "vertices": 496
+    },
+    {
+      "bounds_position": [
+        -0.75,
+        2.70716792287823E-17,
+        -0.649999976158142
+      ],
+      "bounds_size": [
+        1.5,
+        2.70000004768372,
+        1.29999995231628
+      ],
+      "meshes": 5,
+      "resource": "res://scenes/props/resource_extractor.tscn",
+      "surfaces": 5,
+      "vertices": 496
+    }
+  ],
+  "generated_utc": "2026-10-29T20:37:05.5725502Z"
+}

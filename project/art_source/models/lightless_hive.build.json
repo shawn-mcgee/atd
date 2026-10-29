@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "name": "lightless_hive",
+  "source": "art_source/models/lightless_hive.lua",
+  "source_sha256": "0B9B8E1FA00C3143F4445F9F0B5ECC3F381858A69859B75A50822B70B63C8911",
+  "scale_percent": 100.0,
+  "merged": false,
+  "blocks": 8,
+  "model": "res://assets/models/lightless_hive/model.gltf",
+  "scene": "res://scenes/props/lightless_hive.tscn",
+  "verification": [
+    {
+      "bounds_position": [
+        -2.33798122406006,
+        1.73E-30,
+        -2.91194438934326
+      ],
+      "bounds_size": [
+        4.67596244812012,
+        3.64005351066589,
+        5.82388877868652
+      ],
+      "meshes": 8,
+      "resource": "res://assets/models/lightless_hive/model.gltf",
+      "surfaces": 8,
+      "vertices": 1052
+    },
+    {
+      "bounds_position": [
+        -2.33798122406006,
+        1.73E-30,
+        -2.91194438934326
+      ],
+      "bounds_size": [
+        4.67596244812012,
+        3.64005351066589,
+        5.82388877868652
+      ],
+      "meshes": 8,
+      "resource": "res://scenes/props/lightless_hive.tscn",
+      "surfaces": 8,
+      "vertices": 1052
+    }
+  ],
+  "generated_utc": "2026-10-29T20:37:31.9138904Z"
+}

@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "name": "drill_rig",
+  "source": "art_source/models/drill_rig.lua",
+  "source_sha256": "E28E7095455D9776CFDD58AEF1594319227386F73F17933B3AD816B85A0D5C7C",
+  "scale_percent": 100.0,
+  "merged": false,
+  "blocks": 8,
+  "model": "res://assets/models/drill_rig/model.gltf",
+  "scene": "res://scenes/props/drill_rig.tscn",
+  "verification": [
+    {
+      "bounds_position": [
+        -1.39999997615814,
+        0.0,
+        -3.5
+      ],
+      "bounds_size": [
+        2.40000009536743,
+        2.64999985694885,
+        4.84999990463257
+      ],
+      "meshes": 8,
+      "resource": "res://assets/models/drill_rig/model.gltf",
+      "surfaces": 9,
+      "vertices": 832
+    },
+    {
+      "bounds_position": [
+        -1.39999997615814,
+        0.0,
+        -3.5
+      ],
+      "bounds_size": [
+        2.40000009536743,
+        2.64999985694885,
+        4.84999990463257
+      ],
+      "meshes": 8,
+      "resource": "res://scenes/props/drill_rig.tscn",
+      "surfaces": 9,
+      "vertices": 832
+    }
+  ],
+  "generated_utc": "2026-10-29T20:24:53.5569836Z"
+}

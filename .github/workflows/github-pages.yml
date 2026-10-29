@@ -1,0 +1,95 @@
+name: Build and deploy Godot Web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Check out game sources and generated models
+        uses: actions/checkout@v6
+
+      - name: Install matching Godot editor and Web export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="${GODOT_VERSION}-stable"
+          editor="Godot_v${release}_linux.x86_64.zip"
+          templates="Godot_v${release}_export_templates.tpz"
+          base="https://github.com/godotengine/godot-builds/releases/download/${release}"
+          mkdir -p "$RUNNER_TEMP/godot"
+          cd "$RUNNER_TEMP/godot"
+          for file in "$editor" "$templates" SHA512-SUMS.txt; do
+            curl --fail --location --retry 3 --output "$file" "$base/$file"
+          done
+          sha512sum --check --ignore-missing SHA512-SUMS.txt
+          unzip -q "$editor"
+          chmod +x "Godot_v${release}_linux.x86_64"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+          echo "GODOT_BIN=Godot_v${release}_linux.x86_64" >> "$GITHUB_ENV"
+          unzip -q "$templates" 'templates/web_nothreads_release.zip' 'templates/web_nothreads_debug.zip' 'templates/version.txt'
+          destination="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$destination"
+          mv templates/* "$destination/"
+
+      - name: Import project assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$GODOT_BIN" --headless --path project --editor --import --quit 2>&1 | tee "$RUNNER_TEMP/godot-import.log"
+          if grep -Eq '(^|[[:space:]])(SCRIPT ERROR:|ERROR:)' "$RUNNER_TEMP/godot-import.log"; then exit 1; fi
+
+      - name: Export release build for GitHub Pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/web
+          "$GODOT_BIN" --headless --path project --export-release Web ../build/web/index.html 2>&1 | tee "$RUNNER_TEMP/godot-export.log"
+          if grep -Eq '(^|[[:space:]])(SCRIPT ERROR:|ERROR:)' "$RUNNER_TEMP/godot-export.log"; then exit 1; fi
+          for file in index.html index.js index.wasm index.pck; do test -s "build/web/$file"; done
+          touch build/web/.nojekyll
+
+      - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload website artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/web
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy game to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

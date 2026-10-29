@@ -1,9 +1,26 @@
 # Godot 4+ specific ignores
 .godot/
-/android/
+/build/
+/project/.godot/export_credentials.cfg
+/project/android/
 
 # Local model tools, temporary jobs, and machine-specific paths.
 /tools/assetforge.local.psd1
-/art_source/.build/
+/project/art_source/.build/
 /.vscode/
 /tools/assetforge/.cache/
+/tools/assetforge/Asset Forge.exe
+/tools/assetforge/Asset Forge_Data/
+/tools/assetforge/MonoBleedingEdge/
+/tools/assetforge/Collections/
+/tools/assetforge/Presets/
+/tools/assetforge/Samples/
+/tools/assetforge/Scripts/
+/tools/assetforge/Textures/
+/tools/assetforge/Bridge/
+/tools/assetforge/Unity*.exe
+/tools/assetforge/Unity*.dll
+/tools/assetforge/Readme.txt
+
+# Local Godot engine binaries stay outside the game project.
+/Godot*.exe

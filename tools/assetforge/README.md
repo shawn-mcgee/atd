@@ -10,7 +10,7 @@ Use a dedicated copy of your Asset Forge installation: the worker replaces its
 working scene. Set its path and the Godot executable in the ignored
 `tools/assetforge.local.psd1`; see `../assetforge.local.example.psd1`.
 
-Run these commands from the project root in PowerShell 7:
+Run these commands from the repository root in PowerShell 7:
 
 ```powershell
 $config = Import-PowerShellDataFile ./tools/assetforge.local.psd1
@@ -31,7 +31,7 @@ The app needs a graphics device even when used as an unattended worker.
 The CLI starts the worker automatically when building or requesting its catalog.
 `-Command catalog` prints valid, case-sensitive `Collection/block` IDs. Its
 generated catalog is also available at `<AssetForgeBridgePath>/Bridge/catalog.json`.
-Author Lua under `art_source/models/`; the worker supplies `forge` and saves and
+Author Lua under `project/art_source/models/`; the worker supplies `forge` and saves and
 exports automatically. Do not add save or export dialogs to scripts.
 
 The project wrapper publishes glTF resources, invokes Godot import, and verifies
