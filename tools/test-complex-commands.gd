@@ -131,10 +131,15 @@ func run() -> void:
 	gas.remaining = 3; game.economy.gas = game.economy.gas_capacity
 	game.complex_commands.start(game, [gas_truck, gas_worker, gas_driver], gas)
 	await step(game, 100)
-	check(gas.remaining == 0 and gas_truck.gas_cargo + gas_worker.gas_cargo == 3 and gas_truck.complex_id != 0, "exhausted gas expedition preserves cargo and waits when home storage is full")
+	check(gas.remaining == 0 and gas_truck.gas_cargo + gas_worker.gas_cargo == 3 and gas_truck.complex_id == 0 and not gas_truck.has_driver() and gas_worker.aboard == null, "full target storage ends the expedition at HQ, unloading crew and retaining undeliverable gas")
 	game.economy.gas -= 3
-	await step(game, 3)
-	check(gas_truck.gas_cargo == 0 and gas_worker.gas_cargo == 0 and gas_truck.complex_id == 0, "freeing storage deposits the final load and finishes an exhausted expedition")
+	gas_truck.board(gas_driver)
+	var tank: ExpeditionStructure = game.find_receiver(gas_truck.position, "gas", true)
+	game.set_order(gas_truck, "deliver", tank.position, tank)
+	game.set_order(gas_worker, "stock", tank.position, tank)
+	for i in range(200):
+		game.advance_movement(0.1); game.process_order(gas_truck, 0.1); game.process_order(gas_worker, 0.1)
+	check(gas_truck.gas_cargo == 0 and gas_worker.gas_cargo == 0, "retained cargo can be delivered manually after storage becomes available")
 	var packed: ExpeditionUnit = game.add_unit("jeep", Vector3(7, 0, -8))
 	var pilot: ExpeditionUnit = game.add_unit("marine", packed.position)
 	var worker: ExpeditionUnit = game.add_unit("engineer", packed.position)

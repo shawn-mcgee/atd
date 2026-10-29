@@ -42,11 +42,12 @@ func tick(game, dt: float) -> void:
 			if group.resource.remaining <= 0 or workers.any(func(unit): return unit.cargo_total() >= unit.capacity): group.phase = "return"
 		if group.phase == "return":
 			var remaining := 0
+			var deliverable := false
 			for unit in group.members:
 				if unit.cargo_total() == 0: continue
-				var kind := "minerals" if unit.cargo > 0 else "gas"
-				var receiver = game.find_receiver(unit.position, kind, true)
+				var receiver = game.cargo_receiver(unit, true)
 				if receiver != null:
+					deliverable = true
 					if unit.position.distance_to(receiver.position) < 4.2:
 						unit.path.clear(); unit.order = "convoy_foot_deposit"; game.deposit_cargo(unit, receiver)
 					else: game.complex_commands.issue(game, unit, "foot_return", receiver.position, receiver)
@@ -57,6 +58,14 @@ func tick(game, dt: float) -> void:
 				if unit.cargo_total() > 0: leader = unit; break
 			for unit in group.members:
 				if unit.cargo_total() == 0 and unit != leader: game.complex_commands.issue(game, unit, "foot_escort", leader.position, leader)
+			if not deliverable and game.economy.space(group.resource.kind) <= 0:
+				if not group.has("home_destination"): group.home_destination = game.free_spawn(game.HOME)
+				var home := true
+				for unit in group.members:
+					if unit.position.distance_to(game.HOME) >= 12:
+						home = false; game.complex_commands.issue(game, unit, "foot_return", group.home_destination)
+				if home: finish(group)
+				continue
 			if remaining == 0:
 				if group.resource.remaining <= 0: finish(group); continue
 				group.phase = "work"

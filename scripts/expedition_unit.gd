@@ -134,6 +134,7 @@ func disembark(unit: ExpeditionUnit, point: Vector3) -> void:
 	passengers.erase(unit)
 	unit.aboard = null; unit.visible = true; unit.position = point
 	unit.order = "idle"; unit.target = null
+	unit.path.clear(); unit.goal = point
 	update_lights()
 
 func update_lights() -> void:

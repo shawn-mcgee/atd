@@ -18,7 +18,7 @@ The bottom-right minimap stays north-up and shows explored terrain, owned struct
 6. Protect the engineer until the jeep carries at least **30 freshly mined minerals**. Select the jeep and **H** to return to a home Mineral Depot. Depositing that shipment after establishing the powered outpost wins.
 7. Gas works the same way, but must reach a **Gas Tank**. **J** sends a vehicle to the nearest appropriate receiving structure. A powered scanner provides approximate enemy contacts; a spotlight is still required to reveal those creatures for combat.
 
-The scenario begins with two engineers, four marines, an unpiloted jeep, a Command Center, Mineral Depot, Gas Tank, Generator, Spotlight, Barracks, and Garage. Starting reserves are **400 minerals and 140 gas**, already deposited. Additional units can be produced immediately if affordable.
+The scenario begins with two engineers, four marines, an unpiloted jeep, a Command Center, Mineral Depot, Gas Tank, Generator, Spotlight, Barracks, and Garage. Starting reserves are **400 minerals and 140 gas**, already deposited. Additional units can be produced immediately if affordable. The Command Center can queue engineers even if the Barracks is lost.
 
 The starting base is at the center of a large hexagonal map, approximately 197m across, with three mineral patches and three gas patches. Connected, full-cell hexagonal cliff prisms form canyon passages and force detours. The eastern gas mesa is also made of raised hex tiles; its natural two-tile ramp is the ground approach.
 
@@ -75,19 +75,21 @@ Engineers must be on foot to construct or repair. Construction reserves the full
 
 A powered selected Gate opens/closes with **O**. It will not close through an occupying unit. During an outage, **O** sends a nearby engineer to close it manually, or right-click the open gate with an engineer. Manual closure takes two seconds on site; opening always requires power.
 
+Friendly infantry and vehicles plan paths through powered, unlocked gates, open them when approaching, and close them after the last unit clears the passage. A gate that was manually open stays open. **K** locks or unlocks the selected gate; locking an open gate first closes it if the passage is clear. Locked and unpowered closed gates remain obstacles. Creatures cannot open gates. Gate changes update navigation locally rather than rebuilding the map.
+
 Adjacent walls and gates connect automatically in all six hex directions, including corners and branches. Connections rebuild after placement or destruction, and their spans block movement and weapon sight lines. Platforms are tall hex tiles on the same grid. Place a ramp beside raised ground, with its high end toward that ground; **T** rotates through the six grid directions before placement. Ramps occupy two whole hex cells. Movement and terrain clicks follow their sloping surfaces; units cannot walk up sheer edges. Buildings may be placed on raised decks. The elevation system currently has ground and one raised level, without traversable space beneath decks.
 
 ## Units and production
 
 | Unit | Minerals | Gas | Produced at |
 | --- | ---: | ---: | --- |
-| Engineer | 35 | 0 | Barracks |
+| Engineer | 35 | 0 | Command Center or Barracks |
 | Marine | 45 | 0 | Barracks |
 | Flamer | 65 | 20 | Barracks |
 | Scout | 60 | 25 | Garage |
 | Jeep | 100 | 35 | Garage |
 
-Select a Barracks or Garage for its production commands. Costs are reserved when queued; up to five units can wait in a queue. **Cancel last** refunds the canceled reservation. Newly produced vehicles need a pilot. Marines attack visible enemies at range; flamers have a shorter-range area attack. Engineers cannot fight.
+Select a Command Center, Barracks or Garage for its production commands. The Command Center offers engineers alongside scanning; **1** queues an engineer there. Costs are reserved when queued; up to five units can wait in a queue. **Cancel last** refunds the canceled reservation. Newly produced vehicles need a pilot. Marines attack visible enemies at range; flamers have a shorter-range area attack. Engineers cannot fight.
 
 ## Context controls
 
@@ -117,6 +119,8 @@ The HUD shows only commands applicable to selected units or structures. Ground e
 | G | Selected infantry escort the nearest vehicle |
 | R / X | Repair targeting / stop selected units |
 | O | Operate selected gate or request manual closure |
+| K | Lock / unlock selected gate |
+| 1 with Command Center selected | Queue an engineer |
 | 1–0 with engineer selected | Spotlight, Generator, Repeater, Turret, Wall, Gate, Mineral Depot, Gas Tank, Barracks, Garage |
 | Construction menu | Also contains Scanner, Elevated Platform and Ramp |
 | T while placing | Rotate ramp / isolated fortification in 60° steps |
@@ -136,11 +140,11 @@ Without vehicles, engineers gather into their own packs, return to home receiver
 
 Resource guards patrol fixed perimeter waypoints, pause briefly to watch outward, then walk to the next point. They reserve separate watch points and skip blocked positions instead of continually chasing a moving circular target.
 
-Convoys deposit vehicle and carried passenger cargo without unloading. Drivers and passengers keep their seats at the depot and during the next outbound trip; workers dismount at the work site.
+Convoys deposit vehicle and carried passenger cargo without unloading during normal delivery stops. They deliver both minerals and gas, regardless of expedition type. Full storage for one resource does not prevent delivering the other. When the expedition's target resource bank fills, the convoy finishes its other possible deliveries, parks at HQ, unloads its crew, and ends the task. Any cargo that cannot fit remains on its carrier. If only the incidental resource is full, the convoy can keep that cargo and continue gathering its target resource while there is carrying room. Drivers and passengers otherwise keep their seats between delivery stops and the next outbound trip; workers dismount at the work site.
 
 With mixed jeep/infantry selections, ordinary right-clicking a structure still sends engineers to repair or finish construction while infantry defend it; a terrain destination transports the group without unloading its passengers. Existing riders stay aboard during terrain orders.
 
-Driver preference is Marine → Flamer → Engineer; passenger preference is Engineer → Marine → Flamer. Overflow units walk as escorts. Jeeps match their slowest walking escort's speed, including ordinary escort orders. Direct orders detach individual units from coordinated tasks; stopping, redirecting, or manually unloading the jeep cancels its group task. Detached units never rejoin automatically. Gathering preserves carried cargo and waits if storage is full or the receiving structure is missing.
+Driver preference is Marine → Flamer → Engineer; passenger preference is Engineer → Marine → Flamer. Overflow units walk as escorts. Jeeps match their slowest walking escort's speed, including ordinary escort orders. Direct orders detach individual units from coordinated tasks; stopping, redirecting, or manually unloading the jeep cancels its group task. Detached units never rejoin automatically. Missing receiving structures cause waiting with cargo retained; a full target-resource bank ends the expedition at HQ.
 
 After finishing construction or repairs, engineers immediately look for the nearest reachable unfinished or damaged structure within 14 meters of the completed job. They continue from job to job while nearby work remains. With no available work, engineers and maintenance crews clear their movement orders and stay where they finished; they do not automatically return to HQ or board a vehicle. A defend order on an initially undamaged structure stays in place.
 
@@ -167,6 +171,7 @@ The first 55 seconds remain a grace period. Establishing the illuminated mineral
 - `scripts/foot_expeditions.gd`: on-foot gathering trips, carrying, deposits and infantry guards.
 - `scripts/expedition_patrol.gd`: shared perimeter patrols with stable paths and watch pauses.
 - `scripts/expedition_terrain.gd`: hex map boundaries, raised-cell heights and two-cell ramp geometry.
+- `scripts/gate_passage.gd`: friendly gate traffic and automatic closure.
 - `scripts/occluded_units.gd`: world-only occlusion depth and visibility-gated silhouettes.
 - `scripts/minimap.gd`: explored terrain, visibility-safe markers and camera navigation.
 - `scripts/illumination.gd`: gameplay illumination versus creature deterrence.
@@ -186,12 +191,16 @@ $config = Import-PowerShellDataFile .\tools\assetforge.local.psd1
 & $config.GodotExecutable --headless --path . --script res://tools/test-terrain-world.gd
 & $config.GodotExecutable --headless --path . --script res://tools/test-minimap.gd
 & $config.GodotExecutable --headless --path . --script res://tools/test-engineer-maintenance.gd
+& $config.GodotExecutable --headless --path . --script res://tools/test-todo-features.gd
+& $config.GodotExecutable --headless --path . --script res://tools/test-expedition-delivery.gd
 & $config.GodotExecutable --path . --script res://tools/test-occluded-units.gd # Rendered self-occlusion regression
 & $config.GodotExecutable --headless --path . --script res://tools/test-picking.gd
 & $config.GodotExecutable --path . --script res://tools/test-picking.gd # Actual GPU readback
 ```
 
 The integration suite exercises actual boarding, staged unloading, pilot restrictions, emergency lighting, crew survival, global purchases and deposits, storage loss, gas harvesting, grid outages, scanner visibility separation, manual gates, recruitment, and a complete expedition that returns a real mined shipment.
+
+Navigation updates only changed regions and reroutes affected paths. Fortification connections use six hex-neighbor lookups per wall. To profile placement, run `--headless --path . --script res://tools/profile-placement.gd`; append `-- --complete` for completed walls. The eight-blueprint benchmark on the development machine dropped from roughly 480 ms per placement to 1–4 ms after these changes. Startup still builds the initial navigation graphs.
 
 Rendered previews:
 

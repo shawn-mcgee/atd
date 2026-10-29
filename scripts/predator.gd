@@ -34,7 +34,7 @@ func setup(point: Vector3, group_id: int) -> void:
 func navigate(point: Vector3, navigation: RefCounted, illumination: RefCounted = null) -> void:
 	if point.distance_to(goal) < 1.5 and repath > 0: return
 	goal = point
-	path = navigation.path(position, point, illumination if state in ["lurking", "staging", "retreating"] else null)
+	path = navigation.path(position, point, illumination if state in ["lurking", "staging", "retreating"] else null, false)
 	path_index = 0
 	repath = 2.0
 

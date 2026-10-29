@@ -43,6 +43,7 @@ var director := Director.new()
 var units: Array[ExpeditionUnit] = []
 var soft_spacing := SoftSpacing.new()
 var complex_commands := ComplexCommands.new()
+var gate_passage := preload("res://scripts/gate_passage.gd").new()
 var next_formation_slot := 0
 var structures: Array[ExpeditionStructure] = []
 var creatures: Array[ExpeditionPredator] = []
@@ -302,13 +303,18 @@ func add_resource_patch(kind: String, point: Vector3, amount: int) -> void:
 	resource_markers.append(marker); marker.visible = false
 
 func update_fortifications() -> void:
+	var occupied: Dictionary = {}
+	for building in structures:
+		if building.kind in ["wall", "gate"]:
+			var cell := Hex.to_axial(building.position, 2)
+			occupied[Vector3i(cell.x, cell.y, roundi(building.position.y * 10))] = building
 	for building in structures:
 		if building.kind not in ["wall", "gate"]: continue
 		var neighbors: Array[Vector3] = []
-		for other in structures:
-			if other == building or other.kind not in ["wall", "gate"]: continue
-			var offset: Vector3 = other.position - building.position
-			if absf(offset.y) < 0.3 and absf(offset.length() - Terrain.SPACING) < 0.1: neighbors.append(offset)
+		var cell := Hex.to_axial(building.position, 2)
+		for offset in Hex.NEIGHBORS:
+			var key := Vector3i(cell.x + offset.x, cell.y + offset.y, roundi(building.position.y * 10))
+			if occupied.has(key): neighbors.append(occupied[key].position - building.position)
 		if neighbors == building.connections: continue
 		if picker != null: picker.remove_owner(building)
 		if occluded_units != null: occluded_units.remove_occluder(building)
@@ -357,15 +363,15 @@ func rebuild_navigation() -> void:
 		if not b.complete: continue
 		if b.kind == "gate" and b.gate_open: continue
 		if b.kind in ["platform", "ramp"]: continue
-		blockers.append({"position": b.position, "radius": 1.0 if b.kind in ["repeater", "floodlight", "scanner"] else 1.65})
+		var auto_gate: bool = b.kind == "gate" and b.powered and not b.gate_locked
+		blockers.append({"position": b.position, "radius": 1.0 if b.kind in ["repeater", "floodlight", "scanner"] else 1.65, "auto_gate": auto_gate})
 		if b.kind in ["wall", "gate"]:
-			for offset in b.connections: blockers.append({"position": b.position, "end": b.position + offset * 0.5, "radius": 0.32})
+			for offset in b.connections: blockers.append({"position": b.position, "end": b.position + offset * 0.5, "radius": 0.32, "auto_gate": auto_gate})
 	navigation.rebuild(blockers)
 	for unit in units:
-		if unit.moving(): unit.travel(unit.goal, navigation)
+		if unit.moving() and navigation.affects_path(unit.position, unit.path, unit.path_index): unit.travel(unit.goal, navigation)
 	for creature in creatures:
-		creature.repath = 0
-		creature.navigate(creature.goal, navigation, light)
+		if navigation.affects_path(creature.position, creature.path, creature.path_index): creature.path.clear(); creature.repath = 0
 
 func rebuild_light() -> void:
 	light.sources.clear()
@@ -461,6 +467,7 @@ func _process(dt: float) -> void:
 	if occluded_units != null: occluded_units.sync(light)
 
 func advance_movement(dt: float) -> void:
+	gate_passage.update(self, dt)
 	for unit in units: unit.escort_speed_limit = INF
 	for unit in units:
 		if unit.hp <= 0 or unit.aboard != null or unit.order not in ["escort", "convoy_escort"]: continue
@@ -716,7 +723,7 @@ func check_mission() -> void:
 	var can_recruit := false
 	var pending_crew := false
 	for b in structures:
-		if b.kind != "barracks" or not b.complete: continue
+		if b.kind not in ["barracks", "core"] or not b.complete or b.hp <= 0: continue
 		pending_crew = pending_crew or not b.queue.is_empty()
 		if b.queue.has("engineer") or economy.can_spend(Rules.cost("engineer")): can_recruit = true
 		if find_receiver(HOME, "minerals", true) != null and economy.minerals + carried_minerals >= 35: can_recruit = true
@@ -1042,6 +1049,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_9: numbered_command(8)
 			KEY_0: numbered_command(9)
 			KEY_O: toggle_gate()
+			KEY_K: toggle_gate_lock()
 			KEY_ESCAPE:
 				if expedition_mode: expedition_mode = false; click_serial += 1; refresh_context_commands()
 				else: build_kind = ""; selected.clear(); update_indicators()
@@ -1156,7 +1164,8 @@ func refresh_context_commands() -> void:
 		"repair": has_engineer,
 		"stop": has_vehicle or has_infantry,
 		"gate": gate != null,
-		"engineer": factory != null and factory.kind == "barracks",
+		"gate_lock": gate != null,
+		"engineer": factory != null and factory.kind in ["barracks", "core"],
 		"marine": factory != null and factory.kind == "barracks",
 		"flamer": factory != null and factory.kind == "barracks",
 		"scout": factory != null and factory.kind == "garage",
@@ -1180,7 +1189,8 @@ func refresh_context_commands() -> void:
 	context_buttons.stock.disabled = has_vehicle and not vehicle.has_driver()
 	context_buttons.gate.text = "Close gate [O]" if gate != null and gate.gate_open else "Open gate [O]"
 	if gate != null and gate.gate_open and not gate.powered: context_buttons.gate.text = "Manual close [O]"
-	if gate != null: context_buttons.gate.disabled = not gate.gate_open and not gate.powered
+	if gate != null: context_buttons.gate.disabled = not gate.gate_open and (not gate.powered or gate.gate_locked)
+	context_buttons.gate_lock.text = "Unlock gate [K]" if gate != null and gate.gate_locked else "Lock gate [K]"
 	command_title.text = "SELECTION COMMANDS" if has_vehicle or has_infantry else "PRODUCTION" if factory != null else "STRUCTURE DETAILS" if not selected.is_empty() else "SELECT A UNIT"
 	if not has_engineer:
 		build_kind = ""; repair_mode = false
@@ -1289,6 +1299,7 @@ func make_ui() -> void:
 	context_buttons.repair = button(grid, "Repair [R]", choose_repair)
 	context_buttons.stop = button(grid, "Stop [X]", stop_selected)
 	context_buttons.gate = button(grid, "Open gate [O]", toggle_gate)
+	context_buttons.gate_lock = button(grid, "Lock gate [K]", toggle_gate_lock)
 	for kind in Rules.UNITS:
 		var key: String = kind
 		var shortcut: int = {"engineer": 1, "marine": 2, "flamer": 3, "scout": 1, "jeep": 2}[key]
@@ -1377,6 +1388,7 @@ func refresh_ui() -> void:
 			if actor.kind == "gas_tank": details.text += "+200 gas capacity / receives gas\n"
 			if actor.kind == "scanner": details.text += "Contacts only / no vision or targeting\n"
 			if actor.kind == "gate": details.text += "OPEN\n" if actor.gate_open else "CLOSED\n"
+			if actor.kind == "gate": details.text += "LOCKED\n" if actor.gate_locked else "Automatic passage enabled\n"
 			if not actor.queue.is_empty(): details.text += "Training %s %.0f%%\nQueued %d" % [Rules.title(actor.queue[0]), actor.production_progress / float(Rules.UNITS[actor.queue[0]].time) * 100, actor.queue.size()]
 	elif selected.size() > 1:
 		details.text = "%d selected\n" % selected.size()
@@ -1469,12 +1481,25 @@ func deposit_cargo(unit: ExpeditionUnit, receiver: ExpeditionStructure) -> void:
 		unit.gas_cargo -= accepted
 	# Mixed cargo proceeds to the other appropriate receiving structure.
 	if unit.cargo_total() > 0:
-		var next := find_receiver(unit.position, "minerals" if unit.cargo > 0 else "gas", unit.order == "deliver")
-		if next != null and next != receiver: unit.target = next; unit.travel(next.position, navigation)
+		var next := cargo_receiver(unit, unit.order == "deliver")
+		if next != null and next != receiver:
+			unit.target = next
+			if unit.aboard == null: unit.travel(next.position, navigation)
+		elif next == null: unit.path.clear()
+
+func cargo_receiver(unit: ExpeditionUnit, home_only: bool = true) -> ExpeditionStructure:
+	var result: ExpeditionStructure
+	var distance := INF
+	for kind in ["minerals", "gas"]:
+		if (unit.cargo if kind == "minerals" else unit.gas_cargo) <= 0 or economy.space(kind) <= 0: continue
+		var receiver := find_receiver(unit.position, kind, home_only)
+		if receiver != null and unit.position.distance_to(receiver.position) < distance:
+			result = receiver; distance = unit.position.distance_to(receiver.position)
+	return result
 
 func selected_factory() -> ExpeditionStructure:
 	for actor in selected:
-		if actor is ExpeditionStructure and actor.complete and actor.kind in ["barracks", "garage"]: return actor
+		if actor is ExpeditionStructure and actor.complete and actor.kind in ["barracks", "garage", "core"]: return actor
 	return null
 
 func selected_gate() -> ExpeditionStructure:
@@ -1485,7 +1510,7 @@ func selected_gate() -> ExpeditionStructure:
 func train_unit(kind: String) -> bool:
 	if not Rules.UNITS.has(kind): return false
 	var factory := selected_factory()
-	if factory == null or factory.kind != Rules.UNITS[kind].factory: notify("Select the appropriate Barracks or Garage"); return false
+	if factory == null or (factory.kind != Rules.UNITS[kind].factory and not (factory.kind == "core" and kind == "engineer")): notify("Select a Command Center for engineers, or the appropriate Barracks/Garage"); return false
 	if factory.queue.size() >= 5: notify("Production queue is full"); return false
 	if not economy.spend(Rules.cost(kind)): notify("Insufficient global minerals or gas"); return false
 	factory.queue.append(kind); notify("%s queued" % Rules.title(kind)); return true
@@ -1503,16 +1528,19 @@ func numbered_command(index: int) -> void:
 		return
 	var factory := selected_factory()
 	if factory == null: return
-	var choices := ["engineer", "marine", "flamer"] if factory.kind == "barracks" else ["scout", "jeep"]
+	var choices := ["engineer"] if factory.kind == "core" else ["engineer", "marine", "flamer"] if factory.kind == "barracks" else ["scout", "jeep"]
 	if index < choices.size(): train_unit(choices[index])
 
 func cost_label(kind: String) -> String:
 	var cost := Rules.cost(kind)
 	return "%d M%s" % [cost.minerals, " + %d G" % cost.gas if int(cost.gas) > 0 else ""]
 
-func set_gate(gate: ExpeditionStructure, opened: bool, manual: bool = false) -> bool:
+func set_gate(gate: ExpeditionStructure, opened: bool, manual: bool = false, automatic: bool = false) -> bool:
 	if gate.kind != "gate" or not gate.complete: return false
-	if gate.gate_open == opened: return true
+	if gate.gate_open == opened:
+		if not automatic: gate.gate_auto_opened = false
+		return true
+	if opened and gate.gate_locked: notify("Gate is locked / K unlocks it"); return false
 	if opened and not gate.powered: notify("Gate requires a powered grid to open"); return false
 	if not opened:
 		if not gate.powered:
@@ -1524,7 +1552,15 @@ func set_gate(gate: ExpeditionStructure, opened: bool, manual: bool = false) -> 
 			if unit.aboard == null and unit.position.distance_to(gate.position) < 2.1: notify("Gate obstructed by personnel or a vehicle"); return false
 		for creature in creatures:
 			if creature.position.distance_to(gate.position) < 2.1: return false
-	gate.gate_open = opened; gate.update_visual(); rebuild_navigation(); return true
+	gate.gate_open = opened; gate.gate_auto_opened = automatic and opened; gate.gate_clear_time = 0
+	gate.update_visual(); rebuild_navigation(); return true
+
+func toggle_gate_lock() -> void:
+	var gate := selected_gate()
+	if gate == null: return
+	if not gate.gate_locked and gate.gate_open and not set_gate(gate, false): return
+	gate.gate_locked = not gate.gate_locked; gate.gate_auto_opened = false
+	rebuild_navigation(); refresh_context_commands()
 
 func toggle_gate() -> void:
 	var gate := selected_gate()

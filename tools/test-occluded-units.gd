@@ -56,6 +56,9 @@ func run() -> void:
 		if entry.owner is ExpeditionUnit or entry.owner is ExpeditionPredator or entry.source is Label3D: world_only = false
 	check(world_only, "occlusion depth pass contains terrain and structures, never actors or name labels")
 	if DisplayServer.get_name() != "headless":
+		# Compare world rendering only; minimap exploration can update between
+		# captures and is unrelated to occlusion highlighting.
+		game.ui.visible = false; game.minimap.set_process(false)
 		var baseline := await snapshot(game, false)
 		var exposed := await snapshot(game, true)
 		var exposed_delta := different_pixels(baseline, exposed)

@@ -224,17 +224,21 @@ func tick(game, dt: float) -> void:
 			elif vehicle.position.distance_to(receiver.position) < 4.0:
 				vehicle.path.clear(); vehicle.order = "convoy_deposit"
 				game.deposit_cargo(vehicle, receiver)
-				var remaining := vehicle.cargo_total()
 				for unit in group.members:
 					if unit.aboard == vehicle or unit.position.distance_to(receiver.position) < 4.2: game.deposit_cargo(unit, receiver)
-					remaining += unit.cargo_total()
-				if remaining == 0:
-					if group.resource.remaining <= 0: finish(group); game.notify("Expedition complete / deposit exhausted"); continue
-					assemble(game, group, "outbound")
-				else:
-					var next_receiver = receiver_for(game, group)
-					if next_receiver != receiver: head_home(game, group)
+				head_home(game, group)
 			else: issue(game, vehicle, "return", receiver.position, receiver)
+		elif group.phase == "home":
+			if not group.finish_home and receiver_for(game, group) != null:
+				group.phase = "return"; head_home(game, group)
+			elif vehicle.position.distance_to(group.home_destination) < 0.8:
+				vehicle.path.clear(); vehicle.order = "convoy_waiting_for_depot"
+				if group.finish_home or game.economy.space(group.resource.kind) <= 0:
+					for unit in group.members:
+						if unit.aboard == vehicle: vehicle.disembark(unit, game.free_spawn(game.HOME))
+					finish(group); game.notify("Expedition home / crew unloaded / undeliverable cargo retained"); continue
+			else: issue(game, vehicle, "home", group.home_destination)
+		if not groups.has(group): continue
 		# Walking escorts follow the convoy; dismounted infantry patrol the patch.
 		for unit in group.members:
 			if unit.aboard != null: continue
@@ -246,22 +250,43 @@ func tick(game, dt: float) -> void:
 			elif group.phase != "work" and not (group.phase == "assemble" and group.riders.has(unit)):
 				var point: Vector3 = vehicle.position - vehicle.facing * 3 + vehicle.facing.cross(Vector3.UP) * float(unit.formation_slot % 3 - 1) * 1.5
 				if group.phase == "return" and alive(group.receiver) and vehicle.position.distance_to(group.receiver.position) < 4.0: point = group.receiver.position
+				if group.phase == "home": point = group.home_destination
 				issue(game, unit, "escort", point, vehicle)
 
 func head_home(game, group: Dictionary) -> void:
 	var vehicle: ExpeditionUnit = group.vehicle
 	group.receiver = receiver_for(game, group)
-	if group.receiver != null: issue(game, vehicle, "return", group.receiver.position, group.receiver)
-	else: vehicle.path.clear(); vehicle.order = "convoy_waiting_for_depot"
+	if group.receiver != null:
+		issue(game, vehicle, "return", group.receiver.position, group.receiver); return
+	var remaining: int = vehicle.cargo_total()
+	for unit in group.members: remaining += unit.cargo_total()
+	var target_full: bool = game.economy.space(group.resource.kind) <= 0
+	if remaining == 0 and not target_full:
+		if group.resource.remaining <= 0: finish(group); return
+		assemble(game, group, "outbound"); return
+	# Other-resource leftovers need not block another trip for the target resource.
+	var primary := 0
+	for unit in group.members + [vehicle]: primary += unit.cargo if group.resource.kind == "minerals" else unit.gas_cargo
+	if not target_full and group.resource.remaining > 0 and primary == 0 and vehicle.cargo_total() < vehicle.capacity:
+		assemble(game, group, "outbound"); return
+	group.phase = "home"
+	group.finish_home = target_full or group.resource.remaining <= 0 or (primary == 0 and vehicle.cargo_total() >= vehicle.capacity)
+	group.home_destination = game.free_spawn(game.HOME + Vector3(0, 0, -10))
+	issue(game, vehicle, "home", group.home_destination)
 
 func receiver_for(game, group: Dictionary):
 	var vehicle: ExpeditionUnit = group.vehicle
-	var cargo: ExpeditionUnit = vehicle
-	if cargo.cargo_total() == 0:
-		for unit in group.members:
-			if unit.cargo_total() > 0: cargo = unit; break
-	var kind: String = "minerals" if cargo.cargo > 0 else "gas" if cargo.gas_cargo > 0 else group.resource.kind
-	return game.find_receiver(vehicle.position, kind, true)
+	var result: ExpeditionStructure
+	var distance := INF
+	for kind in ["minerals", "gas"]:
+		if game.economy.space(kind) <= 0: continue
+		var amount := 0
+		for unit in group.members + [vehicle]: amount += unit.cargo if kind == "minerals" else unit.gas_cargo
+		if amount == 0: continue
+		var receiver: ExpeditionStructure = game.find_receiver(vehicle.position, kind, true)
+		if receiver != null and vehicle.position.distance_to(receiver.position) < distance:
+			result = receiver; distance = vehicle.position.distance_to(receiver.position)
+	return result
 
 func describe(unit: ExpeditionUnit) -> String:
 	var foot_description: String = foot.describe(unit)
@@ -269,7 +294,7 @@ func describe(unit: ExpeditionUnit) -> String:
 	for group in groups:
 		if group.id != unit.complex_id: continue
 		var task: String = {"gather": "Gathering expedition", "structure": "Structure support", "travel": "Group transport"}[group.mode]
-		var phase: String = {"assemble": "boarding", "outbound": "travelling", "work": "working", "return": "returning cargo"}[group.phase]
+		var phase: String = {"assemble": "boarding", "outbound": "travelling", "work": "working", "return": "returning cargo", "home": "parking at HQ"}[group.phase]
 		return task + " / " + phase
 	return unit.order.replace("convoy_", "").replace("_", " ")
 

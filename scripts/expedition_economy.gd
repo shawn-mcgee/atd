@@ -28,3 +28,6 @@ func deposit(kind: String, amount: int) -> int:
 	if kind == "minerals": minerals += accepted
 	else: gas += accepted
 	return accepted
+
+func space(kind: String) -> int:
+	return maxi(0, mineral_capacity - minerals) if kind == "minerals" else maxi(0, floori(gas_capacity - gas))

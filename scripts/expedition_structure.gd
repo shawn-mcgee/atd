@@ -15,6 +15,9 @@ var connected := false
 var powered := false
 var network := -1
 var gate_open := false
+var gate_locked := false
+var gate_auto_opened := false
+var gate_clear_time := 0.0
 var queue: Array[String] = []
 var production_progress := 0.0
 var model: Node3D
