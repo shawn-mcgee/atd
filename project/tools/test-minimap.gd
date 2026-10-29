@@ -26,6 +26,13 @@ func run() -> void:
 	check(map.explored.size() > 0 and map.explored.size() < map.cells.size() / 4, "terrain begins explored only around friendly illumination")
 	game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); map.refresh()
 	check(count_kind(map, "minerals") == 7 and count_kind(map, "gas") == 7, "scouted resource patches appear without revealing farther deposits")
+	check(map.terrain_mesh.instance_count == map.cells.size() and map.terrain_mesh.mesh.get_surface_count() == 1, "minimap shares one cached hex mesh for every terrain cell")
+	var cached_cell: Vector2i = map.explored.keys()[0]
+	check(map.terrain_cached[cached_cell] == map.explored[cached_cell], "revealed terrain uploads its remembered color")
+	var unknown_cell: Vector2i
+	for cell in map.cells:
+		if not map.explored.has(cell): unknown_cell = cell; break
+	check(not map.terrain_cached.has(unknown_cell), "unexplored cells stay transparent in the GPU cache")
 	var enemy: ExpeditionPredator = game.add_creature(game.HOME + Vector3(3, 0, 0), 77)
 	enemy.visible = false; map.refresh()
 	check(count_kind(map, "enemy") == 0, "hidden creatures never appear as minimap contacts")

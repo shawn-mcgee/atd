@@ -2,6 +2,10 @@ extends Control
 const Hex = preload("res://scripts/hex_grid.gd")
 const Terrain = preload("res://scripts/expedition_terrain.gd")
 const MINT := Color("7bf4d0")
+var terrain_mesh: MultiMesh
+var terrain_indices: Dictionary = {}
+var terrain_colors := {"ground": Color("2d454c"), "cliff": Color("849399"), "raised": Color("58756c"), "ramp": Color("827950")}
+var terrain_cached: Dictionary = {}
 var game: Node3D
 var explored: Dictionary = {}
 var cells: Array[Vector2i] = []
@@ -25,8 +29,37 @@ func setup(world: Node3D) -> void:
 	visible = game.started and not game.ended
 	set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	for cell in game.navigation.cells: cells.append(cell)
+	setup_terrain_mesh()
 	fit()
 	refresh()
+
+func setup_terrain_mesh() -> void:
+	var vertices := PackedVector3Array()
+	for i in range(6):
+		vertices.append(Vector3.ZERO)
+		for edge in [i, i + 1]:
+			var angle: float = PI / 6 + edge * TAU / 6
+			vertices.append(Vector3(cos(angle), sin(angle), 0) * Terrain.CELL)
+	var arrays := []; arrays.resize(Mesh.ARRAY_MAX); arrays[Mesh.ARRAY_VERTEX] = vertices
+	var mesh := ArrayMesh.new(); mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	terrain_mesh = MultiMesh.new(); terrain_mesh.transform_format = MultiMesh.TRANSFORM_2D
+	terrain_mesh.use_colors = true; terrain_mesh.mesh = mesh; terrain_mesh.instance_count = cells.size()
+	for i in range(cells.size()):
+		var point := Hex.to_world(cells[i], Terrain.CELL)
+		terrain_indices[cells[i]] = i
+		terrain_mesh.set_instance_transform_2d(i, Transform2D(0, Vector2(point.x, point.z)))
+		terrain_mesh.set_instance_color(i, Color.TRANSPARENT)
+
+func cache_terrain() -> void:
+	# Geometry is shared and uploaded once. Only newly charted or changed cells update.
+	if terrain_cached.size() > explored.size():
+		for cell in terrain_cached:
+			if not explored.has(cell): terrain_mesh.set_instance_color(terrain_indices[cell], Color.TRANSPARENT)
+		terrain_cached.clear()
+	for cell in explored:
+		if terrain_cached.get(cell) == explored[cell]: continue
+		terrain_mesh.set_instance_color(terrain_indices[cell], terrain_colors[explored[cell]])
+		terrain_cached[cell] = explored[cell]
 
 func map_rect() -> Rect2:
 	return Rect2(10, 27, size.x - 20, size.y - 49)
@@ -63,6 +96,7 @@ func _process(dt: float) -> void:
 
 func refresh() -> void:
 	record_exploration()
+	cache_terrain()
 	markers.clear()
 	for resource in game.resource_nodes:
 		if resource.discovered and resource.remaining > 0: markers.append({"kind": resource.kind, "point": resource.position, "selected": false})
@@ -148,12 +182,9 @@ func _draw() -> void:
 
 	var outline := hex_outline()
 	draw_colored_polygon(outline, Color("080f14"))
-	var colors := {"ground": Color("2d454c"), "cliff": Color("849399"), "raised": Color("58756c"), "ramp": Color("827950")}
-	for cell in explored:
-		var center := Hex.to_world(cell, Terrain.CELL)
-		var polygon := PackedVector2Array()
-		for i in range(6): polygon.append(world_to_map(center + Vector3(cos(PI / 6 + i * TAU / 6), 0, sin(PI / 6 + i * TAU / 6)) * Terrain.CELL))
-		draw_colored_polygon(polygon, colors[explored[cell]])
+	draw_set_transform(map_rect().get_center(), 0, Vector2.ONE * map_scale())
+	draw_multimesh(terrain_mesh, null)
+	draw_set_transform(Vector2.ZERO)
 	var edge := outline.duplicate(); edge.append(edge[0]); draw_polyline(edge, Color("49646d"), 1, true)
 	for marker in markers:
 		var point := world_to_map(marker.point)
@@ -171,3 +202,4 @@ func _draw() -> void:
 	if camera_polygon.size() == 4:
 		for polygon in Geometry2D.intersect_polygons(camera_polygon, outline):
 			var line: PackedVector2Array = polygon.duplicate(); line.append(line[0]); draw_polyline(line, Color(0.9, 0.96, 1, 0.8), 1, true)
+
