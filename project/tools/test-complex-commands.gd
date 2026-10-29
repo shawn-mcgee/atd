@@ -28,7 +28,7 @@ func run() -> void:
 	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
 	root.add_child(game); current_scene = game
 	await process_frame; await physics_frame
-	game.set_process(false); game.begin_run(); game.select_actor(game.core); game.scan(); game.select_actor(game.jeep)
+	game.set_process(false); game.begin_run(); game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); game.select_actor(game.jeep)
 	game.rocks.clear(); game.rebuild_navigation()
 	var jeep: ExpeditionUnit = game.add_unit("jeep", Vector3(7, 0, -8))
 	jeep.capacity = 6

@@ -77,8 +77,6 @@ var tick_number := 0
 var audio_enabled := true
 var fog_materials: Array[ShaderMaterial] = []
 var fog_material_cache: Dictionary = {}
-var scan_found := false
-var scan_cooldown := 0.0
 var outpost_established := false
 var returned_materials := 0
 var sensor_activity := 0.0
@@ -119,7 +117,6 @@ var objective_label: Label
 var details: Label
 var message: Label
 var sensors: Label
-var scan_button: Button
 var pause_button: Button
 var command_panel: PanelContainer
 var command_scroll: ScrollContainer
@@ -357,6 +354,8 @@ func rebuild_light() -> void:
 	for wreck in wrecks:
 		light.add_source(wreck.node.position, 4, Vector3.ZERO, -1, float(wreck.life) / 30.0 * 0.2, false)
 
+	resource_fields.discover(self)
+
 func refresh_visual_lights() -> void:
 	# The GPU evaluates the same light shapes continuously; no low-frequency fog texture.
 	var positions := PackedVector4Array()
@@ -456,7 +455,7 @@ func simulation_tick(dt: float, advance_motion: bool = true) -> void:
 	if ended: return
 	if advance_motion: advance_movement(dt)
 	elapsed += dt; tick_number += 1
-	scan_cooldown = maxf(0, scan_cooldown - dt); sensor_activity = maxf(0, sensor_activity - dt)
+	sensor_activity = maxf(0, sensor_activity - dt)
 	economy.recalculate(structures); power.tick(structures, economy, dt)
 	if economy.gas <= 15 and power.fuel_rate > 0 and not low_fuel_warned:
 		low_fuel_warned = true; notify("Methane reserve low / send engineers to the methane signal and deliver to a Methane Tank")
@@ -488,9 +487,6 @@ func simulation_tick(dt: float, advance_motion: bool = true) -> void:
 	rebuild_light(); combat_tick(dt); cleanup_dead(); rebuild_light()
 	for creature in creatures: creature.visible = light.sample(creature.position) > 0.065
 	mission.hive.visible = mission.hive_discovered and light.sample(mission.hive.position) > 0.05
-	for i in range(resource_meshes.size()):
-		resource_meshes[i].visible = resource_nodes[i].discovered and resource_nodes[i].remaining > 0 and light.sample(resource_nodes[i].position) > 0.05
-		resource_markers[i].visible = resource_nodes[i].discovered and resource_nodes[i].remaining > 0
 	if tick_number % 5 == 0: update_scanner_contacts(); update_power_lines()
 	for i in range(wrecks.size() - 1, -1, -1):
 		wrecks[i].life -= dt
@@ -742,31 +738,6 @@ func cleanup_dead() -> void:
 func check_mission() -> void:
 	if ended: return
 	if not is_instance_valid(core) or core.hp <= 0 or not structures.has(core): finish(false, "Command Center destroyed.")
-
-func scan() -> void:
-	if scan_cooldown > 0 or ended: return
-	if not selected.has(core): notify("Select the Command Center to scan [Q]"); return
-	if not core.complete or core.hp <= 0 or not core.powered or core.scan_charge < Power.SCAN_ENERGY:
-		notify("Scan needs a powered Command Center with 120 electricity charged"); return
-	var targets: Array[Dictionary] = []
-	for kind in ["minerals", "gas"]:
-		var nearest: Dictionary = {}
-		var distance := INF
-		for resource in resource_nodes:
-			if resource.kind != kind or resource.remaining <= 0: continue
-			var candidate: float = core.position.distance_squared_to(resource.position)
-			if candidate < distance: nearest = resource; distance = candidate
-		# An already known nearer patch blocks discovery of farther deposits.
-		if not nearest.is_empty() and not nearest.discovered: targets.append(nearest)
-	if targets.is_empty(): notify("Mine the nearest surveyed patches before scanning for farther resources"); return
-	core.scan_charge -= Power.SCAN_ENERGY
-	scan_found = true; scan_cooldown = 30
-	for resource in targets:
-		for patch in resource_nodes:
-			if patch.get("field") == resource.get("field"): patch.discovered = true
-	for i in range(resource_nodes.size()): resource_markers[i].visible = resource_nodes[i].discovered and resource_nodes[i].remaining > 0
-	notify("Scan consumed 120 electricity / nearest active mineral and methane signals surveyed")
-	play_cue(440, 0.16, 0.1)
 
 func selected_vehicles() -> Array[ExpeditionUnit]:
 	var result: Array[ExpeditionUnit] = []
@@ -1172,7 +1143,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ENTER and not started: begin_run()
 		if not started or ended: return
 		match event.keycode:
-			KEY_Q: scan()
 			KEY_T:
 				if not build_kind.is_empty(): placement_direction = (placement_direction + 1) % 6; ghost.mesh = Footprints.preview(build_kind, placement_direction) if build_kind != "ramp" else Terrain.ramp_mesh(); notify("Placement rotated / direction %d of 6" % (placement_direction + 1))
 			KEY_1: numbered_command(0)
@@ -1343,7 +1313,6 @@ func refresh_context_commands() -> void:
 	var has_vehicle := vehicle != null
 	var fallback := nearest_vehicle(infantry[0].position, true) if has_infantry else null
 	var visible_commands := {
-		"scan": is_instance_valid(core) and selected.has(core),
 		"reload_turret": selected_turrets().any(func(turret): return Rules.TURRETS[turret.kind].magazine > 0),
 		"auto_reload": selected_turrets().any(func(turret): return Rules.TURRETS[turret.kind].magazine > 0),
 		"mining": complex_commands.mining_available(complex_commands.expedition_selection(selected)),
@@ -1470,7 +1439,7 @@ func make_ui() -> void:
 
 func show_briefing() -> void:
 	overlay_title.text = "People keep the lights on."
-	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nQ scans resources. M starts mining at a patch or receiver; E explores terrain. A attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
+	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nScout with units to discover resources; HQ starts beside a small material field and one methane patch. M starts mining at a patch or receiver; E explores terrain. A attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
 
 
 func begin_run() -> void:

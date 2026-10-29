@@ -11,4 +11,4 @@ Concrete requests extracted from [ideas.md](../ideas.md). All extracted items ar
 
 [Completed Hive Recovery iteration](todos/completed-hive-recovery.md)
 
-Validation: 30 headless integration suites, GPU picking/occlusion suites, rendered previews, and a Web export/browser smoke test.
+Validation: 31 headless integration suites, GPU picking/occlusion suites, rendered previews, and a Web export/browser smoke test.

@@ -1,7 +1,7 @@
 extends RefCounted
 
 func setup(game) -> void:
-	# Every field has seven distinct one-cell patches and preserves its total yield.
+	# Fields preserve their total yield; starter deposits can specify fewer cells.
 	var originals: Array = game.resource_nodes.duplicate()
 	for mesh in game.resource_meshes: mesh.queue_free()
 	for marker in game.resource_markers: marker.queue_free()
@@ -9,7 +9,7 @@ func setup(game) -> void:
 	for field_id in range(originals.size()):
 		var field: Dictionary = originals[field_id]
 		var center = game.Hex.to_axial(field.position, game.Terrain.CELL)
-		var offsets: Array = [Vector2i.ZERO] + game.Hex.NEIGHBORS
+		var offsets: Array = field.get("offsets", [Vector2i.ZERO] + game.Hex.NEIGHBORS)
 		var valid_offsets: Array = offsets.filter(func(offset): return game.navigation.terrain.height(game.Hex.to_world(center + offset, game.Terrain.CELL)) == game.navigation.terrain.height(field.position))
 		for index in range(valid_offsets.size()):
 			var point = game.Hex.to_world(center + valid_offsets[index], game.Terrain.CELL)
@@ -39,5 +39,14 @@ func field_remaining(game, resource: Dictionary) -> int:
 
 func next_patch(game, resource: Dictionary) -> Dictionary:
 	for patch in game.resource_nodes:
-		if patch.get("field", -1) == resource.get("field", -2) and patch.remaining > 0: return patch
+		if patch.get("field", -1) == resource.get("field", -2) and patch.discovered and patch.remaining > 0: return patch
 	return {}
+
+func discover(game) -> void:
+	# Only illuminated cells are surveyed, never an unseen remainder of the field.
+	for i in range(game.resource_nodes.size()):
+		var patch: Dictionary = game.resource_nodes[i]
+		var lit: bool = game.light.sample(patch.position) > 0.05
+		if lit and patch.remaining > 0: patch.discovered = true
+		game.resource_meshes[i].visible = lit and patch.remaining > 0
+		game.resource_markers[i].visible = patch.discovered and patch.remaining > 0

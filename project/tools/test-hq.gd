@@ -20,13 +20,9 @@ func run() -> void:
 	game.economy.gas = 0
 	game.power.tick(game.structures, game.economy, 1)
 	check(gates.all(func(gate): return gate.powered) and game.core.powered and game.power.used == 4 and game.power.demand == 4 and game.economy.gas == 0, "all four auxiliary power units can serve external consumers without methane")
-	game.core.scan_charge = 0; game.power.tick(game.structures, game.economy, 5)
-	check(game.core.scan_charge == 0 and gates.all(func(gate): return gate.powered), "scanner charging waits when external consumers use all available power")
 	for gate in gates: gate.enabled = false
 	game.power.tick(game.structures, game.economy, 5)
-	check(game.core.scan_charge == 20 and game.power.used == 4 and game.economy.gas == 0, "scanner recharge still uses spare auxiliary power after HQ stops being a consumer")
-	game.core.scan_charge = 120; game.power.tick(game.structures, game.economy, 1)
-	check(game.power.used == 0 and game.power.demand == 0 and game.core.powered, "finishing a scan recharge returns HQ to zero idle draw")
+	check(game.power.used == 0 and game.power.demand == 0 and game.core.powered, "disabling consumers returns HQ to zero idle draw without resource scanner charging")
 	game.economy.gas = 80; game.select_actor(game.core); game.refresh_ui()
 	check(game.context_buttons.scout.visible and game.context_buttons.scout.get_meta("shortcut") == "2" and game.context_buttons.engineer.visible, "HQ exposes engineer and scout production with matching hotkey labels")
 	var bank: int = game.economy.minerals; var methane: float = game.economy.gas

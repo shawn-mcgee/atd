@@ -12,7 +12,7 @@ func run() -> void:
 	await process_frame
 	game.set_process(false); game.begin_run(); game.rocks.clear(); game.rebuild_navigation()
 	game.select_actor(game.core); game.refresh_ui()
-	check(game.context_buttons.engineer.visible and game.context_buttons.scan.visible and not game.context_buttons.marine.visible, "Command Center exposes engineer production alongside scanning")
+	check(game.context_buttons.engineer.visible and not game.context_buttons.has("scan") and not game.context_buttons.marine.visible, "Command Center exposes engineer production without a resource scan")
 	var bank: int = game.economy.minerals
 	game.numbered_command(0)
 	check(game.core.queue == ["engineer"] and game.economy.minerals == bank - 35, "Command Center engineer hotkey reserves the normal cost")

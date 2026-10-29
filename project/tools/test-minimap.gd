@@ -22,10 +22,10 @@ func run() -> void:
 	var map = game.minimap
 	map.refresh()
 	check(count_kind(map, "hq") == 1 and count_kind(map, "vehicle") == 1 and count_kind(map, "unit") == 6, "minimap shows headquarters and friendly units")
-	check(count_kind(map, "minerals") == 0 and count_kind(map, "gas") == 0, "unscanned resource patches stay off the minimap")
+	check(count_kind(map, "minerals") == 0 and count_kind(map, "gas") == 0, "unscouted resource patches stay off the minimap")
 	check(map.explored.size() > 0 and map.explored.size() < map.cells.size() / 4, "terrain begins explored only around friendly illumination")
-	game.select_actor(game.core); game.scan(); map.refresh()
-	check(count_kind(map, "minerals") == 7 and count_kind(map, "gas") == 7, "scanned resource signals appear without revealing farther deposits")
+	game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); map.refresh()
+	check(count_kind(map, "minerals") == 7 and count_kind(map, "gas") == 7, "scouted resource patches appear without revealing farther deposits")
 	var enemy: ExpeditionPredator = game.add_creature(game.HOME + Vector3(3, 0, 0), 77)
 	enemy.visible = false; map.refresh()
 	check(count_kind(map, "enemy") == 0, "hidden creatures never appear as minimap contacts")

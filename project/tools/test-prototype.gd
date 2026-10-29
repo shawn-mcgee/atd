@@ -133,14 +133,14 @@ func economy_checks() -> void:
 	check(game.economy.mineral_capacity == 100 and game.economy.minerals == 400, "storage destruction reduces capacity while preserving already banked minerals")
 	check(game.economy.deposit("minerals", 20) == 0, "over-capacity bank cannot accept further deliveries")
 	await release(game)
-	game = await fixture(); game.select_actor(game.core); game.scan(); game.select_actor(game.jeep)
+	game = await fixture(); game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); game.select_actor(game.jeep)
 	worker = game.units[1]
 	worker.position = game.GAS_DEPOSIT
 	worker.harvest_kind = "gas"; worker.harvest_origin = game.GAS_DEPOSIT
 	game.jeep.position = game.GAS_DEPOSIT + Vector3(3, 0, 0)
 	game.set_order(worker, "harvest", game.GAS_DEPOSIT)
 	await advance(game, 16)
-	check(game.jeep.gas_cargo >= 20 and game.economy.gas < 140, "gas is physically harvested into an unpiloted nearby carrier before being banked")
+	check(game.jeep.gas_cargo >= 20 and is_equal_approx(game.economy.gas, 140), "gas is physically harvested into an unpiloted nearby carrier before being banked")
 	game.jeep.board(game.units[4]); game.select_actor(game.jeep)
 	var fuel_before: float = game.economy.gas
 	game.stock_depot(); await advance(game, 20)
@@ -182,7 +182,7 @@ func infrastructure_checks() -> void:
 
 func mission_checks() -> void:
 	var game = await fixture()
-	game.select_actor(game.core); game.scan(); game.select_actor(game.jeep); game.board_squad()
+	game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); game.select_actor(game.jeep); game.board_squad()
 	await advance(game, 15)
 	check(game.jeep.has_driver() and game.jeep.passengers.size() == 3, "expedition crew physically boards one driver and three passengers")
 	game.set_order(game.jeep, "move", game.DEPOSIT + Vector3(0, 0, 5))

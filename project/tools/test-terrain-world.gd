@@ -89,26 +89,9 @@ func run() -> void:
 				game.advance_movement(0.1); game.process_order(engineer, 0.1)
 				if funded_ramp.complete: break
 		check(funded_ramp != null and funded_ramp.complete and funded_ramp.build_direction == 5 and game.economy.minerals == bank - 65, "rotated two-tile ramp can be funded and completed beside the raised tile")
-	# Discovery cannot skip a nearer active resource patch of either type.
-	game.select_actor(game.jeep); game.scan()
-	check(not game.scan_found, "scan cannot be used without selecting the Command Center")
-	game.select_actor(game.core); game.scan()
-	var known: Array = game.resource_nodes.filter(func(patch): return patch.discovered)
-	check(known.size() == 14 and known.all(func(patch): return patch.field in [0, 1]), "first scan reveals the nearest complete field of each kind")
-	check(game.core.scan_charge == 0, "scan consumes the full 120-electricity capacitor charge")
-	game.scan_cooldown = 0; game.core.scan_charge = 120
-	game.scan()
-	check(game.resource_nodes.filter(func(patch): return patch.discovered).size() == 14 and game.core.scan_charge == 120, "rescanning cannot skip active nearer fields or waste energy")
-	for patch in game.resource_nodes:
-		if patch.field == 0: patch.remaining = 0
-	game.scan()
-	check(game.resource_nodes.filter(func(patch): return patch.discovered).size() == 21 and not game.resource_nodes.any(func(patch): return patch.field in [3, 4, 5] and patch.discovered), "depleting a material field unlocks the next material field while methane remains blocked")
-	game.power.tick(game.structures, game.economy, 5)
-	check(game.core.scan_charge > 0 and game.power.used > 4, "scan recharge draws spare electricity from the HQ network")
-
 	game.core.hp = 0; game.cleanup_dead()
 	await process_frame
 	game.refresh_ui()
-	check(not game.context_buttons.scan.visible, "destroying the Command Center removes its scan command safely")
+	check(not game.context_buttons.has("scan"), "HQ exposes no resource scan command")
 	print("TERRAIN_WORLD_TEST_RESULT: ", failures, " failures")
 	quit(1 if failures else 0)

@@ -25,9 +25,9 @@ func run() -> void:
 	var total := 0
 	for patch in game.resource_nodes: total += int(patch.remaining)
 	check(total == 8000 and game.resource_nodes.size() > 30, "single-cell patches preserve all six field yields")
-	game.select_actor(game.core); game.scan()
+	game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game)
 	var patch: Dictionary = game.resource_at(game.DEPOSIT)
-	check(patch.discovered and game.resource_fields.field_remaining(game, patch) == 1200, "scan reveals a whole field and inspection sums its patches")
+	check(patch.discovered and game.resource_fields.field_remaining(game, patch) == 1200, "scouting reveals a field and inspection sums its patches")
 	var worker: ExpeditionUnit = game.units[0]
 	worker.cargo = 0; worker.mined_cargo = 0
 	var extractor: ExpeditionStructure = game.add_structure("extractor", patch.position)

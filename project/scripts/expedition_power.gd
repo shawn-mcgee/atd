@@ -14,8 +14,6 @@ static func covers(source: Node3D, point: Vector3) -> bool:
 
 const GENERATOR_OUTPUT := 12
 const GAS_PER_POWER_SECOND := 0.025
-const SCAN_ENERGY := 120.0
-const SCAN_CHARGE_RATE := 12.0
 var capacity := 0
 var demand := 0
 var used := 0
@@ -117,24 +115,18 @@ func tick(structures: Array, economy: RefCounted, dt: float) -> void:
 			for b in net.consumers:
 				var need: int = Rules.STRUCTURES[b.kind].power
 				if b.kind == kind and load + need <= available: served.append(b); load += need
-		var command_center: Node3D
-		for b in net.nodes:
-			if b.kind == "core": command_center = b; break
-		var charge := 0.0
-		if command_center != null and dt > 0: charge = maxf(0, minf(SCAN_CHARGE_RATE, minf(available - load, (SCAN_ENERGY - command_center.scan_charge) / dt)))
-		var rate := maxf(0, load + charge - int(net.auxiliary)) * GAS_PER_POWER_SECOND
+		var rate := maxf(0, load - int(net.auxiliary)) * GAS_PER_POWER_SECOND
 		var fueled: bool = rate == 0 or economy.spend({"gas": rate * dt})
 		if not fueled:
 			# A fractional final fuel tick falls back to HQ auxiliary output atomically.
-			available = int(net.auxiliary); served.clear(); load = 0; charge = 0; rate = 0
+			available = int(net.auxiliary); served.clear(); load = 0; rate = 0
 			for b in net.consumers:
 				var need: int = Rules.STRUCTURES[b.kind].power
 				if load + need <= available: served.append(b); load += need
-		capacity += available; used += load + ceili(charge); demand += ceili(charge); fuel_rate += rate
-		var grid_demand := ceili(charge)
+		capacity += available; used += load; fuel_rate += rate
+		var grid_demand := 0
 		for consumer in net.consumers: grid_demand += int(Rules.STRUCTURES[consumer.kind].power)
-		grids.append({"id": net.nodes[0].network, "capacity": available, "installed_capacity": int(net.capacity), "used": load + ceili(charge), "demand": grid_demand, "fuel_rate": rate})
-		if command_center != null: command_center.scan_charge = minf(SCAN_ENERGY, command_center.scan_charge + charge * dt)
+		grids.append({"id": net.nodes[0].network, "capacity": available, "installed_capacity": int(net.capacity), "used": load, "demand": grid_demand, "fuel_rate": rate})
 		for b in net.nodes: b.powered = available > 0 and (b.kind != "generator" or economy.gas > 0)
 		for b in served: b.powered = true
 	for b in structures:

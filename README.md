@@ -30,7 +30,6 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | C, then click | Selected drill vehicle clears a rock or mesa tile |
 | Delete | Destroy selected owned structures or units; no refund |
 | Y | Toggle selected repeaters |
-| Q | Scan from the selected Command Center; costs 120 charged electricity |
 | B / U | Board nearby infantry / unload passengers, then driver |
 | L / J / H | Collect nearby carried cargo / deposit cargo / return a vehicle to a home receiver |
 | G / R / X | Escort / repair targeting or selected turret reload / stop and clear orders |
@@ -51,9 +50,9 @@ Selection details and contextual commands share the bottom dock. Engineers have 
 
 Each new mission generates a seeded layout of rock ridges, passages, resource fields, extraction, and the hive. The landing zone and approaches to every resource field/objective stay clear. Restarting generates a different level. The help overlay and end screen show the seed; reproduce a map with `& .\Godot_v4.7.2-stable_win64.exe --path .\project -- --seed=42`.
 
-Start with **HQ, one engineer, and one marine**, **100 MAT**, and **100 CH4**. There are no starting vehicles, generators, repeaters, depots, tanks, barracks, or garages. HQ holds **100 MAT / 100 CH4**, accepts both delivered resources, relays power within **7m**, and supplies **4 auxiliary power** without methane. HQ consumes none of its own output when idle, so all four units are available to connected consumers; scanner charging uses spare power only while needed. Its dim light reaches **5.93m**, one tile step farther than before. HQ produces engineers with **1** and scout vehicles with **2** (60 MAT + 25 CH4, 10 seconds). Scouts still need a driver. Build infrastructure and recruit the rest of the expedition. The starting area has a two-minute damage grace for preparation; leaving it is dangerous immediately after initial probing begins.
+Start with **HQ, one engineer, and one marine**, **100 MAT**, and **100 CH4**. There are no starting vehicles, generators, repeaters, depots, tanks, barracks, or garages. HQ holds **100 MAT / 100 CH4**, accepts both delivered resources, relays power within **7m**, and supplies **4 auxiliary power** without methane. HQ consumes none of its own output when idle, so all four units are available to connected consumers. Its dim light reaches **5.93m**, one tile step farther than before. HQ produces engineers with **1** and scout vehicles with **2** (60 MAT + 25 CH4, 10 seconds). Scouts still need a driver. Build infrastructure and recruit the rest of the expedition. The starting area has a two-minute damage grace for preparation; leaving it is dangerous immediately after initial probing begins.
 
-Names float over structures only while selected. Mission objectives and their world models remain hidden until scouted. Resource scanning remains available; removing it is still an open idea.
+Names float over structures only while selected. Mission objectives and their world models remain hidden until scouted. Resource patches are discovered individually by friendly illumination and remain recorded on the minimap afterward. HQ starts beside three material cells (172 each, 516 total) and one methane cell (129). Distant fields require scouting; HQ has no resource scan.
 
 ## Coordinated tactics and turret ammunition
 
@@ -71,7 +70,7 @@ Ammunition turrets automatically reload when empty. Select turrets and press **R
 
 ## Economy, construction, and power
 
-Resources are **Materials (MAT)** and **Methane (CH4)**. Each field comprises seven one-cell patches, with the original field yield preserved. Scanning reveals the nearest active field of each resource. Click a surveyed patch to inspect its remaining amount and the field total. Engineers physically carry resources to the matching receiver; vehicles transport larger shipments. Mining expeditions require at least one working engineer and a separate driver for every vehicle.
+Resources are **Materials (MAT)** and **Methane (CH4)**. Remote fields comprise seven one-cell patches; starter deposits are smaller. Move units or crewed vehicles into the darkness to illuminate and discover resource cells. Mining automation only follows discovered patches. Click a surveyed patch to inspect its remaining amount and the field total. Engineers physically carry resources to the matching receiver; vehicles transport larger shipments. Mining expeditions require at least one working engineer and a separate driver for every vehicle.
 
 An **Extractor** costs 70 MAT + 10 CH4, occupies a resource patch, and consumes 2 power. An engineer gathers **3 resources per cycle** from an operating extractor, or 1 by hand. Extraction still requires an engineer and delivery. Selecting a receiver for mining chooses the nearest surveyed active field of its resource type.
 
@@ -79,7 +78,7 @@ Construction spends banked resources immediately, but an engineer must reach and
 
 Hex radius is **1m**, half the earlier size, while the map keeps its world extent. HQ reserves seven cells (center plus six neighbors); generators and barracks reserve compact three-cell triangles; the garage reserves a four-cell diamond. Other buildings use one cell, except two-cell ramps. Footprints rotate with T, and their previews match occupied cells. Adjacent terrain cells no longer cause a circular placement exclusion.
 
-HQ supplies four free auxiliary power; generators supplement it and burn methane only for demand beyond that auxiliary supply. A generator supplies **12 power** within **3.5m** (about two tile steps). A repeater extends the network over **10.4m**. Turning a repeater off disconnects its branch. Power overlays show each source's actual range and planned/offline connections. Consumers receive automatic priority; methane burn follows served demand and scanner charging.
+HQ supplies four free auxiliary power; generators supplement it and burn methane only for demand beyond that auxiliary supply. A generator supplies **12 power** within **3.5m** (about two tile steps). A repeater extends the network over **10.4m**. Turning a repeater off disconnects its branch. Power overlays show each source's actual range and planned/offline connections. Consumers receive automatic priority; methane burn follows served demand. Enemy sensors on scouts and Scanner structures still provide approximate hostile contacts without revealing enemies or resources.
 
 Select a connected structure, infantry unit, or vehicle to see its local grid usage and spare power beside the power icon. Separate grids are never combined into a global power total.
 

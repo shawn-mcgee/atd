@@ -76,7 +76,7 @@ func capture() -> void:
 		game.camera_zoom = 185 if mode == "terrain" else 32
 		game.select_actor(game.core if mode == "terrain" else tile)
 	if mode == "convoy":
-		game.select_actor(game.core); game.scan(); game.select_actor(game.jeep)
+		game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); game.select_actor(game.jeep)
 		game.complex_commands.start(game, [game.jeep, game.units[0], game.units[1], game.units[2], game.units[3], game.units[4]], game.resource_at(game.DEPOSIT))
 		await advance(game, 30)
 		game.focus = game.DEPOSIT; game.camera_zoom = 32
@@ -85,7 +85,7 @@ func capture() -> void:
 		for b in game.structures:
 			if b.kind == "barracks": game.select_actor(b); break
 	if mode in ["outpost", "headlights", "emergency"]:
-		game.select_actor(game.core); game.scan(); game.select_actor(game.jeep); game.board_squad()
+		game.select_actor(game.core); game.light.add_source(game.DEPOSIT, 8); game.light.add_source(game.GAS_DEPOSIT, 8); game.resource_fields.discover(game); game.select_actor(game.jeep); game.board_squad()
 		await advance(game, 15)
 		game.set_order(game.jeep, "move", game.DEPOSIT + Vector3(0, 0, 5))
 		await advance(game, 5 if mode == "headlights" else 14)

@@ -45,10 +45,9 @@ func run() -> void:
 	check(game.find_receiver(engineer.position, "minerals") == game.core and game.find_receiver(engineer.position, "gas") == game.core, "both delivery routes fall back to HQ without depots or tanks")
 	game.deposit_cargo(engineer, game.core)
 	check(game.economy.minerals == minerals + 7 and game.economy.gas == gas + 4 and engineer.cargo_total() == 0, "HQ physically receives both currencies in one delivery")
-	game.economy.gas = 0; game.core.scan_charge = 0; game.power.tick(game.structures, game.economy, 10)
-	check(game.core.powered and game.core.scan_charge > 0 and game.economy.gas == 0, "HQ auxiliary power keeps scanning recoverable without methane")
-	game.select_actor(game.core); game.core.scan_charge = 120; game.scan()
-	check(game.scan_found, "resource scanning remains available; the tentative removal was not implemented")
+	game.economy.gas = 0; game.power.tick(game.structures, game.economy, 10)
+	check(game.core.powered and game.power.used == 0 and game.economy.gas == 0, "HQ auxiliary power remains available without methane or resource scan charging")
+	game.select_actor(game.core)
 	var names_hidden := true
 	for building in game.structures:
 		for child in building.get_children():

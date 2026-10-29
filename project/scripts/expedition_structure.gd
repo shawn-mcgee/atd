@@ -34,7 +34,6 @@ var gate_bar: MeshInstance3D
 var gate_bars: Array[MeshInstance3D] = []
 var connections: Array[Vector3] = []
 var build_direction := 0
-var scan_charge := 120.0
 var terrain_collision: StaticBody3D
 var visual_state := -1
 var status_operational = null

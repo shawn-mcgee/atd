@@ -88,7 +88,6 @@ func setup(world: Node3D) -> void:
 	game.command_scroll = ScrollContainer.new(); game.command_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; game.command_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL; commands.add_child(game.command_scroll)
 	order_grid = GridContainer.new(); order_grid.columns = 5; order_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	order_grid.add_theme_constant_override("h_separation", 6); order_grid.add_theme_constant_override("v_separation", 6); game.command_scroll.add_child(order_grid)
-	command(order_grid, "scan", "Scan", "Q", game.scan); game.scan_button = game.context_buttons.scan
 	command(order_grid, "board", "Board", "B", game.board_squad)
 	command(order_grid, "unload", "Unload", "U", game.unload)
 	command(order_grid, "expedition", "Explore", "E", func(): game.choose_expedition(false))
@@ -148,7 +147,7 @@ func make_help() -> void:
 	card.offset_left = -280; card.offset_right = 280; card.offset_top = -240; card.offset_bottom = 240
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 12); card.add_child(content)
 	game.label(content, "Controls", 22, game.MINT)
-	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nArrows / WSD pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag orbits\nQ scan - E explore - M mine\nA attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload - N auto recharge\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nEscape cancels targeting - F1 closes help", 14)
+	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nArrows / WSD pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag orbits\nE explore - M mine\nA attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload - N auto recharge\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nEscape cancels targeting - F1 closes help", 14)
 	help_footer = game.label(content, "", 12, Color("8fa8b4"))
 	var buttons := row(content, 10)
 	game.button(buttons, "Close", toggle_help)
@@ -209,8 +208,6 @@ func update() -> void:
 	game.message.visible = game.notice_time > 0 and not game.message.text.is_empty()
 	game.pause_button.text = "Resume" if game.paused else "Pause"
 	after_context(); summarize_selection()
-	game.scan_button.disabled = not is_instance_valid(game.core) or not game.core.powered or game.core.scan_charge < game.Power.SCAN_ENERGY or game.scan_cooldown > 0
-	game.scan_button.tooltip_text = "Survey resource fields [Q]\nCharge %.0f / 120" % game.core.scan_charge if is_instance_valid(game.core) else "HQ unavailable"
 
 func summarize_selection() -> void:
 	selection_grid = {}; grid_panel.visible = false
