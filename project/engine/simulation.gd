@@ -222,6 +222,7 @@ func finish(won: bool, reason: String) -> void:
 	ended = true; victorious = won; notify(reason)
 
 func shot(a: Vector3, b: Vector3, color: Color, shooter: SimEntity = null) -> void:
+	if shooter is SimUnit: director.check_hive_alarm(self, shooter)
 	event_serial += 1
 	events.append({"serial": event_serial, "tick": tick_number, "type": "shot", "a": a, "b": b, "color": color,
 		"shooter": shooter.simulation_id if shooter != null else 0, "weapon": shooter.kind if shooter != null else ""})
@@ -608,7 +609,7 @@ func combat_tick(_dt: float) -> void:
 	for creature in creatures:
 		var target := creature.target
 		if creature.hp <= 0 or not SimEntity.valid(target) or target.hp <= 0 or creature.cooldown > 0 or creature.state not in ["probing", "assault", "hunting"]: continue
-		if not director.attack_allowed(self, target): continue
+		if not director.attack_allowed(self, target, creature): continue
 		if target is SimUnit and target.aboard != null: continue
 		if creature.position.distance_to(target.position) < 3 and navigation.can_see(creature.position, target.position):
 			target.hp -= float(Rules.PREDATORS[creature.kind].damage); creature.cooldown = float(Rules.PREDATORS[creature.kind].attack_delay)
@@ -618,6 +619,7 @@ func cleanup_dead() -> void:
 	var changed := false
 	for i in range(creatures.size() - 1, -1, -1):
 		if creatures[i].hp <= 0:
+			director.member_lost(creatures[i])
 			creatures[i].queue_free(); creatures.remove_at(i)
 	for i in range(units.size() - 1, -1, -1):
 		var unit := units[i]

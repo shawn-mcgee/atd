@@ -49,7 +49,16 @@ func run() -> void:
 	var gate: SimStructure = sim.add_structure("gate", Vector3(10, 0, -10))
 	var frame_rect: Rect2 = game.sprites.sprite_rect("gate_frame", 1)
 	check(frame_rect == game.sprites.sprite_rect("gate_closed", 1) and frame_rect == game.sprites.sprite_rect("gate_open", 1), "gate layers retain shared scale and registration")
-	check(not game.sprites.hit_building(game, gate, PackedVector2Array(), game.world_to_screen(gate.position + Vector3(0.43, 0, 0))), "transparent space beside gate panels does not become a sprite hit")
+	check(not game.sprites.hit_building(game, gate, PackedVector2Array(), game.world_to_screen(gate.position + Vector3(0, 0, 0.43))), "transparent space beside rotated gate panels does not become a sprite hit")
+	var gate_layout: Dictionary = game.sprites.building_layout(game, gate, PackedVector2Array())
+	check(is_equal_approx(gate_layout.angle, PI / 2), "gate art spans the wall line rather than turning the passage sideways")
+	var gate_hits := true
+	for direction in range(6):
+		gate.build_direction = direction
+		var offset := Vector2(0, 0.69).rotated(direction * PI / 3 + PI / 2)
+		gate_hits = gate_hits and game.sprites.hit_building(game, gate, PackedVector2Array(), game.world_to_screen(gate.position + Vector3(offset.x, 0, offset.y)))
+	check(gate_hits, "rotated gate posts remain selectable at all six build directions under camera rotation")
+	gate.build_direction = 0
 	game.sprites.tick(game, 0); gate.gate_open = true; game.sprites.tick(game, 0.1)
 	check(game.sprites.gates[gate.simulation_id] > 0 and game.sprites.gates[gate.simulation_id] < 1, "gate animation interpolates in view state")
 	var moving_parts: Array[Dictionary] = game.sprites.gate_parts(gate)

@@ -130,7 +130,10 @@ static func draw_world(game) -> void:
 		var color := Color("7bf4d0") if valid else Color("ee7185")
 		game.draw_colored_polygon(polygon, Color(color, 0.3))
 		var key: String = game.build_kind + "_base" if Rules.TURRETS.has(game.build_kind) else game.build_kind
-		game.sprites.polygon(game, key, polygon, point, game.placement_direction * PI / 3, Color(color, 0.6))
+		if game.build_kind == "gate":
+			var ghost := SimStructure.new(); ghost.setup("gate", point, false, game.placement_direction)
+			game.sprites.draw_gate(game, ghost, Color(color, 0.6))
+		else: game.sprites.polygon(game, key, polygon, point, game.placement_direction * PI / 3, Color(color, 0.6))
 		outline(game, polygon, color, 2)
 		if Power.is_electrical(game.build_kind):
 			for source in game.structures:

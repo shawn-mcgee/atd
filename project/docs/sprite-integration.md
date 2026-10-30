@@ -13,7 +13,7 @@ All paths above are relative to `project/`, except the root preparation/test scr
 
 ## Corrections and layout
 
-Ramps and platforms remain unavailable for player construction. Walls use the full-tile Batch 7 sprite in world drawing, picking and the selection mask, without connector arms. `python tools/prepare-sprites.py --wall-only` refreshes just the wall (Pillow required).
+Ramps and platforms remain unavailable for player construction. Walls use the full-tile Batch 7 sprite in world drawing, picking and the selection mask, without connector arms. `python tools/prepare-sprites.py --wall-only` refreshes just the wall (Pillow required). `python tools/prepare-sprites.py --fortifications` refreshes only walls and all three gate layers, preserving the current terrain and resource art.
 
 
 
@@ -27,7 +27,7 @@ Buildings draw transparent art without filled polygon foundations. Their existin
 
 Turret bases and heads are separate. Heads and firing infantry aim using shot events tagged with stable shooter IDs; no new target acquisition enters the simulation. Infantry hold the firing direction between shots, including automatic fire while moving. `muzzle_uv` in the preparation script defines each rifle/nozzle/barrel tip relative to its cropped sprite; turret head pivots and sizes are stored in the same manifest. Tracers, flashes, and flames use those attachments with the same rotation and interpolated origin as the drawn weapon. Enemy melee attacks use hit effects rather than gun flashes. Vehicle emergency indicators remain visible, while the forward operating indicator depends on driver/battery state. The supplied art has baked lens colors rather than separate emission layers: a painted bright lens does not emit gameplay light.
 
-Gates use the Batch 7 frame, closed-leaf and open-leaf sprites with shared scale, pivot and vertical registration. The two leaf halves slide between their registered positions, blending their authored states during the short transition. Drawing, alpha picking and selection use the same component geometry. Amber/teal/red indicators preserve power and lock feedback. Opening interpolation lives in the view and reads `gate_open`; pathfinding, power, locking and auto-close rules are unchanged.
+Gates use the Batch 7 frame, closed-leaf and open-leaf sprites with shared scale, pivot and vertical registration. The two leaf halves slide between their registered positions, blending their authored states during the short transition. Drawing, alpha picking and selection use the same component geometry. Amber/teal/red indicators preserve power and lock feedback. Opening interpolation lives in the view and reads `gate_open`; pathfinding, power, locking and auto-close rules are unchanged. A shared 90-degree correction aligns the authored panels with the wall line; placement ghosts, all build directions, camera rotation, alpha picking and selection share this correction.
 
 Resources choose full/medium/low art using the remaining fraction relative to a view-owned starting quantity. Wrecks, the Hive Core, repair sparks, and weapon effects use their corresponding regions. Existing SVG resource icons remain. Optional cargo/smoke/alien-hit regions are available in the catalog without introducing new gameplay or cosmetic clutter.
 

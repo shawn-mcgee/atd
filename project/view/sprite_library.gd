@@ -2,6 +2,7 @@ extends RefCounted
 ## Atlas mapping, orientation, hit masks and effects belong exclusively to the view.
 const PATH := "res://assets/sprites/"
 const FLAT_TOP := [ "turret_base", "laser_turret_base", "flame_turret_base"]
+const GATE_ART_ANGLE := PI / 2
 var manifest: Dictionary
 var textures: Dictionary = {}
 var regions: Dictionary = {}
@@ -105,6 +106,7 @@ func building_key(building: SimStructure, stolen: bool = false) -> String:
 
 func building_layout(game, building: SimStructure, vertices: PackedVector2Array) -> Dictionary:
 	var angle := building.build_direction * PI / 3
+	if building.kind == "gate": angle += GATE_ART_ANGLE
 	if building.kind in ["platform", "wall", "gate"]:
 		var data: Dictionary = manifest.sprites[building_key(building)]
 		return {"point": building.position, "angle": angle, "size": Vector2(data.world_size[0], data.world_size[1])}
@@ -124,7 +126,7 @@ func draw_building(game, building: SimStructure, vertices: PackedVector2Array, t
 
 func hit_building(game, building: SimStructure, vertices: PackedVector2Array, screen: Vector2) -> bool:
 	if building.kind == "gate":
-		var local: Vector2 = (screen - game.world_to_screen(building.position)).rotated(-building.build_direction * PI / 3 - game.camera_angle) / game.zoom
+		var local: Vector2 = (screen - game.world_to_screen(building.position)).rotated(-building.build_direction * PI / 3 - GATE_ART_ANGLE - game.camera_angle) / game.zoom
 		for part in gate_parts(building):
 			var rect: Rect2 = part.rect
 			if not rect.has_point(local) or part.alpha < 0.2: continue
@@ -207,7 +209,7 @@ func gate_parts(building: SimStructure) -> Array[Dictionary]:
 	return parts
 
 func draw_gate(game, building: SimStructure, tint: Color = Color.WHITE) -> void:
-	var angle: float = building.build_direction * PI / 3 + game.camera_angle
+	var angle: float = building.build_direction * PI / 3 + GATE_ART_ANGLE + game.camera_angle
 	game.draw_set_transform(game.world_to_screen(building.position), angle, Vector2.ONE * game.zoom)
 	for part in gate_parts(building):
 		var entry: Dictionary = manifest.sprites[part.key]

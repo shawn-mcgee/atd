@@ -16,7 +16,7 @@ The model assets, Asset Forge pipeline, 3D renderer, and shaders have been remov
 2. Send infantry to the discovered **CORE** marker at the **Lightless Hive**. Right-click the hive to take the **Hive Core**. Extraction must be repaired before the initial theft.
 3. Bring the carrier within **7m** of the beacon and hold for **60 seconds**. Boarding a vehicle keeps the core with its carrier.
 
-The Lightless defend their hive aggressively. Theft triggers committed pursuit, twice the population ceiling (32), and faster reinforcements. If the carrier dies, the core drops; another infantry unit can retrieve it with a right-click. A Lightless reaching the dropped core loses the mission. Destroying HQ also loses the mission.
+The Lightless gather along light boundaries, send runner probes, and build toward larger assaults over time. Stalkers flank support targets and brutes breach defenses. Damaging the hive alerts groups within 55 hex tiles. See [enemy AI](project/docs/enemy-ai.md) for pacing and behavior. Theft triggers committed pursuit, twice the population ceiling (32), and faster reinforcements. If the carrier dies, the core drops; another infantry unit can retrieve it with a right-click. A Lightless reaching the dropped core loses the mission. Destroying HQ also loses the mission.
 
 Leaving the extraction radius resets the timer. A destroyed extraction beacon becomes repairable ruins and resets extraction; it can be repaired again. Delivering materials supports expansion and no longer ends the mission.
 

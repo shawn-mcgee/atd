@@ -1,15 +1,7 @@
-- [x] Allow structure placement over units; blueprints remain fully walkable until completion safely clears occupants.
+Add rally points for structures that can spawn units. Structures that spawn units should ideally place the unit on an adjacent tile that is reachable by the rally point.
 
-- [x] Require engineers to work on or adjacent to their target's footprint when building, repairing, harvesting, delivering, or collecting cargo.
+Add some visual feedback when you click and issues commands.
 
-- [x] Keep direct miners and expeditions assigned to the same resource field across depleted patches and delivery trips.
+Add some visual feedback when engineers are mining.
 
-- [x] Prevent interaction with patches beneath a placed extractor.
-
-- [x] Show remaining materials and methane when selecting an extractor.
-
-- [x] Clarify power status, signed generation/consumption, grid capacity, distribution links and coverage. Show grid status only for electrical structures.
-
-- [x] Support right-click and Mine commands on extractors, including those with no deposit on their center tile.
-
-- [x] Hide covered patches in the world and minimap without removing their data; reveal remaining patches when the extractor is destroyed.
+Add a visualization so you can see queued commands (lines showing where are they going next, and maybe even icons to show what thing they are about to do, only visible when you select a unit)

@@ -50,8 +50,8 @@ func run() -> void:
 	clear_pack(game)
 	var building: SimStructure = game.add_structure("generator", Vector3(-40, 0, -12))
 	game.rebuild_navigation()
-	var hunter: SimPredator = game.add_creature(building.position + Vector3(8, 0, 0), 90)
-	director.add_group(building.position, 90, 1); director.groups[-1].phase = "probing"
+	var hunter: SimPredator = game.add_creature(building.position + Vector3(8, 0, 0), 90, "runner")
+	director.add_group(building.position, 90, 1)
 	game.elapsed = 80; game.rebuild_light(); director.tick(game, 0.4)
 	check(hunter.target == building and hunter.state == "hunting", "a probe that observes an undefended structure commits to attacking it")
 	var hp := building.hp
@@ -59,14 +59,14 @@ func run() -> void:
 	check(building.hp < hp and hunter.position.distance_to(building.position) < 3 and not game.navigation.blocked(hunter.position), "creatures approach a solid structure closely enough to bite and damage it")
 	var guard: SimUnit = game.add_unit("marine", building.position + Vector3(0, 0, 4))
 	game.light.sources.clear(); game.light.add_source(building.position, 20)
-	director.groups[-1].memory.clear(); director.groups[-1].phase = "probing"; hunter.hp = hunter.max_hp; hunter.loss = 0
+	director.groups[-1].memory.clear(); director.change(director.groups[-1], "lurking", game); hunter.hp = hunter.max_hp; hunter.loss = 0
 	director.tick(game, 0.4)
-	check(hunter.target == null and hunter.state == "probing", "a guarded, illuminated structure does not trigger an opportunistic probe attack")
+	check(hunter.target == null, "a guarded, illuminated structure does not trigger an opportunistic hunting attack")
 	game.rebuild_light(); director.tick(game, 0.4)
 	check(hunter.target == building and hunter.state == "hunting", "darkness makes a discovered structure a hunting target even when an infantry guard is nearby")
 	game.light.sources.clear(); game.light.add_source(building.position, 20)
 	game.jeep.board(guard); director.tick(game, 0.4)
-	check(hunter.target == building and hunter.state == "hunting", "boarding the guard exposes an undefended structure even when its surroundings remain lit")
+	check(hunter.target == null, "an undefended illuminated structure still requires an explicit probe or assault")
 	clear_pack(game)
 	var worker: SimUnit = game.add_unit("engineer", Vector3(-30, 0, -35))
 	hunter = game.add_creature(worker.position + Vector3(10, 0, 0), 90, "runner")
@@ -86,7 +86,7 @@ func run() -> void:
 	worker.position = Vector3(-30, 0, -40); hunter.position = worker.position + Vector3(10, 0, 0)
 	hunter.hp = hunter.max_hp; hunter.loss = 0; director.groups[-1].loss = 0
 	game.rocks.append({"position": worker.position + Vector3(5, 0, 0), "radius": 1.8})
-	game.rebuild_navigation(); director.groups[-1].anchor = worker.position; director.groups[-1].memory.clear(); director.groups[-1].phase = "probing"
+	game.rebuild_navigation(); director.groups[-1].anchor = worker.position; director.groups[-1].memory.clear(); director.groups[-1].phase = "lurking"
 	game.elapsed = 80; director.tick(game, 0.4)
 	check(not director.groups[-1].memory.any(func(memory): return memory.actor == worker) and hunter.target == null, "creatures cannot acquire dark prey through an unseen terrain barrier")
 	game.rocks.clear(); game.rebuild_navigation(); director.tick(game, 0.4)

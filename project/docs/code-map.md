@@ -23,7 +23,7 @@ Read `AGENTS.md` first. Open only the relevant entries below. The current game a
 | Combat facing, muzzle alignment, mining adjacency | `view/sprite_library.gd`, root `tools/prepare-sprites.py`, `engine/resource_fields.gd`; shot dispatch in `engine/simulation.gd` | `combat-and-mining`, `sprites`, mining expedition suites |
 | Infantry and convoy patrol/tactics | `engine/tactical_orders.gd`, `tactical_groups.gd`, `expedition_patrol.gd` | `expedition-patrol`, `mission-upgrade`, `engine` |
 | Economy, power, gates, HQ healing, drilling | `engine/expedition_economy.gd`, `expedition_power.gd`, `gate_passage.gd`, `vehicle_systems.gd` | `mission-upgrade`, `expedition-delivery`, `engine` |
-| Creature AI, reinforcement, combat | `engine/predator_director.gd`, `predator.gd`, `turret_system.gd`; `simulation.gd`: `combat_tick` | `predators`, `predator-pressure`, `mission-upgrade` |
+| Creature AI, reinforcement, combat | [Enemy AI](enemy-ai.md); `engine/predator_director.gd`, `predator_tactics.gd`, `predator.gd`, `turret_system.gd`; `simulation.gd`: `combat_tick` | `enemy-tactics`, `predators`, `predator-pressure`, `mission-upgrade` |
 | Expanded map and terrain density | `engine/scenario_layout.gd`, `expedition_terrain.gd`; radius 84, 72 ridges | `map-generation`, `mission-upgrade`, `darkness` |
 | Map generation, mission lifecycle | `engine/scenario_layout.gd`, `hive_mission.gd` | `mission-upgrade`, `gameplay-baseline` |
 | Export, test runner, rendered preview | root `tools/build-web.ps1`, `tools/test-game.py`; `project/tools/preview-prototype.gd` | Run the affected tool |

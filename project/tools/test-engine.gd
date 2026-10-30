@@ -32,6 +32,12 @@ func run() -> void:
 				for key in left:
 					if JSON.stringify(left[key], "", true, true) != JSON.stringify(right[key], "", true, true): print("DIFF ", key, " ", left[key], " / ", right[key])
 	check(all_equal, "serialized tick-stamped replay reproduces movement, commands, production and AI")
+	a.elapsed = 600; b.elapsed = 600
+	var late_equal := true
+	for tick in range(40):
+		a.step(); b.step()
+		if a.state_hash() != b.state_hash(): late_equal = false
+	check(late_equal, "late pressure, species roles and reinforcements remain deterministic")
 	check(a.units.size() == 3 and a.core.queue.is_empty(), "HQ engineer production is preserved")
 	check(engineer.position.distance_to(Vector3(-10, 0, -8)) < 1, "queued movement reaches its destination")
 	var saved_tick: int = a.tick_number

@@ -14,17 +14,25 @@ var gait_clock := 0.0
 var probe_goal := Vector3.INF
 var probe_anchor := Vector3.INF
 var probe_until := 0.0
+var probe_active := false
+var committed := false
+var retreat_remaining := 0.0
+var target_until := 0.0
+var route_avoids_light := true
+var route_revision := -1
 
 func setup(point: Vector3, group_id: int, type: String = "stalker", _variation: int = 0) -> void:
 	kind = type if Rules.PREDATORS.has(type) else "stalker"
 	max_hp = float(Rules.PREDATORS[kind].hp); hp = max_hp; position = point; goal = point; group = group_id; visible = false
 func navigate(point: Vector3, navigation: RefCounted, illumination: RefCounted = null) -> void:
-	if point.distance_to(goal) < 1.5 and repath > 0: return
+	var avoid_light := state != "assault"
+	if point.distance_to(goal) < 1.5 and repath > 0 and avoid_light == route_avoids_light and route_revision == navigation.revision: return
+	route_avoids_light = avoid_light; route_revision = navigation.revision
 	goal = point
 	path = navigation.path(position, point, null, false)
 	# Most habitat routes are already dark. Only pay for weighted light avoidance
 	# when the ordinary route would actually cross protective illumination.
-	if illumination != null and state in ["lurking", "staging", "retreating"]:
+	if illumination != null and avoid_light:
 		var crosses_light := false
 		for i in range(1, path.size()):
 			var samples := maxi(1, ceili(path[i - 1].distance_to(path[i]) / 2))
@@ -37,6 +45,7 @@ func navigate(point: Vector3, navigation: RefCounted, illumination: RefCounted =
 
 func move_tick(dt: float) -> void:
 	repath -= dt
+	retreat_remaining = maxf(0, retreat_remaining - dt)
 	cooldown = maxf(0, cooldown - dt)
 	if path_index >= path.size(): return
 	var next := path[path_index]
@@ -50,5 +59,9 @@ func move_tick(dt: float) -> void:
 	gait_clock += dt * speed * 3.0
 
 func hurt(amount: float) -> void:
+	if amount <= 0: return
 	hp -= amount
 	loss += amount
+	if probe_active and not committed:
+		state = "retreating"; target = null; retreat_remaining = 8
+		path.clear(); repath = 0

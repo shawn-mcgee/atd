@@ -300,9 +300,15 @@
   },
   "predators_ai": {
     "first_probe_time": 18.0,
-    "base_grace": 55.0,
+    "base_grace": 120.0,
     "reinforcement_interval": 15.0,
-    "max_creatures": 16
+    "max_creatures": 16,
+    "late_max_creatures": 32,
+    "late_group_bonus": 3,
+    "escalation_seconds": 480.0,
+    "hive_alert_tiles": 55,
+    "hive_defense_seconds": 45.0,
+    "probe_success_seconds": 4.0
   },
   "mission": {
     "extraction_time": 60.0,

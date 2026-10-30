@@ -71,7 +71,7 @@ MUZZLES = {"marine": (.50, .985), "flamer": (.55, .98), "turret_head": (.50, .01
 SOUTH = {"engineer", "marine", "flamer", "runner", "stalker", "brute", "scout", "jeep", "drill"}
 
 
-def update_batch7(wall_only=False):
+def update_batch7(wall_only=False, fortifications_only=False):
     """Refresh terrain/fortifications without replacing approved resource patches."""
     stem = "batch_07_terrain_and_connections"
     source = SOURCE / (stem + ".png")
@@ -85,6 +85,8 @@ def update_batch7(wall_only=False):
     selected = {10: "wall"} if wall_only else {
         0: "ground_a", 1: "ground_b", 2: "cliff_top", 10: "wall",
         12: "gate_frame", 13: "gate_closed", 14: "gate_open"}
+    if fortifications_only:
+        selected = {index: name for index, name in selected.items() if name == "wall" or name.startswith("gate_")}
     if not wall_only:
         import numpy as np
         from scipy import ndimage
@@ -165,6 +167,9 @@ def update_batch7(wall_only=False):
 
 
 def main():
+    if "--fortifications" in sys.argv:
+        update_batch7(fortifications_only=True)
+        return
     if "--wall-only" in sys.argv:
         update_batch7(wall_only=True)
         return

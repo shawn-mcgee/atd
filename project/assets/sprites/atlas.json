@@ -61,16 +61,16 @@
         2048,
         2048
       ],
-      "sha256": "a68728ca32015bdbd487af5e4e453e42600c9c9ca60be6d99ddaa51e4cc2b924",
+      "sha256": "9ca53b17ed436325530bbe73f2cfdda18020db575b27c82366c6bf6517851b1b",
       "source_sha256": "8226a86b77996a5952f0266663951d267fd025d9d1d86dfee96c250d92760fbb",
       "sprite_source_sha256": {
-        "wall": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
+        "wall": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8",
         "ground_a": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
         "ground_b": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
         "cliff_top": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
-        "gate_frame": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
-        "gate_closed": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
-        "gate_open": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0"
+        "gate_frame": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8",
+        "gate_closed": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8",
+        "gate_open": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8"
       }
     },
     "ground_a_fit": {
@@ -989,10 +989,10 @@
     "wall": {
       "sheet": "batch_07_terrain_and_connections",
       "region": [
-        1174,
-        1160,
-        211,
-        239
+        1141,
+        1144,
+        277,
+        271
       ],
       "pivot": [
         0.5,
@@ -1000,7 +1000,7 @@
       ],
       "world_size": [
         1.82,
-        2.0615165876777253
+        1.78057761732852
       ],
       "rotation_degrees": 0
     },
@@ -1781,17 +1781,17 @@
     "gate_frame": {
       "sheet": "batch_07_terrain_and_connections",
       "region": [
-        186,
-        1644,
-        140,
-        261
+        128,
+        1601,
+        256,
+        309
       ],
       "pivot": [
         0.5,
         0.5
       ],
       "world_size": [
-        0.9762452107279694,
+        1.507831715210356,
         1.82
       ],
       "rotation_degrees": 0
@@ -1799,17 +1799,17 @@
     "gate_closed": {
       "sheet": "batch_07_terrain_and_connections",
       "region": [
-        698,
-        1644,
-        140,
-        261
+        640,
+        1601,
+        256,
+        309
       ],
       "pivot": [
         0.5,
         0.5
       ],
       "world_size": [
-        0.9762452107279694,
+        1.507831715210356,
         1.82
       ],
       "rotation_degrees": 0
@@ -1817,21 +1817,21 @@
     "gate_open": {
       "sheet": "batch_07_terrain_and_connections",
       "region": [
-        1210,
-        1644,
-        140,
-        261
+        1152,
+        1601,
+        256,
+        309
       ],
       "pivot": [
         0.5,
         0.5
       ],
       "world_size": [
-        0.9762452107279694,
+        1.507831715210356,
         1.82
       ],
       "rotation_degrees": 0,
-      "slide_distance": 0.1603831417624521
+      "slide_distance": 0.05889967637540453
     }
   },
   "notes": "Resource patches retain approved art. Batch 7 terrain, full-tile walls and registered gate layers use the updated source. South-facing actors rotate 180 degrees at draw time."
