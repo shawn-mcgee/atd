@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Against the Darkness"
-run/main_scene="res://scenes/top_down.tscn"
+run/main_scene="res://scenes/loading.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 

@@ -14,6 +14,12 @@ var surfaces: Dictionary = {}
 var initialized := false
 var last_dirty: Dictionary = {}
 var revision := 0
+var route_cache: Dictionary = {}
+var route_cache_revision := -1
+var slope_cells: Dictionary = {}
+var light_weight_key: Array = []
+var light_weight_ids := PackedInt64Array()
+var light_weight_values := PackedFloat64Array()
 
 func _init() -> void:
 	for r in range(-Terrain.MAP_RADIUS, Terrain.MAP_RADIUS + 1):
@@ -69,6 +75,11 @@ func rebuild(blockers: Array[Dictionary]) -> void:
 		for other in friendly_graph.get_point_connections(id): friendly_graph.disconnect_points(id, other)
 		graph.set_point_disabled(id, blocked(graph.get_point_position(id)))
 		friendly_graph.set_point_disabled(id, blocked(graph.get_point_position(id), true))
+	slope_cells.clear()
+	if terrain.natural_enabled:
+		mark_slope(Hex.snap(Vector3(43.3, 0, 6), RADIUS), 0)
+	for structure in terrain.structures:
+		if SimEntity.valid(structure) and structure.kind == "ramp" and structure.complete and structure.hp > 0: mark_slope(structure.position, structure.build_direction)
 	var edges: Dictionary = {}
 	for cell in last_dirty:
 		var id: int = cells[cell]
@@ -82,6 +93,10 @@ func rebuild(blockers: Array[Dictionary]) -> void:
 			for nav in [graph, friendly_graph]:
 				if nav.is_point_disabled(id) or nav.is_point_disabled(other): continue
 				if clear_segment(nav.get_point_position(id), nav.get_point_position(other), nav == friendly_graph): nav.connect_points(id, other)
+
+func mark_slope(anchor: Vector3, direction_index: int) -> void:
+	slope_cells[Hex.to_axial(anchor, RADIUS)] = true
+	slope_cells[Hex.to_axial(anchor - Terrain.direction(direction_index) * Terrain.SPACING, RADIUS)] = true
 
 func blocked(point: Vector3, friendly: bool = false) -> bool:
 	if not Terrain.contains(point): return true
@@ -109,10 +124,21 @@ func clear_segment(a: Vector3, b: Vector3, friendly: bool = false) -> bool:
 	# string-pulling cut diagonally over its raised side wall.
 	var maximum_rise := horizontal / steps * 1.0 + 0.005
 	var previous := terrain.height(a)
+	var last_cell := Vector2i(2147483647, 2147483647)
+	var flat_height := 0.0
 	for i in range(steps + 1):
 		var sample := a.lerp(b, float(i) / steps)
-		var height := terrain.height(sample)
-		if not Terrain.contains(sample) or solid_at(sample) or absf(height - previous) > maximum_rise: return false
+		# Share one axial conversion for bounds, solids and elevation. Flat cells
+		# use the graph's authoritative height; only ramp samples need interpolation.
+		var cell := Hex.to_axial(sample, RADIUS)
+		if not cells.has(cell): return false
+		if cell != last_cell:
+			last_cell = cell; flat_height = graph.get_point_position(cells[cell]).y
+		var height: float = terrain.height(sample) if slope_cells.has(cell) or not initialized else flat_height
+		if solid_cells.has(cell):
+			var obstacle: Dictionary = solid_cells[cell]
+			if sample.y >= obstacle.position.y - 0.1 and sample.y < obstacle.position.y + obstacle.height + 0.2: return false
+		if absf(height - previous) > maximum_rise: return false
 		previous = height
 	for obstacle in geometry_obstacles:
 		if obstacle.has("cell"): continue
@@ -129,6 +155,17 @@ func clear_segment(a: Vector3, b: Vector3, friendly: bool = false) -> bool:
 	return true
 
 func path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: bool = true) -> PackedVector3Array:
+	# Probe planning and creature navigation often request the same exact route.
+	# Packed arrays are copy-on-write, so callers cannot mutate the cached result.
+	if route_cache_revision != revision or route_cache.size() >= 256:
+		route_cache.clear(); route_cache_revision = revision
+	var key := [a, b, friendly, hash(illumination.sources) if illumination != null else 0]
+	if route_cache.has(key): return route_cache[key]
+	var result := find_path(a, b, illumination, friendly)
+	route_cache[key] = result
+	return result
+
+func find_path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: bool = true) -> PackedVector3Array:
 	# The hex graph is only a search scaffold. Units keep continuous world positions
 	# and receive exact free-space destinations, with line-of-sight string pulling.
 	if not Terrain.contains(b): return PackedVector3Array()
@@ -140,10 +177,11 @@ func path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: boo
 	var finish := nav.get_closest_point(b)
 	if start < 0 or finish < 0: return PackedVector3Array()
 	if illumination != null:
-		for id in nav.get_point_ids(): nav.set_point_weight_scale(id, 1.0 + illumination.deterrence(nav.get_point_position(id)) * 18.0)
+		cache_light_weights(illumination)
+		for i in range(light_weight_ids.size()): nav.set_point_weight_scale(light_weight_ids[i], light_weight_values[i])
 	var result := nav.get_point_path(start, finish)
 	if illumination != null:
-		for id in nav.get_point_ids(): nav.set_point_weight_scale(id, 1.0)
+		for id in light_weight_ids: nav.set_point_weight_scale(id, 1.0)
 	if result.is_empty(): return result
 	if not blocked(b, friendly) and traversable_segment(result[result.size() - 1], b, illumination, friendly): result.append(b)
 	var smooth := PackedVector3Array([a])
@@ -157,6 +195,26 @@ func path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: boo
 		if smooth[smooth.size() - 1].distance_to(result[furthest]) > 0.05: smooth.append(result[furthest])
 		cursor = furthest + 1
 	return smooth
+
+func cache_light_weights(illumination: RefCounted) -> void:
+	# All cells outside deterrent light radii have weight 1. Cache only deviations;
+	# this preserves exact costs while avoiding two full-map sweeps per AI route.
+	var key := [revision, hash(illumination.sources)]
+	if key == light_weight_key: return
+	light_weight_key = key; light_weight_ids.clear(); light_weight_values.clear()
+	var candidates: Dictionary = {}
+	for source in illumination.sources:
+		if not source.deters: continue
+		var center := Hex.to_axial(source.position, RADIUS)
+		var reach := ceili(float(source.radius) / (RADIUS * 1.5)) + 1
+		for q in range(-reach, reach + 1):
+			for r in range(maxi(-reach, -q - reach), mini(reach, -q + reach) + 1):
+				var cell := center + Vector2i(q, r)
+				if cells.has(cell): candidates[cells[cell]] = true
+	for id in candidates:
+		var strength: float = illumination.deterrence(graph.get_point_position(id))
+		if strength > 0:
+			light_weight_ids.append(id); light_weight_values.append(1.0 + strength * 18.0)
 
 func traversable_segment(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: bool = false) -> bool:
 	if not clear_segment(a, b, friendly): return false

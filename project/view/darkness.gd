@@ -1,8 +1,10 @@
 extends ColorRect
 ## GPU light stamps + world-anchored wisps. Never writes to the simulation.
-const FIELD_MIN := Vector2(-112, -112)
-const FIELD_SIZE := Vector2(224, 224)
-const MASK_SIZE := 512
+const Terrain = preload("res://engine/expedition_terrain.gd")
+const FIELD_EXTENT := float(Terrain.MAP_RADIUS) * 2.0
+const FIELD_MIN := Vector2(-FIELD_EXTENT, -FIELD_EXTENT)
+const FIELD_SIZE := Vector2(FIELD_EXTENT * 2, FIELD_EXTENT * 2)
+const MASK_SIZE := 768
 var game: Node2D
 var mask_viewport: SubViewport
 var light_stamps: LightMask

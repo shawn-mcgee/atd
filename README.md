@@ -2,11 +2,11 @@
 
 A Godot 4.7.2 sci-fi horror RTS on a planet without sunlight. Command engineers, infantry, and piloted vehicles against the **Lightless**. Materials and methane enter global reserves only after physical delivery. Local generators and repeaters distribute power.
 
-Open `project/project.godot`, press **F5**, then **Begin Expedition**. Restart the scene after code changes.
+Open `project/project.godot`, press **F5**, wait for the loading console, then **Begin Expedition**. Mission restarts also use the loading screen. Restart the game after code changes.
 
 ## Simulation and presentation
 
-The experiment now runs a headless deterministic gameplay core in `project/engine/` and a separate top-down 2D view in `project/view/`. The original gameplay rules remain: the view draws the approved unit, building, terrain, resource, and effect sprites. Structure footprints remain authoritative for placement and selection. HQ retains its seven-cell hexagonal footprint, generators retain triangular three-cell footprints, and single-cell structure bounds remain 80 percent tile size. Transparent building art has no filled polygon foundation. Ramps and platforms still affect navigation, elevation, and sight lines.
+The game runs a headless deterministic gameplay core in `project/engine/` and a separate top-down 2D view in `project/view/`. The original gameplay rules remain: the view draws the approved unit, building, terrain, resource, and effect sprites. Structure footprints remain authoritative for placement and selection. HQ retains its seven-cell hexagonal footprint, generators retain triangular three-cell footprints, and single-cell structure bounds remain 80 percent tile size. Transparent building art has no filled polygon foundation. Ramps and platforms still affect navigation, elevation, and sight lines.
 
 The model assets, Asset Forge pipeline, 3D renderer, and shaders have been removed. The [sprite integration guide](project/docs/sprite-integration.md) documents atlas preparation, orientation corrections, and procedural gates. A future 2D or 3D renderer can read the same core and submit the same commands. See [engine architecture](project/docs/engine.md) for the command API, replay format, and boundaries. The [asset generation brief](project/docs/asset-generation-brief.md) defines the shared art style, technical specifications, and eight batched sprite sheets.
 
@@ -54,7 +54,7 @@ Selection details and contextual commands share the bottom dock. Commands displa
 
 ## Starting scenario and generation
 
-Each new mission generates a seeded layout of rock ridges, passages, resource fields, extraction, and the hive. The landing zone and approaches to every resource field/objective stay clear. Restarting generates a different level. The help overlay and end screen show the seed; reproduce a map with `& .\Godot_v4.7.2-stable_win64.exe --path .\project -- --seed=42`.
+The map now has an 84-cell hex radius, 50% wider than the previous 56-cell map (2.25 times the area). Seventy-two longer, variably thick cliff ridges make the expanded world denser. Each new mission generates a seeded layout of rock ridges, passages, resource fields, extraction, and the hive. The landing zone and approaches to every resource field/objective stay clear. Restarting generates a different level. The help overlay and end screen show the seed; reproduce a map with `& .\Godot_v4.7.2-stable_win64.exe --path .\project -- --seed=42`.
 
 Start with **HQ, one engineer, and one marine**, **100 MAT**, and **100 CH4**. There are no starting vehicles, generators, repeaters, depots, tanks, barracks, or garages. HQ holds **100 MAT / 100 CH4**, accepts both delivered resources, relays power within **7m**, and supplies **4 auxiliary power** without methane. HQ consumes none of its own output when idle, so all four units are available to connected consumers. Its dim light reaches **5.93m**, one tile step farther than before. HQ produces engineers with **1** and scout vehicles with **2** (60 MAT + 25 CH4, 10 seconds). Scouts still need a driver. Build infrastructure and recruit the rest of the expedition. The starting area has a two-minute damage grace for preparation; leaving it is dangerous immediately after initial probing begins.
 

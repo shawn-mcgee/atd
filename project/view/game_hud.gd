@@ -184,7 +184,7 @@ func make_briefing() -> void:
 	game.overlay_title = game.label(content, "", 29)
 	game.overlay_text = game.label(content, "", 16); game.overlay_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; game.overlay_text.custom_minimum_size = Vector2(560, 350); game.overlay_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	game.overlay_button = game.button(content, "Begin expedition [Enter]", func():
-		if game.ended: game.get_tree().reload_current_scene()
+		if game.ended: game.get_tree().change_scene_to_file("res://scenes/loading.tscn")
 		else: game.begin_run())
 
 func make_help() -> void:
@@ -197,7 +197,7 @@ func make_help() -> void:
 	help_footer = game.label(content, "", 11, Chrome.MUTED)
 	var buttons := row(content, 10)
 	game.button(buttons, "Close", toggle_help)
-	game.button(buttons, "Restart mission", func(): game.get_tree().reload_current_scene())
+	game.button(buttons, "Restart mission", func(): game.get_tree().change_scene_to_file("res://scenes/loading.tscn"))
 	help_overlay.visible = false
 
 func toggle_help() -> void:

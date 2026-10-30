@@ -39,35 +39,6 @@ static func outline(game, polygon: PackedVector2Array, color: Color, width: floa
 	game.draw_polyline(loop, color, width, true)
 
 static func draw_world(game) -> void:
-	var viewport: Rect2 = game.get_viewport_rect().grow(80)
-	var terrain_cells: Array = game.simulation.explored.keys()
-	terrain_cells.sort_custom(func(a, b): return game.world_to_screen(Hex.to_world(a, Terrain.CELL)).y < game.world_to_screen(Hex.to_world(b, Terrain.CELL)).y)
-	for cell in terrain_cells:
-		var point := Hex.to_world(cell, Terrain.CELL)
-		if not viewport.has_point(game.world_to_screen(point)): continue
-		var strength: float = game.light.sample(point)
-		var type: String = game.simulation.explored[cell]
-		var base := Color("283643") if type == "ground" else Color("6a7277") if type == "cliff" else Color("475e64")
-		var color := Color("101925").lerp(base, 0.25 + 0.75 * strength)
-		var polygon := hexagon(game, point, Terrain.CELL * (1.005 if type == "ground" else 0.98))
-		game.draw_colored_polygon(polygon, color)
-		var texture_key := "cliff_top" if type == "cliff" else "natural_ramp" if type == "ramp" else "ground_a" if posmod(cell.x + cell.y, 7) != 0 else "ground_b"
-		var ground_light := 0.15 + strength * 0.5
-		if type == "ground":
-			game.sprites.draw_terrain(game, texture_key, point, Color(ground_light * 0.9, ground_light, ground_light * 1.05))
-		else:
-			game.sprites.draw_terrain(game, texture_key, point, Color(ground_light * 0.9, ground_light, ground_light * 1.05)) if type == "cliff" else game.sprites.draw(game, texture_key, point, 0, Color(ground_light * 0.9, ground_light, ground_light * 1.05))
-	for patch in game.resource_nodes:
-		if not patch.discovered or patch.remaining <= 0: continue
-		var strength: float = game.light.sample(patch.position)
-		game.sprites.draw_resource(game, patch, Color.WHITE * (0.35 + strength * 0.65))
-	var rocks: Array = game.rocks.duplicate()
-	rocks.sort_custom(func(a, b): return game.world_to_screen(a.position).y < game.world_to_screen(b.position).y)
-	for rock in rocks:
-		if not game.simulation.explored.has(rock.cell): continue
-		var polygon := hexagon(game, rock.position, Terrain.CELL * 0.98)
-		var lit: float = game.light.sample(rock.position)
-		game.sprites.draw_terrain(game, "cliff_top", rock.position, Color.WHITE * (0.3 + lit * 0.7))
 	var font := ThemeDB.fallback_font
 	var buildings: Array = game.structures + [game.mission.hive]
 	buildings.sort_custom(func(a, b):

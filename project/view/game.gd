@@ -13,7 +13,8 @@ const AMBER = Simulation.AMBER
 const Primitives = preload("res://view/primitives.gd")
 const RTSTheme = preload("res://view/rts_theme.gd")
 @export var initial_seed := 0
-var simulation = Simulation.new()
+var simulation # May be prepared by the loading screen before entering the tree.
+var terrain_renderer: Node2D
 var sprites = preload("res://view/sprite_library.gd").new()
 var darkness: ColorRect
 var selection_highlight: ColorRect
@@ -70,11 +71,13 @@ func _ready() -> void:
 	var seed_value := initial_seed if initial_seed > 0 else randi_range(1, 2147483647)
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--seed="): seed_value = int(argument.trim_prefix("--seed="))
-	simulation.initialize(seed_value)
+	if simulation == null: simulation = Simulation.new()
+	if not simulation.started: simulation.initialize(seed_value)
 	for patch in simulation.resource_nodes: sprites.initial_resources[patch.position] = int(patch.remaining)
 	hud = preload("res://view/game_hud.gd").new(); hud.setup(self)
 	minimap = preload("res://view/minimap.gd").new(); ui.add_child(minimap); minimap.setup(self)
 	darkness = preload("res://view/darkness.gd").new(); add_child(darkness); darkness.setup(self)
+	terrain_renderer = preload("res://view/terrain_renderer.gd").new(); add_child(terrain_renderer); terrain_renderer.setup(self)
 	selection_highlight = preload("res://view/selection_highlight.gd").new(); add_child(selection_highlight); selection_highlight.setup(self)
 	get_viewport().size_changed.connect(func(): hud.fit(); queue_redraw())
 	show_briefing(); refresh_ui()
@@ -151,7 +154,9 @@ func pick_resource(screen: Vector2) -> Dictionary:
 	return {}
 
 func _draw() -> void:
-	if simulation.started: Primitives.draw_world(self)
+	if simulation.started:
+		terrain_renderer.sync()
+		Primitives.draw_world(self)
 
 func _exit_tree() -> void:
 	simulation.dispose()

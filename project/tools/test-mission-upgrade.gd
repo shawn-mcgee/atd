@@ -11,7 +11,7 @@ func run() -> void:
 
 	for enemy in game.creatures: enemy.hp = 0
 	game.cleanup_dead(); game.director.groups.clear()
-	check(game.Terrain.CELL == 1 and game.Terrain.MAP_RADIUS == 56, "half-size cells preserve world extent")
+	check(game.Terrain.CELL == 1 and game.Terrain.MAP_RADIUS == 84, "expanded map has an 84-cell radius")
 	check(game.Footprints.cells("core", Vector3.ZERO).size() == 7 and game.Footprints.cells("generator", Vector3.ZERO).size() == 3 and game.Footprints.cells("barracks", Vector3.ZERO).size() == 3 and game.Footprints.cells("garage", Vector3.ZERO).size() == 4, "structure footprints reserve requested tile counts")
 	check(game.Footprints.offsets("garage") == [Vector2i.ZERO, Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1)], "garage footprint is a diamond")
 	check(game.core.powered and game.structures.filter(func(b): return b.kind == "floodlight")[0].powered, "starting base has a working short-range generator/repeater network")

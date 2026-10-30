@@ -1,6 +1,6 @@
 extends RefCounted
 const Hex = preload("res://engine/hex_grid.gd")
-const MAP_RADIUS := 56
+const MAP_RADIUS := 84
 const LEVEL := 3.0
 const CELL := 1.0
 const SPACING := 1.7320508075688772

@@ -3,6 +3,9 @@ const Hex = preload("res://engine/hex_grid.gd")
 const Terrain = preload("res://engine/expedition_terrain.gd")
 var game: Node2D
 var scale_factor := 1.0
+var redraw_clock := 0.0
+var survey_key: Array = []
+var survey_texture: ImageTexture
 
 func setup(world: Node2D) -> void:
 	game = world; mouse_filter = Control.MOUSE_FILTER_STOP; clip_contents = true
@@ -19,8 +22,11 @@ func map_area() -> Rect2:
 func project(point: Vector3) -> Vector2:
 	return Vector2(point.x, point.z) * scale_factor + map_area().get_center()
 
-func _process(_dt: float) -> void:
-	queue_redraw()
+func _process(dt: float) -> void:
+	redraw_clock += dt
+	if redraw_clock >= 0.1:
+		redraw_clock = 0.0
+		queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
 	if (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed) or (event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT):
@@ -39,10 +45,19 @@ func _draw() -> void:
 		var area := map_area()
 		draw_line(area.position + Vector2(area.size.x * fraction, 0), area.position + Vector2(area.size.x * fraction, area.size.y), Color(0.3, 0.4, 0.3, 0.12))
 		draw_line(area.position + Vector2(0, area.size.y * fraction), area.position + Vector2(area.size.x, area.size.y * fraction), Color(0.3, 0.4, 0.3, 0.12))
-	for cell in game.simulation.explored:
-		var point := Hex.to_world(cell, Terrain.CELL)
-		var color := Color("62747e") if game.simulation.explored[cell] == "cliff" else Color("334e56")
-		draw_circle(project(point), 1.1, color)
+	var key := [game.simulation.explored.size(), game.simulation.navigation.revision, size]
+	if key != survey_key:
+		survey_key = key
+		var image := Image.create(int(size.x), int(size.y), false, Image.FORMAT_RGBA8)
+		for cell in game.simulation.explored:
+			var pixel := Vector2i(project(Hex.to_world(cell, Terrain.CELL)))
+			var color := Color("62747e") if game.simulation.explored[cell] == "cliff" else Color("334e56")
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					var at := pixel + Vector2i(dx, dy)
+					if at.x >= 0 and at.y >= 0 and at.x < image.get_width() and at.y < image.get_height(): image.set_pixelv(at, color)
+		survey_texture = ImageTexture.create_from_image(image)
+	if survey_texture != null: draw_texture(survey_texture, Vector2.ZERO)
 	for patch in game.resource_nodes:
 		if patch.discovered and patch.remaining > 0: draw_circle(project(patch.position), 2, Color("79e1c7") if patch.kind == "minerals" else Color("b9cb75"))
 	for building in game.structures:

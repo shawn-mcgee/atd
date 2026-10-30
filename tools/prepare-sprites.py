@@ -140,6 +140,7 @@ def main():
             if name in {"marine", "flamer"}: pivot = [.5, .38]
             if name == "engineer": pivot = [.5, .38]
             if name.endswith("_head"): pivot = [.5, .70]
+            if name == "floodlight": pivot = [.5, .62]
             if stem in {"batch_01_characters", "batch_07_terrain_and_connections"}:
                 desired_width = size[0] if stem == "batch_01_characters" else (0.95 if name == "wall_arm" else 1.82)
                 size = (desired_width, desired_width * (y1 - y0) / (x1 - x0))
@@ -150,6 +151,8 @@ def main():
             if name == "platform":
                 size = (1.82, 1.82 * (y1 - y0) / (x1 - x0))
                 pivot = [.5, .45]
+            if name.startswith("materials_"):
+                pivot = [.5, .5 + .22 / size[1]]
             if name.endswith("_wreck"): size = SIZES[name.removesuffix("_wreck")]
             if name.startswith("muzzle_") or name.startswith("flame_0"): pivot = [.02, .5]
             entries[name] = {"sheet": stem, "region": [x0, y0, x1 - x0, y1 - y0],
