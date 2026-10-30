@@ -41,18 +41,18 @@ static func choose(game, director, group: Dictionary, creature: SimPredator, dar
 	var best: Dictionary = {}
 	var score := -INF
 	var distance := INF
+	var locked: Dictionary = {}
 	for memory in group.memory:
 		if not director.attack_allowed(game, memory.actor, creature): continue
 		if dark_only and (game.elapsed - float(memory.time) > 6 or game.light.deterrence(memory.position) >= 0.15): continue
+		if not game.mission.stolen and game.elapsed < float(group.defend_until) and memory.position.distance_to(game.mission.hive.position) > 24 and memory.position.distance_to(group.alarm_point) > 12: continue
+		if memory.actor == creature.target: locked = memory
 		var candidate := value(game, memory, creature.kind, group.memory)
 		var reach: float = creature.position.distance_squared_to(memory.position)
 		if candidate > score or (is_equal_approx(candidate, score) and reach < distance):
 			score = candidate; distance = reach; best = memory
 	# Short commitment prevents equally attractive moving targets causing oscillation.
-	if game.elapsed < creature.target_until:
-		for memory in group.memory:
-			if memory.actor == creature.target and (not dark_only or game.light.deterrence(memory.position) < 0.15) and director.attack_allowed(game, memory.actor, creature): return memory
-	return best
+	return locked if game.elapsed < creature.target_until and not locked.is_empty() else best
 
 static func boundary_point(game, creature: SimPredator, anchor: Vector3, flank: float) -> Vector3:
 	if game.elapsed < creature.probe_until and creature.probe_anchor.distance_to(anchor) < 2 and not game.navigation.blocked(creature.probe_goal) and game.light.sample(creature.probe_goal) < 0.3: return creature.probe_goal

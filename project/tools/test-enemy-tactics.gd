@@ -112,6 +112,9 @@ func run() -> void:
 	check(inside.alarm_point == worker.position and game.creatures[0].state == "assault", "alerted groups receive the attack location and abandon retreat")
 	game.elapsed = 2; game.mission.hive.hp -= 1; director.check_hive_alarm(game)
 	check(inside.defend_until == game.elapsed + 45, "continued hive damage refreshes local defense")
+	inside.memory.append({"actor": worker, "position": worker.position, "time": game.elapsed, "kind": worker.kind, "hp": worker.hp, "operational": false})
+	game.creatures[0].target = worker; game.creatures[0].target_until = game.elapsed + 3
+	check(Tactics.choose(game, director, inside, game.creatures[0]).is_empty(), "hive defenders abandon unrelated targets instead of being diverted from the alarm")
 	game.elapsed = 120; var early_cap: int = director.population_limit(game)
 	game.elapsed = 600
 	check(director.escalation(game) == 1 and director.population_limit(game) > early_cap, "normal late-game pressure grows independently of core theft")

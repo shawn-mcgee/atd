@@ -72,7 +72,7 @@ SOUTH = {"engineer", "marine", "flamer", "runner", "stalker", "brute", "scout", 
 
 
 def update_batch7(wall_only=False, fortifications_only=False):
-    """Refresh terrain/fortifications without replacing approved resource patches."""
+    """Refresh ground/fortifications, preserving approved cliffs and resources."""
     stem = "batch_07_terrain_and_connections"
     source = SOURCE / (stem + ".png")
     image = Image.open(source).convert("RGBA")
@@ -83,7 +83,7 @@ def update_batch7(wall_only=False, fortifications_only=False):
     manifest_path = OUTPUT / "atlas.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     selected = {10: "wall"} if wall_only else {
-        0: "ground_a", 1: "ground_b", 2: "cliff_top", 10: "wall",
+        0: "ground_a", 1: "ground_b", 10: "wall",
         12: "gate_frame", 13: "gate_closed", 14: "gate_open"}
     if fortifications_only:
         selected = {index: name for index, name in selected.items() if name == "wall" or name.startswith("gate_")}
@@ -161,7 +161,7 @@ def update_batch7(wall_only=False, fortifications_only=False):
     sheet["sha256"] = hashlib.sha256(atlas_path.read_bytes()).hexdigest()
     sheet.setdefault("sprite_source_sha256", {}).update({name: source_hash for name in selected.values()})
     if not wall_only:
-        manifest["notes"] = "Resource patches retain approved art. Batch 7 terrain, full-tile walls and registered gate layers use the updated source. South-facing actors rotate 180 degrees at draw time."
+        manifest["notes"] = "Original cliff and resource art retained. Updated ground, full-tile walls and registered gate layers use per-sprite source hashes. South-facing actors rotate 180 degrees at draw time."
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     print("Prepared " + ", ".join(selected.values()) + "; other runtime cells and source art are unchanged.")
 

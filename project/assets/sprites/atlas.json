@@ -61,13 +61,13 @@
         2048,
         2048
       ],
-      "sha256": "9ca53b17ed436325530bbe73f2cfdda18020db575b27c82366c6bf6517851b1b",
+      "sha256": "ea5a3359bdbe8f161f31e91723727be64161fb57876456a60a979ba970ad08cd",
       "source_sha256": "8226a86b77996a5952f0266663951d267fd025d9d1d86dfee96c250d92760fbb",
       "sprite_source_sha256": {
         "wall": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8",
         "ground_a": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
         "ground_b": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
-        "cliff_top": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
+        "cliff_top": "8226a86b77996a5952f0266663951d267fd025d9d1d86dfee96c250d92760fbb",
         "gate_frame": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8",
         "gate_closed": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8",
         "gate_open": "32b85a0692cdfd3dccf0749d1a069bc2d85850684fb331e70dbaff038e5438f8"
@@ -97,8 +97,8 @@
         256,
         370
       ],
-      "source_sha256": "8a82225b78bd9a6eb6fa82d80fe9f6a502ddfe5f6c3f7eeadf5e9337a9e533a0",
-      "sha256": "5598fa722652f69ca8ffcfca1bae9c476ea3e100d60efb91f3c56fdcf8ef3052"
+      "source_sha256": "8226a86b77996a5952f0266663951d267fd025d9d1d86dfee96c250d92760fbb",
+      "sha256": "a8c48e1026194ab1373dc853bbe09db40c782e08918db14fbf9c9a831885d248"
     },
     "batch_09_ui_icons": {
       "file": "batch_09_ui_icons.png",
@@ -827,10 +827,10 @@
     "cliff_top": {
       "sheet": "batch_07_terrain_and_connections",
       "region": [
-        1170,
-        123,
-        220,
-        265
+        1125,
+        88,
+        310,
+        336
       ],
       "pivot": [
         0.5,
@@ -1834,5 +1834,5 @@
       "slide_distance": 0.05889967637540453
     }
   },
-  "notes": "Resource patches retain approved art. Batch 7 terrain, full-tile walls and registered gate layers use the updated source. South-facing actors rotate 180 degrees at draw time."
+  "notes": "Original cliff and resource art retained. Updated ground, full-tile walls and registered gate layers use per-sprite source hashes. South-facing actors rotate 180 degrees at draw time."
 }

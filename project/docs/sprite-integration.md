@@ -4,7 +4,7 @@
 
 - Approved original sheets: `art_source/sprites/batch_*.png` (kept unchanged).
 - Runtime copies and metadata: `assets/sprites/`; `atlas.json` maps 94 regions, including registered Batch 7 gate layers.
-- Rebuild from the repository root with `python tools/prepare-sprites.py` (Pillow, NumPy and SciPy required). Use `--batch-7` to refresh only ground, cliffs, walls and gates. Both paths retain the approved resource patches and leave source art unchanged. Reimport in Godot afterward; tracked PNG import settings enable mipmaps.
+- Rebuild from the repository root with `python tools/prepare-sprites.py` (Pillow, NumPy and SciPy required). Use `--batch-7` to refresh only ground, walls and gates. Both paths retain the approved cliff artwork and resource patches and leave source art unchanged. Reimport in Godot afterward; tracked PNG import settings enable mipmaps.
 - Rendering, pivots, orientation, alpha picking, turret heads, gate animation, and combat effects: `view/sprite_library.gd`.
 - Drawing order, terrain, resource depletion, previews, and selection overlays: `view/primitives.gd`. HUD thumbnails: `view/game_hud.gd`.
 - Validation: `python tools/test-game.py --name sprites --name top-down --name engine --name gameplay-baseline --godot <executable>`. Render all families with `Godot --path project --script res://tools/preview-prototype.gd -- --gallery --seed=42`. Preview PNGs/logs stay in `art_source/.build/`.
@@ -55,11 +55,11 @@ The overlay ignores mouse input and sits below darkness/HUD. It resizes with the
 
 Validate with `--name top-down --name sprites`. Review `--engineer` (construction), `--outpost` (orders), and `--engineer --small` (1100×720) using the preview script. Existing sprite thumbnails serve as portraits. Optional dedicated character portraits or a painted console skin can be added later, but are not needed for this UI.
 
-Latest art refresh: Batch 7 ground, cliffs, walls and gate layers use the updated source sheet. All six approved material/methane depletion sprites, their pivots and their metadata are preserved. Batch 1 characters keep their south-facing correction, torso pivots and weapon attachments; Batch 9 supplies command/resource icons.
+Latest art refresh: Batch 7 ground, walls and gate layers use the updated source sheet. Cliffs retain their original raised basalt-column artwork, atlas crop and fitted texture. All six approved material/methane depletion sprites, their pivots and their metadata are preserved. Batch 1 characters keep their south-facing correction, torso pivots and weapon attachments; Batch 9 supplies command/resource icons.
 
 ### Terrain extraction correction
 
-Batch 7 silhouettes can cross nominal cell boundaries. The selective importer labels connected alpha islands across the source, selects the dominant island intersecting each requested cell, retains both disconnected parts for gate frames/open leaves, and assigns feather pixels to their nearest island. Complete cutouts are repacked into 512-pixel slots with gutters. Gate layers share crop dimensions and a vertical anchor; leaf centers determine their animation travel. Ground/cliff fitted textures are regenerated. Other runtime cells and source artwork remain unchanged; per-sprite source hashes record the mixed-source atlas. The checked-in prepared atlas is the baseline for preserved cells.
+Batch 7 silhouettes can cross nominal cell boundaries. The selective importer labels connected alpha islands across the source, selects the dominant island intersecting each requested cell, retains both disconnected parts for gate frames/open leaves, and assigns feather pixels to their nearest island. Complete cutouts are repacked into 512-pixel slots with gutters. Gate layers share crop dimensions and a vertical anchor; leaf centers determine their animation travel. Ground fitted textures are regenerated; the approved cliff cell and fitted texture are preserved. Other runtime cells and source artwork remain unchanged; per-sprite source hashes record the mixed-source atlas. The checked-in prepared atlas is the baseline for preserved cells.
 
 Ground is the intentional aspect-ratio exception: fit the complete ground sprite, including its authored border, to tile dimensions with 2.5% overlap. A solid hex underlay prevents transparent gaps; no center-only UV crop or polygon clipping removes the artwork edges. Cliffs, platforms, resource deposits, and structures keep their natural sprite proportions and overhangs.
 
