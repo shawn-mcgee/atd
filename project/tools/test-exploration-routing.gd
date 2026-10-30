@@ -14,6 +14,7 @@ func planning_group(game, selection: Array, unknown: Array) -> Dictionary:
 	game.explored.clear()
 	for cell in game.navigation.cells: game.explored[cell] = "ground"
 	for cell in unknown: game.explored.erase(cell)
+	exploration.rebuild_unseen(game)
 	check(game.complex_commands.start_expedition(game, selection, {}, selection[0].position), "exploration starts on a reachable tile")
 	var group: Dictionary = exploration.groups[-1]
 	group.start_reached = true; group.phase = "planning"

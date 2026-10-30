@@ -97,7 +97,9 @@ func submit(kind: String, extra: Dictionary = {}) -> void:
 
 func _process(dt: float) -> void:
 	if started and not simulation.ended and not simulation.paused:
-		accumulator += dt
+		# Keep fixed ticks, but discard excess wall time after a stalled/background
+		# browser frame instead of entering an unlimited catch-up spiral.
+		accumulator = minf(accumulator + dt, Simulation.TICK * 4)
 		while accumulator + 0.000000001 >= Simulation.TICK:
 			previous_positions.clear()
 			for actor in simulation.units + simulation.creatures: previous_positions[actor.simulation_id] = actor.position

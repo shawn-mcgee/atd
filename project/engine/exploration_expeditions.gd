@@ -9,7 +9,28 @@ var clock := 0.0
 var visibility_clock := 0.0
 var component_revision := -1
 var components: Dictionary = {}
+var component_graph: WeakRef
 const PLAN_QUERIES := 8
+const PLAN_CELLS := 256
+const SMALL_SURVEY := 512
+var unseen: Dictionary = {}
+var known_count := -1
+
+func diagnostic_state() -> Dictionary:
+	# Components and the unseen index are derived from navigation/explored state.
+	return {"groups": groups, "clock": clock, "visibility_clock": visibility_clock}
+
+func rebuild_unseen(game) -> void:
+	unseen.clear()
+	for cell in game.navigation.cells:
+		if not game.explored.has(cell): unseen[cell] = true
+	known_count = game.explored.size()
+
+func reveal(cell: Vector2i) -> void:
+	if unseen.erase(cell): known_count += 1
+
+func warm_cache(game) -> void:
+	rebuild_unseen(game); refresh_components(game)
 
 func alive(unit) -> bool:
 	return SimEntity.valid(unit) and unit.hp > 0
@@ -128,9 +149,9 @@ func bounded_path(game, unit: SimUnit, point: Vector3, route: PackedVector3Array
 	return path
 
 func refresh_components(game) -> void:
-	if component_revision == game.navigation.revision: return
-	component_revision = game.navigation.revision; components.clear()
 	var graph: AStar3D = game.navigation.friendly_graph
+	if component_revision == game.navigation.revision and component_graph != null and component_graph.get_ref() == graph: return
+	component_revision = game.navigation.revision; components.clear(); component_graph = weakref(graph)
 	var component := 0
 	for id in graph.get_point_ids():
 		if graph.is_point_disabled(id) or components.has(id): continue
@@ -145,6 +166,7 @@ func refresh_components(game) -> void:
 
 func reset_plan(group: Dictionary) -> void:
 	group.plan_revision = -1; group.plan_queue = []; group.plan_index = 0
+	group.plan_ring = 0; group.plan_cursor = 0
 
 func hold(group: Dictionary, units: Array) -> void:
 	for unit in units:
@@ -172,37 +194,77 @@ func reserved(group: Dictionary, cell: Vector2i) -> bool:
 
 func prepare_plan(game, group: Dictionary, leader: SimUnit) -> void:
 	refresh_components(game)
+	if known_count != game.explored.size(): rebuild_unseen(game)
 	group.plan_queue = []; group.plan_index = 0
 	group.plan_revision = game.navigation.revision
+	group.plan_origin = leader.position; group.plan_center = Hex.to_axial(leader.position, Terrain.CELL)
+	group.plan_ring = 0; group.plan_cursor = 0
+	group.plan_offset = Vector2(leader.position.x - Hex.to_world(group.plan_center, Terrain.CELL).x, leader.position.z - Hex.to_world(group.plan_center, Terrain.CELL).z).length()
+	var center: Vector2i = group.plan_center
+	group.plan_limit = Terrain.MAP_RADIUS + maxi(absi(center.x), maxi(absi(center.y), absi(center.x + center.y)))
 	var graph: AStar3D = game.navigation.friendly_graph
-	var component: int = components.get(graph.get_closest_point(leader.position), -1)
-	for cell in game.navigation.cells:
-		if game.explored.has(cell) or reserved(group, cell) or float(group.deferred.get(cell, 0.0)) > clock: continue
-		var id: int = game.navigation.cells[cell]
-		if graph.is_point_disabled(id) or int(components.get(id, -2)) != component: continue
-		var point := graph.get_point_position(id)
-		if game.navigation.blocked(point, true): continue
-		# Quantize tiny coordinate noise so symmetric distances tie consistently.
-		var distance := roundi(Vector2(point.x - leader.position.x, point.z - leader.position.z).length_squared() * 1000.0)
-		group.plan_queue.append({"cell": cell, "point": point, "distance": distance, "center": cell.x * cell.x + cell.x * cell.y + cell.y * cell.y})
+	group.plan_component = int(components.get(graph.get_closest_point(leader.position), -1))
+	# A nearly finished survey searches only the few remaining cells.
+	if unseen.size() <= SMALL_SURVEY:
+		group.plan_ring = -1
+		for cell in unseen: add_candidate(game, group, cell)
+		sort_candidates(group)
+
+func add_candidate(game, group: Dictionary, cell: Vector2i) -> void:
+	if not unseen.has(cell) or game.explored.has(cell) or reserved(group, cell) or float(group.deferred.get(cell, 0.0)) > clock: return
+	var id: int = game.navigation.cells[cell]
+	var graph: AStar3D = game.navigation.friendly_graph
+	if graph.is_point_disabled(id) or int(components.get(id, -2)) != int(group.plan_component): return
+	var point := graph.get_point_position(id)
+	# Disabled graph nodes already encode blocked(point, true).
+	var distance := roundi(Vector2(point.x - group.plan_origin.x, point.z - group.plan_origin.z).length_squared() * 1000.0)
+	group.plan_queue.append({"cell": cell, "point": point, "distance": distance, "center": cell.x * cell.x + cell.x * cell.y + cell.y * cell.y})
+
+func sort_candidates(group: Dictionary) -> void:
 	group.plan_queue.sort_custom(func(a, b):
 		if a.distance != b.distance: return a.distance < b.distance
 		if a.center != b.center: return a.center < b.center
 		return a.cell.x < b.cell.x if a.cell.x != b.cell.x else a.cell.y < b.cell.y)
 
+func next_cell(group: Dictionary) -> Vector2i:
+	var ring: int = group.plan_ring
+	if ring == 0:
+		group.plan_ring = 1
+		return group.plan_center
+	var cursor: int = group.plan_cursor
+	var side := cursor / ring
+	var cell: Vector2i = group.plan_center + Hex.NEIGHBORS[4] * ring
+	for i in range(side): cell += Hex.NEIGHBORS[i] * ring
+	cell += Hex.NEIGHBORS[side] * (cursor % ring)
+	group.plan_cursor += 1
+	if int(group.plan_cursor) >= ring * 6:
+		group.plan_ring += 1; group.plan_cursor = 0
+	return cell
+
 func choose_destination(game, group: Dictionary, leader: SimUnit) -> int:
 	if group.plan_revision != game.navigation.revision: prepare_plan(game, group, leader)
-	var queries := 0; var inspected := 0
-	while group.plan_index < group.plan_queue.size() and queries < PLAN_QUERIES and inspected < 24:
-		var candidate: Dictionary = group.plan_queue[group.plan_index]
-		group.plan_index += 1; inspected += 1
+	var queries := 0; var inspected := 0; var scanned := 0
+	while queries < PLAN_QUERIES and inspected < 24:
+		var complete: bool = int(group.plan_ring) < 0 or int(group.plan_ring) > int(group.plan_limit)
+		# Outside axial ring r, world distance is at least 1.5*r minus the
+		# leader's offset from its cell center. Preserve exact Euclidean ordering.
+		var bound := maxf(0, float(group.plan_ring) * 1.5 - float(group.plan_offset))
+		while not complete and (group.plan_queue.is_empty() or bound * bound * 1000 <= float(group.plan_queue[0].distance) + 1):
+			if scanned >= PLAN_CELLS: return 0
+			var cell := next_cell(group); scanned += 1
+			add_candidate(game, group, cell)
+			if int(group.plan_cursor) == 0 or scanned == PLAN_CELLS: sort_candidates(group)
+			complete = int(group.plan_ring) > int(group.plan_limit)
+			bound = maxf(0, float(group.plan_ring) * 1.5 - float(group.plan_offset))
+		if group.plan_queue.is_empty(): return -1 if complete else 0
+		var candidate: Dictionary = group.plan_queue.pop_front(); inspected += 1
 		if game.explored.has(candidate.cell) or reserved(group, candidate.cell): continue
 		queries += 1
 		var path: PackedVector3Array = game.navigation.path(leader.position, candidate.point)
 		if not valid_path(game, path, candidate.point): continue
 		set_route(game, group, path); group.survey_cell = candidate.cell; group.phase = "exploring"
 		return 1
-	return -1 if group.plan_index >= group.plan_queue.size() else 0
+	return 0
 
 func tick(game, dt: float) -> void:
 	clock += dt; visibility_clock += dt

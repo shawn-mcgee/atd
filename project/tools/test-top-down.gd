@@ -86,7 +86,14 @@ func run() -> void:
 		view.simulation.enqueue({"kind": "context", "actors": [view.simulation.units[0].simulation_id], "point": Vector3(-8, 0, -6)})
 		for i in range(fps * 3): view._process(1.0 / fps)
 		check(view.simulation.tick_number == 30, "%d FPS advances exactly 30 ticks in three seconds" % fps)
-		hashes.append(view.simulation.state_hash()); view.queue_free(); await process_frame
+		hashes.append(view.simulation.state_hash())
+		if fps == 60:
+			var tick_before: int = view.simulation.tick_number
+			view._process(10.0)
+			check(view.simulation.tick_number == tick_before + 4, "a suspended browser frame has at most four fixed catch-up ticks")
+			view._process(1.0 / 60)
+			check(view.simulation.tick_number == tick_before + 4, "the next frame does not inherit a growing simulation backlog")
+		view.queue_free(); await process_frame
 	check(hashes[0] == hashes[1] and hashes[1] == hashes[2], "simulation outcome is independent of render frame rate")
 	print("TOP_DOWN_TEST_RESULT: ", failures, " failures")
 	quit(1 if failures else 0)

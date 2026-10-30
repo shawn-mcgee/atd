@@ -19,6 +19,7 @@ static func encode(value):
 		for item in value: result.append(encode(item))
 		return result
 	if value is Object:
+		if value.has_method("diagnostic_state"): return encode(value.diagnostic_state())
 		var result: Dictionary = {}
 		for property in value.get_property_list():
 			if property.usage & PROPERTY_USAGE_SCRIPT_VARIABLE: result[property.name] = encode(value.get(property.name))

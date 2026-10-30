@@ -160,7 +160,7 @@ func path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: boo
 	# Keep the cached route private and return an independent array to each caller.
 	if route_cache_revision != revision or route_cache.size() >= 256:
 		route_cache.clear(); route_cache_revision = revision
-	var key := [a, b, friendly, hash(illumination.sources) if illumination != null else 0]
+	var key := [a, b, friendly, light_signature(illumination) if illumination != null else 0]
 	if route_cache.has(key): return route_cache[key].duplicate()
 	var result := find_path(a, b, illumination, friendly)
 	route_cache[key] = result
@@ -189,18 +189,28 @@ func find_path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly
 	var cursor := 0
 	while cursor < result.size():
 		var furthest := cursor
-		for candidate in range(result.size() - 1, cursor - 1, -1):
-			if traversable_segment(smooth[smooth.size() - 1], result[candidate], illumination, friendly):
-				furthest = candidate
-				break
+		# No segment from a lit anchor can pass the light threshold. Advance one
+		# graph point directly instead of repeating that same rejection for every
+		# remaining point in a long route.
+		if illumination == null or illumination.deterrence(smooth[smooth.size() - 1]) <= 0.2:
+			for candidate in range(result.size() - 1, cursor - 1, -1):
+				if traversable_segment(smooth[smooth.size() - 1], result[candidate], illumination, friendly):
+					furthest = candidate
+					break
 		if smooth[smooth.size() - 1].distance_to(result[furthest]) > 0.05: smooth.append(result[furthest])
 		cursor = furthest + 1
 	return smooth
 
+static func light_signature(illumination: RefCounted) -> int:
+	var protective: Array = []
+	for source in illumination.sources:
+		if source.deters: protective.append(source)
+	return hash(protective)
+
 func cache_light_weights(illumination: RefCounted) -> void:
 	# All cells outside deterrent light radii have weight 1. Cache only deviations;
 	# this preserves exact costs while avoiding two full-map sweeps per AI route.
-	var key := [revision, hash(illumination.sources)]
+	var key := [revision, light_signature(illumination)]
 	if key == light_weight_key: return
 	light_weight_key = key; light_weight_ids.clear(); light_weight_values.clear()
 	var candidates: Dictionary = {}
@@ -218,6 +228,9 @@ func cache_light_weights(illumination: RefCounted) -> void:
 			light_weight_ids.append(id); light_weight_values.append(1.0 + strength * 18.0)
 
 func traversable_segment(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: bool = false) -> bool:
+	# Weighted smoothing repeatedly tests long segments from the same lit point.
+	# Reject lit endpoints before doing the much denser terrain/obstacle sampling.
+	if illumination != null and (illumination.deterrence(a) > 0.2 or illumination.deterrence(b) > 0.2): return false
 	if not clear_segment(a, b, friendly): return false
 	if illumination != null:
 		var samples := maxi(1, ceili(a.distance_to(b) / 1.5))

@@ -87,6 +87,7 @@ func initialize(seed_value: int = 1) -> void:
 	rebuild_navigation(); light.configure(navigation); rebuild_light()
 	director.populate(self)
 	record_exploration()
+	complex_commands.exploration.warm_cache(self)
 	started = true
 
 func register_entity(entity: SimEntity) -> void:
@@ -1013,7 +1014,8 @@ func record_exploration() -> void:
 				var strength: float = light.sample_source(survey_points[cell], source)
 				if strength <= 0: continue
 				var total: float = float(exposure.get(cell, 0.0)) + strength
-				if total > Config.value("lighting", "discovery_threshold"): explored[cell] = survey_types[cell]
+				if total > Config.value("lighting", "discovery_threshold"):
+					explored[cell] = survey_types[cell]; complex_commands.exploration.reveal(cell)
 				else: exposure[cell] = total
 	survey_hash = field_hash; survey_count = explored.size()
 

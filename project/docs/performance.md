@@ -1,5 +1,19 @@
 # Frame performance
 
+## Long-session stalls
+
+Run `tools/benchmark-long-session.gd` headlessly with `--minutes=15` (default), with other game/test processes stopped. It runs late pressure with an invulnerable HQ and scout, then retires three worlds. Timing stays in the tool; engine decisions use fixed ticks. Logs include routing, exploration, surveyed cells, live entities, allocations and weak-reference release.
+
+The old exploration planner scanned and sorted roughly 18,500 candidates per destination: about 291-309 ms for one native plan in the diagnostic scene. The replacement searches outward in exact distance order, scans at most 256 ring cells per planning call, and uses a direct list when at most 512 cells remain. A geometric lower bound preserves nearest-tile ordering and center/axial tie breaks. Discovery maintains an unseen index incrementally. Connectivity is warmed during loading and rebuilt after geometry changes; derived caches are excluded from diagnostic snapshots.
+
+The same initial plan measured about 0.3 ms afterward. Light-avoiding smoothing rejects lit endpoints before dense collision checks and skips repeated impossible shortcuts from a lit anchor. Moving personal emergency lamps no longer invalidates protective route costs. Recurring native late-pressure bursts fell from roughly 300 ms to below 100 ms in the initial comparison; these are scene-specific measurements, not browser frame-time guarantees.
+
+The view consumes at most four fixed ticks per rendered frame. Excess wall time from stalled or suspended browser frames is discarded, preventing unlimited catch-up work. Normal 30/60/144 FPS schedules retain identical ticks and replay results; overload slows simulation time instead of growing a backlog.
+
+Native retirement checks released worlds, graphs and boarded actor cycles, with allocations returning to a stable baseline. A persistent native leak was not reproduced; browser WebAssembly heap retention has not been ruled out. `session-performance` checks bounded/exact planning, discovery and lifecycle release; `top-down` checks long-frame recovery; `light-weights` checks cost preservation.
+
+## Rendered benchmark
+
 Run from the repository root, with other test/game processes stopped:
 
 ```powershell
