@@ -22,7 +22,7 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | Double-click | Select visible units of the same type |
 | Right-click | Contextual order: move, board, build, repair, gather, deliver, retrieve core, or attack visible Lightless |
 | Shift + order | Append to the selected unit's order queue; an immediate order clears its queue |
-| A, then click | Attack a visible Lightless/hive, or attack-move toward terrain; pursue visible enemies before resuming the route |
+| Q, then click | Attack a visible Lightless/hive, or attack-move toward terrain; pursue visible enemies before resuming the route |
 | V, then click | Defend a location, structure, or unit; pursue within an 8m leash and return to the defense point |
 | P, then click | Patrol between the current position and the destination; Shift-click adds route points; Escape exits targeting |
 | M, then click | Mining expedition; choose a surveyed patch or a Material Depot/Methane Tank |
@@ -38,13 +38,13 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | F1 / ? | Open controls and mission help |
 | 1-0 | First ten construction choices for engineers; factory production shortcuts otherwise |
 | T | Rotate a construction footprint, ramp, or gate |
-| Arrows / WSD | Pan; A is reserved for attack-move |
+| WASD / arrows | Pan the camera; attack-move uses Q |
 | Wheel / middle drag | Zoom / drag the map |
 | Alt + middle drag | Orbit and tilt |
 | Comma / period / Home / F | Rotate camera / reset camera / focus HQ |
 | Space / Escape | Pause / cancel targeting or selection |
 
-Selection details and contextual commands share the bottom dock. Engineers have a Build tab, with resource icons beside construction costs. The minimap stays in the bottom-right corner. Hover over commands for keyboard shortcuts; F1 opens the full controls. Selected units show target/destination lines and queued destinations; patrols show their route.
+Selection details and contextual commands share the bottom dock. Commands display their hotkeys in brackets. Engineers have a Build tab, with resource icons, construction costs, and visible key badges on each card; structures without a numeric shortcut are marked **Click**. Production cards show the number for the selected factory. The minimap stays in the bottom-right corner. F1 opens the full controls, including construction modifiers. Selected units show target/destination lines and queued destinations; patrols show their route.
 
 ## Starting scenario and generation
 

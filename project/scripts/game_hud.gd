@@ -37,19 +37,28 @@ func purchase(button: Button, kind: String, shortcut: String) -> void:
 		var content := VBoxContainer.new(); content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); content.offset_left = 9; content.offset_right = -9; content.offset_top = 4; content.offset_bottom = -4
 		content.add_theme_constant_override("separation", 0); button.add_child(content)
-		var title: Label = game.label(content, Rules.title(kind), 13); title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var heading := row(content, 4); heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var title: Label = game.label(heading, Rules.title(kind), 13); title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		var key: Label = game.label(heading, "", 12, game.AMBER); key.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		button.set_meta("key_label", key)
 		var costs := row(content, 4); costs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon(costs, MATERIAL, 13); game.label(costs, str(cost.minerals), 11)
 		if cost.gas > 0: icon(costs, METHANE, 13); game.label(costs, str(cost.gas), 11)
 		button.set_meta("purchase_name", title)
 	button.set_meta("shortcut", shortcut)
+	var key_label: Label = button.get_meta("key_label")
+	key_label.text = "[" + shortcut + "]" if not shortcut.is_empty() else "Click"
+	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	button.custom_minimum_size.y = 44
 
 func command(parent: Node, key: String, title: String, shortcut: String, callback: Callable) -> void:
 	var item: Button = game.button(parent, title, callback)
 	item.custom_minimum_size = Vector2(100, 32)
 	item.tooltip_text = title + (" [" + shortcut + "]" if not shortcut.is_empty() else "")
 	item.set_meta("short_title", title)
+	item.set_meta("shortcut", shortcut)
 	game.context_buttons[key] = item
 
 func setup(world: Node3D) -> void:
@@ -70,8 +79,8 @@ func setup(world: Node3D) -> void:
 	var material := row(resources, 6); material.custom_minimum_size.x = 125; icon(material, MATERIAL); material_value = game.label(material, "", 17); material_value.mouse_filter = Control.MOUSE_FILTER_PASS
 	var methane := row(resources, 6); methane.custom_minimum_size.x = 125; icon(methane, METHANE); methane_value = game.label(methane, "", 17); methane_value.mouse_filter = Control.MOUSE_FILTER_PASS
 	game.stats = material_value # Compatibility for callers that check UI initialization.
-	game.pause_button = game.button(top, "Pause", game.toggle_pause); game.pause_button.tooltip_text = "Pause / resume [Space]"
-	var help: Button = game.button(top, "?", toggle_help); help.tooltip_text = "Controls and mission details [F1]"; help.custom_minimum_size.x = 32
+	game.pause_button = game.button(top, "Pause [Space]", game.toggle_pause); game.pause_button.tooltip_text = "Pause / resume [Space]"
+	var help: Button = game.button(top, "Help [F1]", toggle_help); help.tooltip_text = "Controls and mission details [F1]"
 	# One stable bottom dock; minimap occupies the space immediately to its right.
 	game.command_panel = game.panel(game.ui); game.command_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	var dock := row(game.command_panel, 20)
@@ -84,7 +93,7 @@ func setup(world: Node3D) -> void:
 	var tabs := row(commands, 6)
 	order_tab = game.button(tabs, "Commands", func(): show_tab("orders")); order_tab.toggle_mode = true
 	build_tab = game.button(tabs, "Build", func(): show_tab("build")); build_tab.toggle_mode = true
-	build_tab.tooltip_text = "Engineer construction / 1-0 select the first ten structures"
+	build_tab.tooltip_text = "1-0 select the first ten structures; click other cards\nT rotates / Shift queues / Right-click cancels"
 	game.command_scroll = ScrollContainer.new(); game.command_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; game.command_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL; commands.add_child(game.command_scroll)
 	order_grid = GridContainer.new(); order_grid.columns = 5; order_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	order_grid.add_theme_constant_override("h_separation", 6); order_grid.add_theme_constant_override("v_separation", 6); game.command_scroll.add_child(order_grid)
@@ -92,7 +101,7 @@ func setup(world: Node3D) -> void:
 	command(order_grid, "unload", "Unload", "U", game.unload)
 	command(order_grid, "expedition", "Explore", "E", func(): game.choose_expedition(false))
 	command(order_grid, "mining", "Mine", "M", func(): game.choose_expedition(true))
-	command(order_grid, "attack", "Attack move", "A", func(): game.choose_tactical("attack_move"))
+	command(order_grid, "attack", "Attack move", "Q", func(): game.choose_tactical("attack_move"))
 	command(order_grid, "defend", "Defend", "V", func(): game.choose_tactical("defend"))
 	command(order_grid, "patrol", "Patrol", "P", func(): game.choose_tactical("patrol"))
 	command(order_grid, "drill_order", "Drill", "C", func(): game.choose_tactical("drill"))
@@ -147,7 +156,7 @@ func make_help() -> void:
 	card.offset_left = -280; card.offset_right = 280; card.offset_top = -240; card.offset_bottom = 240
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 12); card.add_child(content)
 	game.label(content, "Controls", 22, game.MINT)
-	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nArrows / WSD pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag orbits\nE explore - M mine\nA attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload - N auto recharge\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nEscape cancels targeting - F1 closes help", 14)
+	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nWASD / arrows pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag orbits\nE explore - M mine\nQ attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload - N auto recharge\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nBuild: 1-0 select, T rotates, Shift queues\nEscape cancels targeting - F1 closes help", 14)
 	help_footer = game.label(content, "", 12, Color("8fa8b4"))
 	var buttons := row(content, 10)
 	game.button(buttons, "Close", toggle_help)
@@ -183,6 +192,14 @@ func after_context() -> void:
 	if gate != null:
 		game.context_buttons.gate.text = "Close gate" if gate.gate_open else "Open gate"
 		game.context_buttons.gate_lock.text = "Unlock gate" if gate.gate_locked else "Lock gate"
+		if gate.gate_open and not gate.powered: game.context_buttons.gate.text = "Manual close"
+	for key in game.context_buttons:
+		if Rules.UNITS.has(key): continue
+		var item: Button = game.context_buttons[key]
+		var shortcut: String = item.get_meta("shortcut", "")
+		if not shortcut.is_empty():
+			item.text += " [" + shortcut + "]"
+			item.tooltip_text = item.text
 	var turrets: Array = game.selected_turrets()
 	if not turrets.is_empty(): game.context_buttons.auto_reload.button_pressed = turrets.all(func(turret): return turret.auto_reload)
 	var vehicles: Array = game.selected_vehicles()
@@ -194,7 +211,7 @@ func after_context() -> void:
 func fit() -> void:
 	if not ready: return
 	game.command_panel.offset_left = 18; game.command_panel.offset_right = -286; game.command_panel.offset_top = -288 if active_tab == "build" else -238; game.command_panel.offset_bottom = -18
-	order_grid.columns = 5 if game.get_viewport().get_visible_rect().size.x >= 1250 else 4
+	order_grid.columns = 4 if game.get_viewport().get_visible_rect().size.x >= 1250 else 3
 	game.message.offset_left = 22; game.message.offset_right = game.get_viewport().get_visible_rect().size.x - 300; game.message.offset_top = game.command_panel.offset_top - 38; game.message.offset_bottom = game.command_panel.offset_top - 6
 	if game.minimap != null: game.minimap.fit()
 
@@ -206,7 +223,7 @@ func update() -> void:
 	game.sensors.visible = game.sensor_activity > 0 and (game.units.any(func(unit): return unit.kind == "scout" and unit.has_driver()) or game.structures.any(func(b): return b.kind == "scanner" and b.powered))
 	game.sensors.text = "Movement detected"
 	game.message.visible = game.notice_time > 0 and not game.message.text.is_empty()
-	game.pause_button.text = "Resume" if game.paused else "Pause"
+	game.pause_button.text = "Resume [Space]" if game.paused else "Pause [Space]"
 	after_context(); summarize_selection()
 
 func summarize_selection() -> void:

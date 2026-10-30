@@ -409,7 +409,7 @@ func _process(dt: float) -> void:
 		var pan := Vector3.ZERO
 		if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP): pan.z -= 1
 		if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN): pan.z += 1
-		if Input.is_physical_key_pressed(KEY_LEFT): pan.x -= 1
+		if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT): pan.x -= 1
 		if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT): pan.x += 1
 		focus += camera_pan_vector(Vector2(pan.x, pan.z)) * dt * camera.size * 0.45
 		focus.x = clampf(focus.x, -100, 100)
@@ -1175,7 +1175,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_R: choose_repair()
 			KEY_E: choose_expedition(false)
 			KEY_M: choose_expedition(true)
-			KEY_A: choose_tactical("attack_move")
+			KEY_Q: choose_tactical("attack_move")
 			KEY_V: choose_tactical("defend")
 			KEY_P: choose_tactical("patrol")
 			KEY_C: choose_tactical("drill")
@@ -1386,7 +1386,7 @@ func fit_construction_panel() -> void:
 
 func toggle_pause() -> void:
 	paused = not paused
-	pause_button.text = "Resume" if paused else "Pause"
+	pause_button.text = "Resume [Space]" if paused else "Pause [Space]"
 
 func notify(text: String) -> void:
 	if message != null:
@@ -1439,7 +1439,7 @@ func make_ui() -> void:
 
 func show_briefing() -> void:
 	overlay_title.text = "People keep the lights on."
-	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nScout with units to discover resources; HQ starts beside a small material field and one methane patch. M starts mining at a patch or receiver; E explores terrain. A attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
+	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nScout with units to discover resources; HQ starts beside a small material field and one methane patch. M starts mining at a patch or receiver; E explores terrain. Q attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
 
 
 func begin_run() -> void:
