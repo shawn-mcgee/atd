@@ -6,17 +6,15 @@ func check(ok: bool, message: String) -> void:
 func _initialize() -> void: call_deferred("run")
 
 func scenario(kind: String, mineral_room: int, gas_room: int, minerals: int, gas: int, stop_at_home: bool) -> void:
-	var game = load("res://scenes/prototype.tscn").instantiate()
-	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
-	root.add_child(game); current_scene = game
+	var game = preload("res://tools/fixtures/simulation_fixture.gd").new()
 	await process_frame
-	game.set_process(false); game.begin_run(); game.rocks.clear(); game.rebuild_navigation()
+	game.rocks.clear(); game.rebuild_navigation()
 	game.economy.minerals = game.economy.mineral_capacity - mineral_room
 	game.economy.gas = game.economy.gas_capacity - gas_room
 	var initial_m: int = game.economy.minerals; var initial_g: float = game.economy.gas
-	var truck: ExpeditionUnit = game.add_unit("jeep", Vector3(0, 0, -12))
-	var driver: ExpeditionUnit = game.add_unit("marine", truck.position + Vector3(1, 0, 2))
-	var worker: ExpeditionUnit = game.add_unit("engineer", truck.position + Vector3(-1, 0, 2))
+	var truck: SimUnit = game.add_unit("jeep", Vector3(0, 0, -12))
+	var driver: SimUnit = game.add_unit("marine", truck.position + Vector3(1, 0, 2))
+	var worker: SimUnit = game.add_unit("engineer", truck.position + Vector3(-1, 0, 2))
 	var resource: Dictionary = game.resource_at(game.DEPOSIT if kind == "minerals" else game.GAS_DEPOSIT)
 	game.complex_commands.start(game, [truck, driver, worker], resource)
 	var group: Dictionary = game.complex_commands.groups[0]
@@ -25,7 +23,7 @@ func scenario(kind: String, mineral_room: int, gas_room: int, minerals: int, gas
 	var receivers: Dictionary = {}
 	for i in range(600):
 		game.advance_movement(0.1); game.complex_commands.tick(game, 0.1)
-		if group.phase == "return" and is_instance_valid(group.receiver): receivers[group.receiver.kind] = true
+		if group.phase == "return" and SimEntity.valid(group.receiver): receivers[group.receiver.kind] = true
 		if truck.complex_id == 0: break
 		if not stop_at_home and group.phase == "outbound": break
 		if i % 100 == 0: await process_frame
@@ -36,7 +34,7 @@ func scenario(kind: String, mineral_room: int, gas_room: int, minerals: int, gas
 		check(truck.complex_id == 0 and not truck.has_driver() and worker.aboard == null and driver.aboard == null and truck.position.distance_to(game.HOME) < 16, "full expedition resource ends at HQ with the crew safely unloaded")
 	else:
 		check(truck.complex_id != 0 and group.phase == "outbound" and worker.aboard == truck, "full incidental resource does not block repeat trips for the expedition resource")
-	game.queue_free(); await process_frame
+	game.dispose(); await process_frame
 
 func run() -> void:
 	await scenario("minerals", 0, 10, 7, 8, true)

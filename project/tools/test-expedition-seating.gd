@@ -13,17 +13,15 @@ func step(game, seconds: float) -> void:
 		if i % 100 == 0: await process_frame
 
 func run() -> void:
-	var game = load("res://scenes/prototype.tscn").instantiate()
-	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
-	root.add_child(game); current_scene = game
+	var game = preload("res://tools/fixtures/simulation_fixture.gd").new()
 	await process_frame
-	game.set_process(false); game.begin_run(); game.audio_enabled = false
+
 	game.rocks.clear(); game.rebuild_navigation()
 	var command = game.complex_commands
 	var resource: Dictionary = game.resource_at(game.DEPOSIT); resource.discovered = true
-	var jeep: ExpeditionUnit = game.add_unit("jeep", Vector3(8, 0, -16))
-	var marine: ExpeditionUnit = game.add_unit("marine", jeep.position)
-	var flamer: ExpeditionUnit = game.add_unit("flamer", jeep.position + Vector3(0, 0, 1))
+	var jeep: SimUnit = game.add_unit("jeep", Vector3(8, 0, -16))
+	var marine: SimUnit = game.add_unit("marine", jeep.position)
+	var flamer: SimUnit = game.add_unit("flamer", jeep.position + Vector3(0, 0, 1))
 	var engineers: Array = []
 	for i in range(3): engineers.append(game.add_unit("engineer", jeep.position + Vector3(i + 1, 0, 0)))
 	var crew: Array = [jeep, marine, flamer] + engineers
@@ -50,8 +48,8 @@ func run() -> void:
 	check(group.driver.kind == "engineer" and group.members.any(func(unit): return unit.kind == "engineer" and unit != group.driver), "engineer fallback retains a separate mining engineer")
 	command.interrupt(jeep)
 	# Multiple vehicles assign their pilots before using spare seats for engineers.
-	var scout: ExpeditionUnit = game.add_unit("scout", jeep.position + Vector3(0, 0, 3))
-	var extra: ExpeditionUnit = game.add_unit("engineer", jeep.position + Vector3(1, 0, 3))
+	var scout: SimUnit = game.add_unit("scout", jeep.position + Vector3(0, 0, 3))
+	var extra: SimUnit = game.add_unit("engineer", jeep.position + Vector3(1, 0, 3))
 	crew = [jeep, scout, marine, flamer, extra] + engineers
 	check(command.start_expedition(game, crew, {}, Vector3(25, 0, -20)), "a jeep and scout can explore with a pooled crew")
 	group = command.exploration.groups[-1]
@@ -63,5 +61,6 @@ func run() -> void:
 	game.set_order(jeep, "move", jeep.position + Vector3(0, 0, -5))
 	await step(game, 12)
 	check(jeep.complex_id == 0 and not jeep.order.begins_with("convoy_explore") and detached.all(func(unit): return unit.complex_id == 0) and scout.complex_id == group.id, "a direct vehicle order permanently detaches its entire crew while the other scout continues")
+	game.dispose()
 	print("EXPEDITION_SEATING_TEST_RESULT: ", failures, " failures")
 	quit(1 if failures else 0)

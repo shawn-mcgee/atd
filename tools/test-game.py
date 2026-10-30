@@ -19,7 +19,6 @@ def main():
     if godot is None:
         parser.error("Provide --godot or place the Godot executable at the repository root")
     tests = sorted((root / "project/tools").glob("test-*.gd"))
-    tests = [test for test in tests if test.stem != "test-occluded-units"]
     if args.name:
         wanted = {"test-" + name.removeprefix("test-").removesuffix(".gd") for name in args.name}
         missing = wanted - {test.stem for test in tests}
@@ -28,6 +27,15 @@ def main():
         tests = [test for test in tests if test.stem in wanted]
     logs = root / "project/art_source/.build/test-results"
     logs.mkdir(parents=True, exist_ok=True)
+    imported = subprocess.run(
+        [str(godot.resolve()), "--headless", "--editor", "--path", str(root / "project"), "--import", "--quit"],
+        cwd=root, capture_output=True, text=True, timeout=args.timeout,
+    )
+    import_output = imported.stdout + imported.stderr
+    (logs / "import.log").write_text(import_output, encoding="utf-8")
+    if imported.returncode or any("SCRIPT ERROR:" in line or line.startswith("ERROR:") for line in import_output.splitlines()):
+        print(f"Project import failed. See {logs / 'import.log'}", flush=True)
+        return 1
 
     def run(test):
         command = [str(godot.resolve()), "--headless", "--path", str(root / "project"), "--script", "res://tools/" + test.name]

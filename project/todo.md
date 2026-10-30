@@ -11,4 +11,4 @@ Concrete requests extracted from [ideas.md](../ideas.md). All extracted items ar
 
 [Completed Hive Recovery iteration](todos/completed-hive-recovery.md)
 
-Validation: 31 headless integration suites, GPU picking/occlusion suites, rendered previews, and a Web export/browser smoke test.
+Current experiment: gameplay lives in `engine/`, with a primitive 2D view in `view/`. Validation covers headless mechanics, deterministic replay, old-gameplay checkpoints, and 2D picking/HUD/resize. See [engine architecture](docs/engine.md). Historical 3D validation is recorded in the completed iteration documents.

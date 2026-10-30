@@ -25,7 +25,7 @@ jobs:
       contents: read
       pages: read
     steps:
-      - name: Check out game sources and generated models
+      - name: Check out game sources
         uses: actions/checkout@v6
 
       - name: Install matching Godot editor and Web export templates
