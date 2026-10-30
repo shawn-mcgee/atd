@@ -15,6 +15,7 @@ class SelectionMask extends Node2D:
 		return world.actor_position(actor)
 	func _draw() -> void:
 		if world == null: return
+		if not world.selected_resource.is_empty(): world.sprites.draw_resource(self, world.selected_resource)
 		for actor in world.selected:
 			if not SimEntity.valid(actor) or not actor.visible or actor.hp <= 0: continue
 			if actor is SimStructure:
@@ -53,6 +54,6 @@ func sync() -> void:
 	var dimensions := Vector2i(size)
 	if mask_viewport.size != dimensions: mask_viewport.size = dimensions
 	material.set_shader_parameter("pixel_size", Vector2.ONE / size)
-	visible = not game.selected.is_empty()
+	visible = not game.selected.is_empty() or not game.selected_resource.is_empty()
 	mask_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS if visible else SubViewport.UPDATE_DISABLED
 	if visible: mask_draw.queue_redraw()

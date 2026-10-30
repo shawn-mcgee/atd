@@ -144,6 +144,12 @@ func pick(screen: Vector2) -> SimEntity:
 		if Geometry2D.is_point_in_polygon(screen, Primitives.structure_polygon(self, building)): return building
 	return null
 
+func pick_resource(screen: Vector2) -> Dictionary:
+	var patches: Array = simulation.resource_nodes.duplicate(); patches.reverse()
+	for patch in patches:
+		if patch.discovered and patch.remaining > 0 and sprites.hit(self, sprites.resource_key(patch), patch.position, 0, screen): return patch
+	return {}
+
 func _draw() -> void:
 	if simulation.started: Primitives.draw_world(self)
 
@@ -248,7 +254,7 @@ func _input(event: InputEvent) -> void:
 								if unit.kind == actor.kind and unit.aboard == null and get_viewport_rect().has_point(world_to_screen(unit.position)) and not selected.has(unit): selected.append(unit)
 						elif not selected.has(actor): selected.append(actor)
 						elif event.shift_pressed: selected.erase(actor)
-					else: selected_resource = simulation.resource_at(ground_point(select_start))
+					else: selected_resource = pick_resource(select_start)
 				selecting = false; selection_box.active = false; selection_box.queue_redraw(); refresh_ui()
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -13,7 +13,7 @@ func run() -> void:
 		var region: Rect2 = sprites.regions[key].region
 		var atlas: Texture2D = sprites.regions[key].atlas
 		if region.size.x <= 0 or region.size.y <= 0 or not Rect2(Vector2.ZERO, atlas.get_size()).encloses(region): valid = false
-	check(valid and sprites.regions.size() == 63, "all 63 prepared regions lie inside their imported atlases")
+	check(valid and sprites.regions.size() == 91, "all 91 prepared regions lie inside their imported atlases")
 	for key in ["runner", "stalker", "brute", "scout", "jeep", "drill"]:
 		check(is_equal_approx(sprites.rotation(key), PI), key + " corrects south-facing source art")
 	check(not sprites.regions.has("unused_gate_frame") and not sprites.regions.has("gate"), "generated gate components are excluded")
@@ -32,12 +32,12 @@ func run() -> void:
 	# Pick an actual opaque rifle pixel outside the old circle, under camera rotation.
 	game.camera_angle = 0.4
 	var rect: Rect2 = game.sprites.sprite_rect("marine", game.zoom)
-	for y in range(int(region.size.y / 3)):
+	for y in range(int(region.size.y * 0.7), int(region.size.y)):
 		for x in range(0, int(region.size.x), 4):
 			if image.get_pixel(int(region.position.x) + x, int(region.position.y) + y).a < 0.8: continue
 			var local := rect.position + Vector2(x, y) / region.size * rect.size
 			if local.length() < 8: continue
-			var screen: Vector2 = game.world_to_screen(marine.position) + local.rotated(game.camera_angle)
+			var screen: Vector2 = game.world_to_screen(marine.position) + local.rotated(game.camera_angle + game.sprites.rotation("marine"))
 			if game.pick(screen) == marine: found = true; break
 		if found: break
 	check(found, "opaque sprite extensions are selectable outside the former circular hit area")

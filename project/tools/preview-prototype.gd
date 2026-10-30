@@ -75,6 +75,17 @@ func capture() -> void:
 		mode += "-platforms"; game.zoom = 48; game.focus = Vector2(1, -1)
 		for cell in [Vector2i(2, -2), Vector2i(3, -2), Vector2i(2, -1)]: game.simulation.add_structure("platform", game.Hex.to_world(cell, 1))
 		game.simulation.rebuild_navigation(); game.simulation.rebuild_light(); game.simulation.record_exploration()
+	if "--resource" in OS.get_cmdline_user_args():
+		game.simulation.resource_fields.discover(game.simulation)
+		for patch in game.simulation.resource_nodes:
+			if patch.discovered and patch.remaining > 0:
+				game.selected.clear(); game.selected_resource = patch; break
+		game.refresh_ui(); mode += "-resource"
+	if "--cliffs" in OS.get_cmdline_user_args():
+		mode += "-cliffs"; game.zoom = 48; game.focus = Vector2(1, -1)
+		for cell in [Vector2i(2, -2), Vector2i(3, -2), Vector2i(2, -1)]:
+			game.simulation.rocks.append({"position": game.Hex.to_world(cell, 1), "cell": cell, "radius": 0.82, "height": 4})
+		game.simulation.rebuild_navigation(); game.simulation.record_exploration()
 	game.queue_redraw()
 	for i in range(4): await process_frame
 	await RenderingServer.frame_post_draw

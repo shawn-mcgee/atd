@@ -94,9 +94,6 @@ func polygon(game, key: String, vertices: PackedVector2Array, anchor: Vector3, a
 			# Rotate flat-top art, not the pointy-top grid or its gameplay footprint.
 			var radius := bounds.size.y / 2
 			uv = (point - bounds.get_center()).rotated(-PI / 6) / Vector2(radius * 2, radius * sqrt(3)) + Vector2.ONE * 0.5
-		if key.begins_with("ground_"):
-			# Use the continuous interior instead of repeating rocky island borders.
-			uv = (uv - Vector2.ONE * 0.5) * 0.55 + Vector2.ONE * 0.5
 		uvs.append((source.position + uv * source.size) / atlas_size)
 	game.draw_polygon(vertices, PackedColorArray([tint]), uvs, textures[entry.sheet])
 
@@ -114,15 +111,14 @@ func building_layout(game, building: SimStructure, vertices: PackedVector2Array)
 	var bounds := Rect2(Vector2.ZERO, Vector2.ZERO)
 	for point in vertices: bounds = bounds.expand((point - origin).rotated(-game.camera_angle - angle) / game.zoom)
 	var center := bounds.get_center().rotated(angle)
+	var key := building_key(building, game.mission.stolen)
+	if regions.has(key): bounds.size.y = bounds.size.x * regions[key].region.size.y / regions[key].region.size.x
 	return {"point": building.position + Vector3(center.x, 0, center.y), "angle": angle, "size": bounds.size}
 
 func draw_building(game, building: SimStructure, vertices: PackedVector2Array, tint: Color) -> void:
 	var layout := building_layout(game, building, vertices)
 	var key := building_key(building, game.mission.stolen)
 	var size: Vector2 = layout.size
-	if key in FLAT_TOP:
-		# Flat-top source rectangle rotates into the pointy-top footprint bounds.
-		size = Vector2(size.y, size.x)
 	draw(game, key, layout.point, layout.angle, tint, size)
 
 func hit_building(game, building: SimStructure, vertices: PackedVector2Array, screen: Vector2) -> bool:
@@ -130,7 +126,6 @@ func hit_building(game, building: SimStructure, vertices: PackedVector2Array, sc
 	if not regions.has(key): return false
 	var layout := building_layout(game, building, vertices)
 	var size: Vector2 = layout.size
-	if key in FLAT_TOP: size = Vector2(size.y, size.x)
 	var rect := sprite_rect(key, game.zoom, size)
 	var local: Vector2 = (screen - game.world_to_screen(layout.point)).rotated(-game.camera_angle - layout.angle - rotation(key))
 	if not rect.has_point(local): return false
@@ -199,3 +194,18 @@ func draw_gate(game, building: SimStructure) -> void:
 		game.draw_circle(Vector2(0, side * 0.69), 0.055, status)
 	game.draw_set_transform(Vector2.ZERO)
 
+
+func resource_key(patch: Dictionary) -> String:
+	var ratio: float = float(patch.remaining) / maxf(1, initial_resources.get(patch.position, patch.remaining))
+	return ("materials_" if patch.kind == "minerals" else "methane_") + ("full" if ratio > 0.66 else "medium" if ratio > 0.25 else "low")
+func draw_resource(game, patch: Dictionary, tint: Color = Color.WHITE) -> void:
+	if patch.get("discovered", false) and patch.remaining > 0: draw(game, resource_key(patch), patch.position, 0, tint)
+
+func draw_terrain(game, key: String, point: Vector3, tint: Color) -> void:
+	var vertices := PackedVector2Array()
+	for i in range(6):
+		var angle := i * TAU / 6 + PI / 6
+		var offset := Vector3(cos(angle), 0, sin(angle)) * 1.001
+		if key == "cliff_top": offset.z = offset.z * 1.25 - 0.25
+		vertices.append(game.world_to_screen(point + offset))
+	polygon(game, key + "_fit", vertices, point, 0, tint)

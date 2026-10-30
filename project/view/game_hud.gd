@@ -1,9 +1,9 @@
 extends RefCounted
 ## Global resources stay at the top; selection, grid, orders and construction share one dock.
 const Rules = preload("res://engine/expedition_rules.gd")
-const MATERIAL = preload("res://assets/ui/material.svg")
-const METHANE = preload("res://assets/ui/methane.svg")
-const POWER = preload("res://assets/ui/power.svg")
+var MATERIAL: Texture2D = preload("res://view/rts_icons.gd").texture("material")
+var METHANE: Texture2D = preload("res://view/rts_icons.gd").texture("methane")
+var POWER: Texture2D = preload("res://view/rts_icons.gd").texture("power")
 const Chrome = preload("res://view/rts_theme.gd")
 const Icons = preload("res://view/rts_icons.gd")
 var game: Node2D
