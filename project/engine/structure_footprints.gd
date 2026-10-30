@@ -4,7 +4,7 @@ const Terrain = preload("res://engine/expedition_terrain.gd")
 
 static func offsets(kind: String, direction: int = 0) -> Array[Vector2i]:
 	var result: Array[Vector2i] = [Vector2i.ZERO]
-	if kind == "core": result.append_array(Hex.NEIGHBORS)
+	if kind in ["core", "extractor"]: result.append_array(Hex.NEIGHBORS)
 	elif kind in ["generator", "barracks", "garage"]:
 		result.append_array([Vector2i(1, 0), Vector2i(0, 1)])
 		if kind == "garage": result.append(Vector2i(1, 1))

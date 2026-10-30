@@ -1,7 +1,8 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## Shared tactical missions: crew, escorts, vulnerable personnel, and scanner contacts.
 const DRIVER_RANK := {"marine": 0, "flamer": 1, "engineer": 2}
-const LEASH := 8.0
+static var LEASH: float = float(Config.value("tactics", "leash"))
 var groups: Array[Dictionary] = []
 var pending: Array[Dictionary] = []
 var next_id := -50000
@@ -178,7 +179,7 @@ func tick(game, dt: float) -> void:
 			if group.vehicles.is_empty() and person == leader: point = travel_to
 			if person.kind in ["marine", "flamer"] and enemy != null:
 				person.combat_target = enemy
-				var range_value := 5.5 if person.kind == "flamer" else 11.0
+				var range_value: float = game.Config.value("simulation", person.kind + "_range")
 				issue(game, person, "engage", enemy.position, enemy, person.position.distance_to(enemy.position) <= range_value and game.navigation.can_see(person.position, enemy.position))
 			else: person.combat_target = null; issue(game, person, "escort", point, leader if person != leader else null, person.position.distance_to(point) < 1)
 
@@ -187,7 +188,7 @@ func investigate(game, group: Dictionary, leader: SimUnit, anchor: Vector3) -> v
 		if group.clock >= group.investigate_until or leader.position.distance_to(group.investigate) < 2: group.investigate = Vector3.INF
 		else: return
 	for scout in group.vehicles:
-		if scout.kind != "scout" or not scout.has_driver() or scout.battery <= 0: continue
+		if scout.kind != "scout" or not scout.has_driver(): continue
 		for creature in game.creatures:
 			if creature.hp <= 0 or scout.position.distance_to(creature.position) > 28: continue
 			var cell = game.Hex.to_axial(creature.position, game.Terrain.CELL * 4)

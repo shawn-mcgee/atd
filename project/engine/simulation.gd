@@ -1,4 +1,5 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## Fixed-tick gameplay. No scene tree, rendering, input polling or wall-clock time.
 const Hex = preload("res://engine/hex_grid.gd")
 const Navigation = preload("res://engine/expedition_navigation.gd")
@@ -15,7 +16,7 @@ const ComplexCommands = preload("res://engine/complex_commands.gd")
 const Terrain = preload("res://engine/expedition_terrain.gd")
 const Footprints = preload("res://engine/structure_footprints.gd")
 const StateCodec = preload("res://engine/state_codec.gd")
-const TICK := 0.1
+static var TICK: float = float(Config.value("simulation", "tick"))
 const HOME := Vector3.ZERO
 const MINT := Color("7bf4d0")
 const AMBER := Color("efbd77")
@@ -83,7 +84,7 @@ func initialize(seed_value: int = 1) -> void:
 	layout.setup_resources(self)
 	mission.setup(self)
 	economy.recalculate(structures); power.tick(structures, economy, 0)
-	rebuild_navigation(); rebuild_light()
+	rebuild_navigation(); light.configure(navigation); rebuild_light()
 	director.populate(self)
 	record_exploration()
 	started = true
@@ -93,7 +94,7 @@ func register_entity(entity: SimEntity) -> void:
 	entities[entity.simulation_id] = entity
 
 func add_resource_patch(kind: String, point: Vector3, amount: int) -> void:
-	resource_nodes.append({"kind": kind, "position": navigation.terrain.surface(point), "remaining": amount, "discovered": false})
+	resource_nodes.append({"kind": kind, "position": navigation.terrain.surface(point), "remaining": amount, "initial_remaining": amount, "discovered": false})
 
 func add_natural_obstacle(point: Vector3, variation: int) -> void:
 	point = Hex.snap(point, Terrain.CELL)
@@ -299,24 +300,25 @@ func rebuild_navigation() -> void:
 		if navigation.affects_path(creature.position, creature.path, creature.path_index): creature.path.clear(); creature.repath = 0
 
 func rebuild_light() -> void:
-	light.sources.clear()
+	light.clear()
 	for b in structures:
 		if not b.complete or b.hp <= 0: continue
 		if b.kind == "core":
-			light.add_source(b.position, 4, Vector3.ZERO, -1, 0.2, false)
+			light.add_source(b.position, Config.value("lighting", "hq_emergency_radius"), Vector3.ZERO, -1, Config.value("lighting", "emergency_intensity"), false)
 			if b.powered and b.enabled: light.add_source(b.position, b.light_radius, Vector3.ZERO, -1, b.light_intensity)
-		if b.kind == "floodlight" and b.powered and b.enabled: light.add_source(b.position, 13)
+		if b.kind == "floodlight" and b.powered and b.enabled: light.add_source(b.position, Config.value("lighting", "spotlight_radius"))
 	for unit in units:
 		if unit.aboard != null or unit.hp <= 0: continue
 		if unit.is_vehicle():
-			light.add_source(unit.position, 4, Vector3.ZERO, -1, 0.2, false)
-			if unit.has_driver() and unit.battery > 0:
-				light.add_source(unit.position, 5)
-				light.add_source(unit.position, 18, unit.facing, cos(deg_to_rad(52)))
-		else: light.add_source(unit.position, 2.6, Vector3.ZERO, -1, 0.45, false)
+			light.add_source(unit.position, Config.value("lighting", "hq_emergency_radius"), Vector3.ZERO, -1, Config.value("lighting", "emergency_intensity"), false)
+			if unit.has_driver():
+				light.add_source(unit.position, Config.value("lighting", "vehicle_radius"))
+				light.add_source(unit.position, Config.value("lighting", "headlight_radius"), unit.facing, cos(deg_to_rad(Config.value("lighting", "headlight_half_angle"))))
+		else: light.add_source(unit.position, Config.value("lighting", "infantry_radius"), Vector3.ZERO, -1, Config.value("lighting", "infantry_intensity"), false)
 	for wreck in wrecks:
 		light.add_source(wreck.node.position, 4, Vector3.ZERO, -1, float(wreck.life) / 30.0 * 0.2, false)
 
+	light.ensure_field()
 	resource_fields.discover(self)
 
 func advance_movement(dt: float) -> void:
@@ -335,6 +337,15 @@ func advance_movement(dt: float) -> void:
 		if unit.aboard == null: unit.position.y = navigation.terrain.height(unit.position)
 	for creature in creatures: creature.position.y = navigation.terrain.height(creature.position)
 
+func heal_near_hq(dt: float) -> void:
+	if not SimEntity.valid(core) or core.hp <= 0 or not core.complete: return
+	var radius := Config.value("simulation", "hq_heal_radius")
+	for unit in units:
+		if unit.hp <= 0: continue
+		var point: Vector3 = unit.aboard.position if SimEntity.valid(unit.aboard) else unit.position
+		if point.distance_squared_to(core.position) <= radius * radius:
+			unit.hp = minf(float(Rules.UNITS[unit.kind].hp), unit.hp + Config.value("simulation", "hq_heal_per_second") * dt)
+
 func simulation_tick(dt: float, advance_motion: bool = true) -> void:
 	if ended: return
 	if advance_motion: advance_movement(dt)
@@ -345,6 +356,7 @@ func simulation_tick(dt: float, advance_motion: bool = true) -> void:
 		low_fuel_warned = true; notify("Methane reserve low / send engineers to the methane signal and deliver to a Methane Tank")
 	elif economy.gas >= 30: low_fuel_warned = false
 	vehicles.tick(self, dt)
+	heal_near_hq(dt)
 	tactics.tick(self, dt)
 	tactical_groups.tick(self, dt)
 	for unit in units: process_order(unit, dt)
@@ -422,7 +434,7 @@ func process_order(unit: SimUnit, dt: float) -> void:
 		if unit.work_clock >= 1:
 			unit.work_clock = 0
 			if target.hp >= float(Rules.STRUCTURES[target.kind].hp): continue_maintenance(unit, target)
-			elif economy.spend({"minerals": 1}): target.hp = minf(float(Rules.STRUCTURES[target.kind].hp), target.hp + 8)
+			elif economy.spend({"minerals": 1}): target.hp = minf(float(Rules.STRUCTURES[target.kind].hp), target.hp + Config.value("simulation", "repair_per_material"))
 	elif unit.order == "harvest": process_harvest(unit, dt)
 	elif unit.order == "to_carrier":
 		if unit.position.distance_to(target.position) < 3.8:
@@ -508,8 +520,7 @@ func valid_site(kind: String, point: Vector3, direction_index: int = -1) -> bool
 		for rock in rocks:
 			if rock.get("cell") == cell: return false
 	if kind == "extractor":
-		var resource := resource_at(point)
-		if resource.is_empty() or not resource.discovered or resource.remaining <= 0: return false
+		if not resource_fields.extractor_site(self, point, direction): return false
 	elif kind not in ["platform", "ramp"] and not resource_at(point).is_empty(): return false
 	return true
 
@@ -558,18 +569,18 @@ func visible_target(point: Vector3, radius: float) -> SimPredator:
 func combat_tick(_dt: float) -> void:
 	for unit in units:
 		if unit.kind not in ["marine", "flamer"] or unit.aboard != null or unit.cooldown > 0: continue
-		var enemy: SimEntity = unit.combat_target if tactics.valid(unit.combat_target) else visible_target(unit.position, 5.5 if unit.kind == "flamer" else 11)
-		if enemy != null and (unit.position.distance_to(enemy.position) > (5.5 if unit.kind == "flamer" else 11) or not navigation.can_see(unit.position, enemy.position) or (enemy is SimPredator and light.sample(enemy.position) < 0.065)): enemy = null
+		var enemy: SimEntity = unit.combat_target if tactics.valid(unit.combat_target) else visible_target(unit.position, Config.value("simulation", unit.kind + "_range"))
+		if enemy != null and (unit.position.distance_to(enemy.position) > (Config.value("simulation", unit.kind + "_range")) or not navigation.can_see(unit.position, enemy.position) or (enemy is SimPredator and light.sample(enemy.position) < 0.065)): enemy = null
 		if enemy != null:
 			unit.focus_target = enemy
 			if unit.kind == "flamer":
-				if not enemy is SimPredator: enemy.hp -= 18
+				if not enemy is SimPredator: enemy.hp -= Config.value("simulation", "flamer_damage")
 				for other in creatures:
-					if other.position.distance_to(enemy.position) < 2.7 and light.sample(other.position) > 0.065 and navigation.can_see(unit.position, other.position): other.hurt(18)
+					if other.position.distance_to(enemy.position) < Config.value("simulation", "flamer_splash") and light.sample(other.position) > 0.065 and navigation.can_see(unit.position, other.position): other.hurt(Config.value("simulation", "flamer_damage"))
 			else:
-				if enemy is SimPredator: enemy.hurt(10)
-				else: enemy.hp -= 10
-			unit.cooldown = 0.85 if unit.kind == "flamer" else 0.65
+				if enemy is SimPredator: enemy.hurt(Config.value("simulation", "marine_damage"))
+				else: enemy.hp -= Config.value("simulation", "marine_damage")
+			unit.cooldown = Config.value("simulation", unit.kind + "_delay")
 			shot(unit.position + Vector3.UP * 1.2, enemy.position + Vector3.UP * 0.7, Color("f28a42") if unit.kind == "flamer" else AMBER, unit)
 	turret_system.tick(self, _dt)
 	for creature in creatures:
@@ -625,11 +636,7 @@ func selected_vehicles() -> Array[SimUnit]:
 	return result
 
 func toggle_auto_recharge() -> void:
-	var vehicles_selected := selected_vehicles()
-	if vehicles_selected.is_empty(): return
-	var enable := not vehicles_selected.all(func(unit): return unit.auto_recharge)
-	for vehicle in vehicles_selected: vehicle.auto_recharge = enable
-	vehicles.tick(self, 0)
+	pass # Legacy replay command; vehicles no longer require charging.
 
 func selected_jeep() -> SimUnit:
 	for actor in selected:
@@ -773,14 +780,14 @@ func process_harvest(unit: SimUnit, dt: float) -> void:
 		if carrier != null and carrier.position.distance_to(unit.position) < 8 and carrier.cargo_total() < carrier.capacity: set_order(unit, "to_carrier", carrier.position, carrier)
 		else: send_to_receiver(unit)
 		return
-	if not resource_fields.within_reach(unit, unit.harvest_origin):
+	if not resource_fields.within_reach(unit, unit.harvest_origin, self):
 		if not unit.moving(): unit.travel(unit.harvest_origin, navigation)
 		return
 	unit.path.clear(); unit.work_clock += dt
-	if unit.work_clock < 0.7: return
-	unit.work_clock -= 0.7
+	if unit.work_clock < Config.value("simulation", "harvest_seconds"): return
+	unit.work_clock -= Config.value("simulation", "harvest_seconds")
 	var resource := resource_at(unit.harvest_origin)
-	if resource.is_empty() or int(resource.remaining) <= 0:
+	if resource.is_empty() or not resource_fields.available(self, resource):
 		if unit.cargo_total() > 0: send_to_receiver(unit)
 		else: unit.order = "idle"
 		return
@@ -962,7 +969,7 @@ func record_exploration() -> void:
 		for cell in navigation.cells:
 			var point: Vector3 = navigation.friendly_graph.get_point_position(navigation.cells[cell])
 			survey_points[cell] = point
-			survey_types[cell] = "cliff" if navigation.solid_cells.has(cell) else "raised" if point.y > 2.9 else "ramp" if point.y > 0.1 else "ground"
+			survey_types[cell] = "cliff" if navigation.solid_cells.has(cell) else "raised" if point.y > Terrain.LEVEL - 0.1 else "ramp" if point.y > 0.1 else "ground"
 			if explored.has(cell): explored[cell] = survey_types[cell]
 	var exposure: Dictionary = {}
 	for source in light.sources:
@@ -972,10 +979,10 @@ func record_exploration() -> void:
 			for r in range(maxi(-reach, -q - reach), mini(reach, -q + reach) + 1):
 				var cell := center + Vector2i(q, r)
 				if explored.has(cell) or not survey_points.has(cell): continue
-				var strength: float = light.source_strength(survey_points[cell], source)
+				var strength: float = light.sample_source(survey_points[cell], source)
 				if strength <= 0: continue
 				var total: float = float(exposure.get(cell, 0.0)) + strength
-				if total > 0.05: explored[cell] = survey_types[cell]
+				if total > Config.value("lighting", "discovery_threshold"): explored[cell] = survey_types[cell]
 				else: exposure[cell] = total
 	survey_hash = field_hash; survey_count = explored.size()
 

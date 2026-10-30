@@ -1,7 +1,8 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## Stable perimeter legs, with a short watch at each reachable waypoint.
-const POINTS := 8
-const RADIUS := 5.5
+static var POINTS: int = int(Config.value("patrol", "points"))
+static var RADIUS: float = float(Config.value("patrol", "radius"))
 var states: Dictionary = {}
 
 func prune(units: Array) -> void:

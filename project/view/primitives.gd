@@ -90,7 +90,7 @@ static func draw_world(game) -> void:
 		if actor is SimUnit:
 			if actor.is_vehicle():
 				game.draw_circle(center, 1.4, game.AMBER)
-				if actor.has_driver() and actor.battery > 0:
+				if actor.has_driver():
 					var facing := Vector2(actor.facing.x, actor.facing.z).rotated(game.camera_angle)
 					game.draw_circle(center + facing * radius, 1.4, Color("dcf5e6"))
 			if actor.order in ["build", "repair"] and SimEntity.valid(actor.target) and actor.position.distance_to(actor.target.position) < 3.5:

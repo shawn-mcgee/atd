@@ -1,7 +1,8 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 const Hex = preload("res://engine/hex_grid.gd")
-const MAP_RADIUS := 84
-const LEVEL := 3.0
+static var MAP_RADIUS: int = int(Config.value("world", "map_radius"))
+static var LEVEL: float = float(Config.value("world", "level"))
 const CELL := 1.0
 const SPACING := 1.7320508075688772
 const NATURAL_RAMP_HIGH := Vector3(45.033320997, 0, 6)

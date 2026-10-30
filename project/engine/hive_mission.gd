@@ -1,8 +1,9 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## The carrier is the single source of truth; boarding keeps the item with its owner.
 const Structure = preload("res://engine/expedition_structure.gd")
-const EXTRACTION_TIME := 60.0
-const EXTRACTION_RADIUS := 7.0
+static var EXTRACTION_TIME: float = float(Config.value("mission", "extraction_time"))
+static var EXTRACTION_RADIUS: float = float(Config.value("mission", "extraction_radius"))
 var beacon: SimStructure
 var hive: SimStructure
 var item: SimEntity

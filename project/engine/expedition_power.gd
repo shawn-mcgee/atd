@@ -1,9 +1,11 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
+const Footprints = preload("res://engine/structure_footprints.gd")
 const Rules = preload("res://engine/expedition_rules.gd")
-const LINK_RANGE := 10.4
-const GENERATOR_RANGE := 3.5
-const CORE_RANGE := 7.0
-const CORE_OUTPUT := 4
+static var LINK_RANGE: float = float(Config.value("power", "link_range"))
+static var GENERATOR_RANGE: float = float(Config.value("power", "generator_range"))
+static var CORE_RANGE: float = float(Config.value("power", "core_range"))
+static var CORE_OUTPUT: int = int(Config.value("power", "core_output"))
 const SOURCES := ["generator", "repeater", "core"]
 
 static func source_range(source: SimEntity) -> float:
@@ -12,14 +14,24 @@ static func source_range(source: SimEntity) -> float:
 static func covers(source: SimEntity, point: Vector3) -> bool:
 	return source.position.distance_squared_to(point) <= source_range(source) * source_range(source)
 
-const GENERATOR_OUTPUT := 12
-const GAS_PER_POWER_SECOND := 0.025
+static var GENERATOR_OUTPUT: int = int(Config.value("power", "generator_output"))
+static var GAS_PER_POWER_SECOND: float = float(Config.value("power", "gas_per_power_second"))
 var capacity := 0
 var demand := 0
 var used := 0
 var fuel_rate := 0.0
 var links: Array[Dictionary] = []
 var grids: Array[Dictionary] = []
+
+static func sources_connect(a: SimEntity, b: SimEntity) -> bool:
+	var reach := source_range(a) + source_range(b) if a.kind == "repeater" or b.kind == "repeater" else maxf(source_range(a), source_range(b))
+	return a.position.distance_squared_to(b.position) <= reach * reach
+
+static func covers_structure(source: SimEntity, kind: String, point: Vector3, direction: int = 0) -> bool:
+	for cell in Footprints.cells(kind, point, direction):
+		var tile := preload("res://engine/hex_grid.gd").to_world(cell, 1); tile.y = point.y
+		if covers(source, tile): return true
+	return false
 
 func grid_for(actor: SimEntity, structures: Array, powered_only: bool = false) -> Dictionary:
 	if not SimEntity.valid(actor) or actor.hp <= 0: return {}
@@ -56,7 +68,11 @@ static func placement_connection(kind: String, point: Vector3, structures: Array
 	var nearest := INF
 	var rank := -1
 	for b in structures:
-		if b.kind not in SOURCES or b.hp <= 0 or not covers(b, point): continue
+		if b.kind not in SOURCES or b.hp <= 0: continue
+		var reach := source_range(b) + LINK_RANGE if kind == "repeater" else source_range(b)
+		if kind == "repeater":
+			if b.position.distance_squared_to(point) > reach * reach: continue
+		elif not covers_structure(b, kind, point): continue
 		var candidate_rank := 3 if b.complete and b.enabled and b.connected else 2 if b.complete and b.enabled else 1 if not b.complete else 0
 		var distance := point.distance_squared_to(b.position)
 		if candidate_rank > rank or (candidate_rank == rank and distance < nearest):
@@ -92,7 +108,7 @@ func tick(structures: Array, economy: RefCounted, dt: float) -> void:
 			elif source.kind == "core": network.capacity += CORE_OUTPUT; network.auxiliary += CORE_OUTPUT
 			for b in structures:
 				if not b.complete or b.hp <= 0 or not b.enabled or b.network >= 0 or b.kind not in SOURCES: continue
-				if covers(source, b.position) or (b.kind in ["generator", "core"] and covers(b, source.position)):
+				if sources_connect(source, b):
 					b.network = id; frontier.append(b); links.append({"a": source.position, "b": b.position})
 		networks.append(network)
 	for b in structures:
@@ -102,7 +118,7 @@ func tick(structures: Array, economy: RefCounted, dt: float) -> void:
 		for net in networks:
 			for node in net.nodes:
 				var distance: float = node.position.distance_squared_to(b.position)
-				if covers(node, b.position) and distance < best: source = node; best = distance
+				if covers_structure(node, b.kind, b.position, b.build_direction) and distance < best: source = node; best = distance
 		demand += int(Rules.STRUCTURES[b.kind].power)
 		if source != null:
 			b.connected = true; b.network = source.network; networks[b.network].consumers.append(b)

@@ -1,7 +1,8 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## Scout drivers stay aboard while their vehicles watch a mining perimeter.
-const RADIUS := 10.0
-const SCAN_RANGE := 22.0
+static var RADIUS: float = float(Config.value("scouting", "radius"))
+static var SCAN_RANGE: float = float(Config.value("scouting", "scan_range"))
 var groups: Array[Dictionary] = []
 
 func start_mining(game, roster: Dictionary, resource: Dictionary) -> bool:

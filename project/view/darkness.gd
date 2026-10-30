@@ -1,9 +1,9 @@
 extends ColorRect
 ## GPU light stamps + world-anchored wisps. Never writes to the simulation.
 const Terrain = preload("res://engine/expedition_terrain.gd")
-const FIELD_EXTENT := float(Terrain.MAP_RADIUS) * 2.0
-const FIELD_MIN := Vector2(-FIELD_EXTENT, -FIELD_EXTENT)
-const FIELD_SIZE := Vector2(FIELD_EXTENT * 2, FIELD_EXTENT * 2)
+static var FIELD_EXTENT: float = float(Terrain.MAP_RADIUS) * 2.0
+static var FIELD_MIN: Vector2 = Vector2(-FIELD_EXTENT, -FIELD_EXTENT)
+static var FIELD_SIZE: Vector2 = Vector2(FIELD_EXTENT * 2, FIELD_EXTENT * 2)
 const MASK_SIZE := 768
 var game: Node2D
 var mask_viewport: SubViewport
@@ -12,21 +12,41 @@ var clock := 0.0
 var field_revision := -1
 
 class LightMask extends Node2D:
+	var field_min := Vector2.ZERO
+	var field_size := Vector2.ONE
 	var sources: Array = []
+	var field: Dictionary = {}
+	var multimesh: MultiMesh
 	func _init() -> void:
 		var shader_material := ShaderMaterial.new()
 		shader_material.shader = preload("res://view/shaders/light_mask.gdshader")
 		material = shader_material
+		var corners := PackedVector2Array()
+		for i in range(6): corners.append(Vector2(cos(i * TAU / 6 + PI / 6), sin(i * TAU / 6 + PI / 6)) * 1.001)
+		var vertices := PackedVector2Array()
+		for i in range(1, 5):
+			for index in [0, i, i + 1]: vertices.append(corners[index])
+		var arrays := []; arrays.resize(Mesh.ARRAY_MAX); arrays[Mesh.ARRAY_VERTEX] = vertices
+		var mesh := ArrayMesh.new(); mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		multimesh = MultiMesh.new(); multimesh.transform_format = MultiMesh.TRANSFORM_2D
+		multimesh.use_colors = true; multimesh.mesh = mesh
+	func set_field(values: Dictionary) -> void:
+		field = values.duplicate()
+		var buffer := PackedFloat32Array(); buffer.resize(field.size() * 12)
+		var index := 0; var scale_value := MASK_SIZE / field_size.x
+		for cell in field:
+			var point: Vector3 = preload("res://engine/hex_grid.gd").to_world(cell, Terrain.CELL)
+			var center := (Vector2(point.x, point.z) - field_min) / field_size * MASK_SIZE
+			var offset := index * 12
+			buffer[offset] = scale_value; buffer[offset + 3] = center.x
+			buffer[offset + 5] = scale_value; buffer[offset + 7] = center.y
+			for color_index in range(3): buffer[offset + 8 + color_index] = float(field[cell])
+			buffer[offset + 11] = 1; index += 1
+		multimesh.instance_count = field.size()
+		if not field.is_empty(): multimesh.buffer = buffer
+		queue_redraw()
 	func _draw() -> void:
-		var uvs := PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.ONE, Vector2.DOWN])
-		for source in sources:
-			var point := Vector2(source.position.x, source.position.z)
-			var center := (point - FIELD_MIN) / FIELD_SIZE * MASK_SIZE
-			var radius := float(source.radius) / FIELD_SIZE.x * MASK_SIZE
-			var vertices := PackedVector2Array([center + Vector2(-radius, -radius), center + Vector2(radius, -radius), center + Vector2(radius, radius), center + Vector2(-radius, radius)])
-			var direction: Vector3 = source.direction
-			var parameters := Color(direction.x * 0.5 + 0.5, direction.z * 0.5 + 0.5, float(source.cone) * 0.5 + 0.5, float(source.intensity) * 0.25)
-			draw_polygon(vertices, PackedColorArray([parameters]), uvs)
+		if multimesh != null: draw_multimesh(multimesh, null)
 
 func setup(world: Node2D) -> void:
 	game = world
@@ -38,7 +58,7 @@ func setup(world: Node2D) -> void:
 	mask_viewport.disable_3d = true
 	mask_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
 	add_child(mask_viewport)
-	light_stamps = LightMask.new(); mask_viewport.add_child(light_stamps)
+	light_stamps = LightMask.new(); light_stamps.field_min = FIELD_MIN; light_stamps.field_size = FIELD_SIZE; mask_viewport.add_child(light_stamps)
 	var shader_material := ShaderMaterial.new()
 	shader_material.shader = preload("res://view/shaders/darkness.gdshader")
 	shader_material.set_shader_parameter("light_field", mask_viewport.get_texture())
@@ -60,9 +80,10 @@ func sync() -> void:
 	material.set_shader_parameter("camera_angle", game.camera_angle)
 	material.set_shader_parameter("camera_zoom", game.zoom)
 	material.set_shader_parameter("visual_time", clock)
-	var revision := hash(game.simulation.light.sources)
+	game.simulation.light.ensure_field()
+	var revision := hash([game.simulation.light.sources, game.simulation.navigation.revision])
 	if revision != field_revision:
 		field_revision = revision
 		light_stamps.sources = game.simulation.light.sources.duplicate(true)
-		light_stamps.queue_redraw()
+		light_stamps.set_field(game.simulation.light.field)
 		mask_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE

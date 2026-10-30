@@ -23,8 +23,8 @@ var queue: Array[String] = []
 var production_progress := 0.0
 var connections: Array[Vector3] = []
 var build_direction := 0
-var light_radius := 4.2 + Terrain.SPACING
-var light_intensity := 0.65
+var light_radius: float = Rules.Config.value("lighting", "hq_radius")
+var light_intensity: float = Rules.Config.value("lighting", "hq_intensity")
 
 func setup(type: String, point: Vector3, finished: bool, direction_index: int = 0) -> void:
 	kind = type; position = point; complete = finished; funded = finished; build_direction = direction_index

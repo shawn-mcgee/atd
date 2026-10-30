@@ -1,13 +1,14 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## Information comes from local sightings, gunfire, and industrial noise.
 ## No unit list is used to select a victim until a creature has observed it.
 var groups: Array[Dictionary] = []
 var outpost_group_created := false
 var assaults_started := 0
-const FIRST_PROBE_TIME := 18.0
-const BASE_GRACE := 55.0
-const REINFORCEMENT_INTERVAL := 15.0
-const MAX_CREATURES := 16
+static var FIRST_PROBE_TIME: float = float(Config.value("predators_ai", "first_probe_time"))
+static var BASE_GRACE: float = float(Config.value("predators_ai", "base_grace"))
+static var REINFORCEMENT_INTERVAL: float = float(Config.value("predators_ai", "reinforcement_interval"))
+static var MAX_CREATURES: int = int(Config.value("predators_ai", "max_creatures"))
 var reinforcements_spawned := 0
 
 func add_group(anchor: Vector3, id: int, population: int = 4) -> void:
@@ -76,7 +77,7 @@ func defended(game, prey: Dictionary, memories: Array) -> bool:
 	for memory in memories:
 		if game.elapsed - float(memory.time) > 2 or not SimEntity.valid(memory.actor) or memory.actor.hp <= 0: continue
 		if memory.actor is SimUnit and memory.actor.aboard != null: continue
-		var reach := 11.0 if memory.kind == "marine" else 5.5 if memory.kind == "flamer" else float(game.Rules.TURRETS[memory.kind].range) if game.Rules.TURRETS.has(memory.kind) and memory.get("operational", false) else 0.0
+		var reach: float = game.Config.value("simulation", memory.kind + "_range") if memory.kind in ["marine", "flamer"] else float(game.Rules.TURRETS[memory.kind].range) if game.Rules.TURRETS.has(memory.kind) and memory.get("operational", false) else 0.0
 		if reach == 0: continue
 		if memory.actor == prey.actor and not game.Rules.TURRETS.has(memory.kind): continue
 		if memory.position.distance_to(prey.position) <= reach + 1 and game.navigation.can_see(memory.position, prey.position): return true

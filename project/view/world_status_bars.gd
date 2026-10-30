@@ -20,4 +20,3 @@ func _draw() -> void:
 		var point: Vector2 = game.world_to_screen(game.actor_position(actor))
 		var maximum: float = actor.max_hp if actor is SimPredator else Rules.UNITS[actor.kind].hp if actor is SimUnit else Rules.STRUCTURES[actor.kind].hp
 		if actor.hp < maximum: bar(point + Vector2(0, -22), actor.hp / maximum, Color("ecb881"))
-		if actor is SimUnit and actor.is_vehicle(): bar(point + Vector2(0, 22), actor.battery / 100, Color("8ac7ed"))

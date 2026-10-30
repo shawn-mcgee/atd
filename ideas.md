@@ -13,5 +13,3 @@ Maybe some vehicles are specialty carriers like a tanker for lots of gas but onl
 Maybe Unit and structure upgrades would be useful (for your units and the lightless). That way the lightless can increase in difficulty as the match progresses.
 
 Maybe the lightless can build their own structures on the map so you have to be aware of and squash their hives that produce units or be careful when assaulting their defensive structures... they have acid spraying worms (like factorio)
-
-When in defining a patrol, a standard left/right click (no shift) should define the patrol point and exit the patrol input. When queueing patrol points (holding shift) any left/right click should queue the point, then a regular left click (not holding shift) should exit it. Or pressing escape should also exit it.

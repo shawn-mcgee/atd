@@ -1,4 +1,5 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 ## Coordinated transport/gathering orders. Direct orders revoke membership.
 var groups: Array[Dictionary] = []
 var next_id := 1
@@ -6,7 +7,7 @@ var foot := preload("res://engine/foot_expeditions.gd").new()
 var patrols := preload("res://engine/expedition_patrol.gd").new()
 var exploration := preload("res://engine/exploration_expeditions.gd").new()
 var scouts := preload("res://engine/expedition_scouts.gd").new()
-const MAINTENANCE_RANGE := 14.0
+static var MAINTENANCE_RANGE: float = float(Config.value("maintenance", "maintenance_range"))
 const DRIVER_RANK = SimUnit.DRIVER_RANK
 const MINING_DRIVER_RANK = SimUnit.MINING_DRIVER_RANK
 
@@ -246,7 +247,7 @@ func tick(game, dt: float) -> void:
 		if not alive(group.driver) or not group.members.has(group.driver):
 			assemble(game, group, group.leg)
 			if not groups.has(group): continue
-		if group.mode == "gather" and group.resource.remaining <= 0 and group.phase == "outbound":
+		if group.mode == "gather" and not game.resource_fields.available(game, group.resource) and group.phase == "outbound":
 			var next_patch: Dictionary = game.resource_fields.next_patch(game, group.resource)
 			if not next_patch.is_empty(): group.resource = next_patch; group.destination = next_patch.position
 		group.clock += dt
@@ -300,7 +301,7 @@ func tick(game, dt: float) -> void:
 						if building.progress >= 1:
 								if not game.complete_construction(building): building.progress = 0.99
 					elif building.hp < float(game.Rules.STRUCTURES[building.kind].hp) and unit.work_clock >= 1 and game.economy.spend({"minerals": 1}):
-						unit.work_clock = 0; building.hp = minf(float(game.Rules.STRUCTURES[building.kind].hp), building.hp + 8)
+						unit.work_clock = 0; building.hp = minf(float(game.Rules.STRUCTURES[building.kind].hp), building.hp + game.Config.value("simulation", "repair_per_material"))
 					building.state_changed()
 		elif group.phase == "work" and group.mode == "gather":
 			var workers := 0
@@ -312,13 +313,13 @@ func tick(game, dt: float) -> void:
 					elif unit.cargo_total() >= unit.capacity:
 						issue(game, unit, "transfer", vehicle.position, vehicle); continue
 				issue(game, unit, "gather", group.resource.position)
-				if game.resource_fields.within_reach(unit, group.resource.position):
+				if game.resource_fields.within_reach(unit, group.resource.position, game):
 					unit.path.clear(); unit.work_clock += dt
-					if unit.work_clock >= 0.7 and unit.cargo_total() < unit.capacity and group.resource.remaining > 0:
-						unit.work_clock -= 0.7; game.resource_fields.harvest(game, unit, group.resource)
+					if unit.work_clock >= game.Config.value("simulation", "harvest_seconds") and unit.cargo_total() < unit.capacity and game.resource_fields.available(game, group.resource):
+						unit.work_clock -= game.Config.value("simulation", "harvest_seconds"); game.resource_fields.harvest(game, unit, group.resource)
 			if workers == 0:
 				game.notify("Expedition ended / no available engineers"); finish(group); continue
-			if vehicle.cargo_total() >= vehicle.capacity or group.resource.remaining <= 0: assemble(game, group, "return")
+			if vehicle.cargo_total() >= vehicle.capacity or not game.resource_fields.available(game, group.resource): assemble(game, group, "return")
 		elif group.phase == "return":
 			# Newly completed outpost receivers can shorten an in-progress delivery.
 			var receiver = receiver_for(game, group)
@@ -367,15 +368,15 @@ func head_home(game, group: Dictionary) -> void:
 	for unit in group.members: remaining += unit.cargo_total()
 	var target_full: bool = game.economy.space(group.resource.kind) <= 0
 	if remaining == 0 and not target_full:
-		if group.resource.remaining <= 0: finish(group); return
+		if not game.resource_fields.available(game, group.resource): finish(group); return
 		assemble(game, group, "outbound"); return
 	# Other-resource leftovers need not block another trip for the target resource.
 	var primary := 0
 	for unit in group.members + [vehicle]: primary += unit.cargo if group.resource.kind == "minerals" else unit.gas_cargo
-	if not target_full and group.resource.remaining > 0 and primary == 0 and vehicle.cargo_total() < vehicle.capacity:
+	if not target_full and game.resource_fields.available(game, group.resource) and primary == 0 and vehicle.cargo_total() < vehicle.capacity:
 		assemble(game, group, "outbound"); return
 	group.phase = "home"
-	group.finish_home = target_full or group.resource.remaining <= 0 or (primary == 0 and vehicle.cargo_total() >= vehicle.capacity)
+	group.finish_home = target_full or not game.resource_fields.available(game, group.resource) or (primary == 0 and vehicle.cargo_total() >= vehicle.capacity)
 	group.home_destination = game.free_spawn(game.HOME + Vector3(0, 0, -10))
 	issue(game, vehicle, "home", group.home_destination)
 

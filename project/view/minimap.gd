@@ -10,7 +10,7 @@ var survey_texture: ImageTexture
 func setup(world: Node2D) -> void:
 	game = world; mouse_filter = Control.MOUSE_FILTER_STOP; clip_contents = true
 	set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT); fit()
-	tooltip_text = "Click or drag to pan / surveyed terrain and visible contacts"
+	tooltip_text = "Left-click/drag: pan / Right-click: order / Targeting modes: click to issue / Shift: queue"
 
 func fit() -> void:
 	offset_left = -240; offset_right = -8; offset_top = -240; offset_bottom = -8
@@ -28,9 +28,32 @@ func _process(dt: float) -> void:
 		redraw_clock = 0.0
 		queue_redraw()
 
+func command_point(local: Vector2) -> Vector3:
+	var flat := (local - map_area().get_center()) / scale_factor
+	var point: Vector3 = game.simulation.navigation.terrain.surface(Vector3(flat.x, 0, flat.y))
+	var best := 4.5
+	# Snap minimap markers to real targets, including contacts outside the camera.
+	for actor in game.units + game.structures + game.creatures + [game.mission.hive]:
+		if not SimEntity.valid(actor) or not actor.visible or actor.hp <= 0 or (actor is SimUnit and actor.aboard != null): continue
+		var distance := local.distance_to(project(actor.position))
+		if distance < best: point = actor.position; best = distance
+	for patch in game.resource_nodes:
+		if not patch.discovered or patch.remaining <= 0: continue
+		var distance := local.distance_to(project(patch.position))
+		if distance < best: point = patch.position; best = distance
+	return point
+
 func _gui_input(event: InputEvent) -> void:
-	if (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed) or (event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT):
-		if map_area().has_point(event.position):
+	if game == null or not game.started or game.ended: return
+	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
+		if not map_area().has_point(event.position): return
+		var targeting: bool = game.tactical_mode != "" or game.expedition_mode or game.repair_mode or game.build_kind != ""
+		if event.button_index == MOUSE_BUTTON_RIGHT or targeting:
+			game.command_click(game.world_to_screen(command_point(event.position)), event.shift_pressed, event.button_index)
+		else: game.focus = (event.position - map_area().get_center()) / scale_factor
+		accept_event()
+	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		if game.tactical_mode == "" and not game.expedition_mode and not game.repair_mode and game.build_kind == "" and map_area().has_point(event.position):
 			game.focus = (event.position - map_area().get_center()) / scale_factor; accept_event()
 
 func _draw() -> void:

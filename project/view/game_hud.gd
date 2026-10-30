@@ -147,7 +147,6 @@ func setup(world: Node2D) -> void:
 	command(order_grid, "stock", "Deposit", "J", game.stock_depot)
 	command(order_grid, "home", "Return HQ", "H", game.return_home)
 	command(order_grid, "escort", "Escort", "G", game.escort)
-	command(order_grid, "recharge", "Auto recharge", "N", game.toggle_auto_recharge); game.context_buttons.recharge.toggle_mode = true
 	command(order_grid, "reload_turret", "Reload", "R", game.reload_selected_turrets)
 	command(order_grid, "auto_reload", "Auto reload", "Z", game.toggle_turret_reload); game.context_buttons.auto_reload.toggle_mode = true
 	command(order_grid, "repeater", "Grid relay", "Y", game.toggle_repeater)
@@ -193,7 +192,7 @@ func make_help() -> void:
 	card.offset_left = -280; card.offset_right = 280; card.offset_top = -240; card.offset_bottom = 240
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 12); card.add_child(content)
 	game.label(content, "Controls", 22, game.MINT)
-	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nWASD / arrows pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag rotates\nE explore - M mine\nQ attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload - N auto recharge\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nBuild: 1-0 select, T rotates, Shift queues\nEscape cancels targeting - F1 closes help", 14)
+	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nWASD / arrows pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag rotates\nE explore - M mine\nQ attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nBuild: 1-0 select, T rotates, Shift queues\nEscape cancels targeting - F1 closes help", 14)
 	help_footer = game.label(content, "", 11, Chrome.MUTED)
 	var buttons := row(content, 10)
 	game.button(buttons, "Close", toggle_help)
@@ -244,10 +243,6 @@ func after_context() -> void:
 		item.get_meta("card_content").modulate = Color(0.5, 0.5, 0.5) if item.disabled else Color.WHITE
 	var turrets: Array = game.selected_turrets()
 	if not turrets.is_empty(): game.context_buttons.auto_reload.button_pressed = turrets.all(func(turret): return turret.auto_reload)
-	var vehicles: Array = game.selected_vehicles()
-	if not vehicles.is_empty():
-		game.context_buttons.recharge.button_pressed = vehicles.all(func(unit): return unit.auto_recharge)
-		game.context_buttons.recharge.tooltip_text = "Automatically recharge within a powered grid [N]\n" + ("Enabled" if game.context_buttons.recharge.button_pressed else "Off or mixed selection")
 	fit()
 
 func fit() -> void:
@@ -288,7 +283,6 @@ func summarize_selection() -> void:
 			var queued: int = actor.order_queue.size() + game.tactical_groups.queued_count(actor)
 			if queued > 0: lines.append("Queued  %d" % queued)
 			if actor.is_vehicle():
-				lines.append("Battery  %.0f%%%s" % [actor.battery, "  charging" if actor.charging else ""])
 				lines.append("Crew  %d / %d" % [actor.occupied_seats(), actor.seat_capacity()] if actor.has_driver() else "Driver required")
 			if actor.cargo_total() > 0: lines.append("Cargo  %d MAT / %d CH4" % [actor.cargo, actor.gas_cargo])
 		elif actor is SimStructure:

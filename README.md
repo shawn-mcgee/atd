@@ -30,7 +30,7 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | Shift + order | Append to the selected unit's order queue; an immediate order clears its queue |
 | Q, then click | Attack a visible Lightless/hive, or attack-move toward terrain; pursue visible enemies before resuming the route |
 | V, then click | Defend a location, structure, or unit; pursue within an 8m leash and return to the defense point |
-| P, then click | Patrol between the current position and the destination; Shift-click adds route points; Escape exits targeting |
+| P, then click | Plain left/right click adds a point and exits. Shift left/right clicks queue points; plain left click finishes without adding another point. Escape cancels targeting |
 | M, then click | Mining expedition; choose a surveyed patch or a Material Depot/Methane Tank |
 | E, then click | Exploration expedition; choose terrain to begin an autonomous map survey |
 | C, then click | Selected drill vehicle clears a rock or mesa tile |
@@ -40,7 +40,6 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | L / J / H | Collect nearby carried cargo / deposit cargo / return a vehicle to a home receiver |
 | G / R / X | Escort / repair targeting or selected turret reload / stop and clear orders |
 | Z | Toggle automatic reload on selected ammunition turrets |
-| N | Toggle automatic recharge on selected vehicles |
 | F1 | Open controls and mission help |
 | 1-0 | First ten construction choices for engineers; factory production shortcuts otherwise |
 | T | Rotate a construction footprint, ramp, or gate |
@@ -50,7 +49,7 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | Comma / period / Home / F | Rotate camera / reset camera / focus HQ |
 | Space / Escape | Pause / cancel targeting or selection |
 
-Selection details and contextual commands share the bottom dock. Commands display their hotkeys in brackets. Engineers have a Build tab, with resource icons, construction costs, and visible key badges on each card; structures without a numeric shortcut are marked **Click**. Production cards show the number for the selected factory. The minimap stays in the bottom-right corner. F1 opens the full controls, including construction modifiers. Selected units show target/destination lines. Firing infantry face their shot target; flashes, tracers, and flames originate at sprite weapon attachments. Synthetic beeping has been removed.
+Selection details and contextual commands share the bottom dock. Commands display their hotkeys in brackets. Engineers have a Build tab, with resource icons, construction costs, and visible key badges on each card; structures without a numeric shortcut are marked **Click**. Production cards show the number for the selected factory. The minimap stays in the bottom-right corner. Left-click/drag pans; right-click issues contextual orders. Targeting modes and Shift-queueing also work on minimap markers and terrain. F1 opens the full controls, including construction modifiers. Selected units show target/destination lines. Firing infantry face their shot target; flashes, tracers, and flames originate at sprite weapon attachments. Synthetic beeping has been removed.
 
 ## Starting scenario and generation
 
@@ -78,19 +77,19 @@ Ammunition turrets automatically reload when empty. Select turrets and press **R
 
 Resources are **Materials (MAT)** and **Methane (CH4)**. Remote fields comprise seven one-cell patches; starter deposits are smaller. Move units or crewed vehicles into the darkness to illuminate and discover resource cells. Mining automation only follows discovered patches. Click a surveyed patch to inspect its remaining amount and the field total. Engineers physically carry resources to the matching receiver; vehicles transport larger shipments. Mining expeditions require at least one working engineer and a separate driver for every vehicle.
 
-An **Extractor** costs 70 MAT + 10 CH4, occupies a resource patch, and consumes 2 power. An engineer gathers **3 resources per cycle** from an operating extractor, or 1 by hand. Extraction still requires an engineer and delivery. Manual and expedition mining require the engineer to stand on the deposit or an adjacent hex, within physical reach and at the same elevation. Selecting a receiver for mining chooses the nearest surveyed active field of its resource type.
+An **Extractor** costs 70 MAT + 10 CH4, occupies seven hexes, and consumes 2 power. Its footprint must overlap at least one surveyed, nonempty resource tile. An engineer gathers **3 resources per cycle** from any covered deposit while working at the extractor perimeter, or 1 by hand from an adjacent deposit when it is offline. Extraction draws from the fullest remaining fraction of all covered patches, keeping depletion even; mixed material/methane footprints yield both in proportion to their reserves. Engineers and transport still deliver the output. Selecting a receiver for mining chooses the nearest surveyed active field of its resource type.
 
 Construction spends banked resources immediately, but an engineer must reach and complete the blueprint. Nearby maintenance chains completed work to other repairs or blueprints. Occupants move safely aside before a blueprint becomes solid.
 
 Hex radius is **1m**, half the earlier size, while the map keeps its world extent. HQ reserves seven cells (center plus six neighbors); generators and barracks reserve compact three-cell triangles; the garage reserves a four-cell diamond. Other buildings use one cell, except two-cell ramps. Footprints rotate with T, and their previews match occupied cells. Adjacent terrain cells no longer cause a circular placement exclusion.
 
-HQ supplies four free auxiliary power; generators supplement it and burn methane only for demand beyond that auxiliary supply. A generator supplies **12 power** within **3.5m** (about two tile steps). A repeater extends the network over **10.4m**. Turning a repeater off disconnects its branch. Power overlays show each source's actual range and planned/offline connections. Consumers receive automatic priority; methane burn follows served demand. Enemy sensors on scouts and Scanner structures still provide approximate hostile contacts without revealing enemies or resources.
+HQ supplies four free auxiliary power; generators supplement it and burn methane only for demand beyond that auxiliary supply. A generator supplies **12 power** within **3.5m** (about two tile steps). A repeater has a **10.4m** link radius: generator–repeater links reach **13.9m**, and repeater–repeater links reach **20.8m**. A powered device connects if any occupied tile lies inside a source radius. Turning a repeater off disconnects its branch. Power overlays show each source's actual range and planned/offline connections. Consumers receive automatic priority; methane burn follows served demand. Enemy sensors on scouts and Scanner structures still provide approximate hostile contacts without revealing enemies or resources.
 
 Select a connected structure, infantry unit, or vehicle to see its local grid usage and spare power beside the power icon. Separate grids are never combined into a global power total.
 
-Health bars appear above damaged units, vehicles, structures, and visible enemies, then disappear at full health. Vehicle battery bars remain below the circles.
+Health bars appear above damaged units, vehicles, structures, and visible enemies, then disappear at full health. Battery and charging UI have been removed.
 
-HQ also recharges vehicles within its operating relay range. All vehicles require a driver. Batteries drain **0.25 percentage points per second while driving** and recharge **8 points per second** within an operating generator or repeater's range. Automatic recharge starts enabled; toggle it with **N** or the vehicle command button. An empty battery stops propulsion and headlights; charging resumes the existing route. Emergency beacons remain. The Garage can produce a **Drill** (140 MAT + 45 CH4): clearing a rock or mesa tile takes three seconds and costs exactly **5 CH4**. Insufficient methane leaves the tile and reserves unchanged.
+HQ passively heals friendly units, including vehicle occupants, within **7m** at **3 HP/second**, capped at maximum health. All vehicles require a driver; movement, lights, and scouting no longer consume batteries or require charging. Emergency lights remain on unpiloted vehicles. The Garage can produce a **Drill** (140 MAT + 45 CH4): clearing a rock or mesa tile takes three seconds and costs exactly **5 CH4**. Insufficient methane leaves the terrain and reserves unchanged.
 
 ## Repository and validation
 
@@ -136,4 +135,8 @@ The legacy GPU picking, mesh occlusion, and 3D camera tests have been replaced b
 
 ## Current limits
 
-First-pass balance and placeholder effects; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Gameplay illumination does not cast wall shadows, although weapon sight lines and navigation respect obstacles. Deterministic replay targets the same Godot version and math implementation; cross-platform network lockstep has not been established. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `project/todo.md`. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.
+First-pass balance and placeholder effects; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Illumination flood-fills the hex grid: cliffs, higher terrain and closed walls/gates block propagation; ramps can carry it uphill, and elevated sources can illuminate lower ground. Weapon sight lines and navigation retain their own geometry checks. Deterministic replay targets the same Godot version and math implementation; cross-platform network lockstep has not been established. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `project/todo.md`. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.
+
+## Gameplay configuration
+
+Edit [project/config/gameplay.json](project/config/gameplay.json) and restart to change unit/structure stats and costs, production, combat, resource yields, storage, power, healing, illumination, mission timing, AI, and map generation. See [balance configuration](project/docs/gameplay-balance.md) for sections and invariants.

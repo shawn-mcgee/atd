@@ -47,6 +47,9 @@ func build_ui() -> void:
 	retry.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/loading.tscn")); column.add_child(retry)
 
 func request_resources() -> void:
+	var config = load("res://engine/gameplay_config.gd")
+	if not config.error_message.is_empty():
+		fail(config.error_message); return
 	# Compile scripts on the main thread: background script compilation can leak
 	# script-default RefCounted objects in this Godot version. Textures stay async.
 	scene = load(GAME_SCENE)

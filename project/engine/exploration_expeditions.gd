@@ -1,8 +1,9 @@
 extends RefCounted
+const Config = preload("res://engine/gameplay_config.gd")
 const Terrain = preload("res://engine/expedition_terrain.gd")
 ## Rally at the chosen starting point, then keep scouting every unknown map cell.
 const Hex = preload("res://engine/hex_grid.gd")
-const LEASH := 8.0
+static var LEASH: float = float(Config.value("exploration", "leash"))
 var groups: Array[Dictionary] = []
 var clock := 0.0
 var visibility_clock := 0.0

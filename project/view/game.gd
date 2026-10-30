@@ -22,6 +22,7 @@ var selected: Array[SimEntity] = []
 var selected_resource: Dictionary = {}
 var build_kind := ""
 var tactical_mode := ""
+var patrol_queuing := false
 var repair_mode := false
 var expedition_mode := false
 var mining_mode := false
@@ -90,7 +91,7 @@ func begin_run() -> void:
 func submit(kind: String, extra: Dictionary = {}) -> void:
 	var command := extra.duplicate(true)
 	command.kind = kind; command.actors = selected.map(func(actor): return actor.simulation_id)
-	command.append = Input.is_physical_key_pressed(KEY_SHIFT)
+	command.append = extra.get("append", Input.is_physical_key_pressed(KEY_SHIFT))
 	command.direction = placement_direction
 	simulation.enqueue(command)
 
@@ -184,6 +185,7 @@ func choose_expedition(mining: bool = false) -> void:
 
 func choose_tactical(mode: String) -> void:
 	if not tactical_groups.available(selected) and not selected.any(func(actor): return actor is SimUnit and actor.kind == "drill"): return
+	patrol_queuing = false
 	tactical_mode = "" if tactical_mode == mode else mode; build_kind = ""; expedition_mode = false; repair_mode = false
 	notify(mode.capitalize() + " / click a destination / Shift queues")
 
@@ -200,10 +202,19 @@ func numbered_command(index: int) -> void:
 		if index < kinds.size(): train_unit(kinds[index])
 	elif not selected_engineers().is_empty() and index < BUILD_KINDS.size(): choose_build(BUILD_KINDS[index])
 
+func command_click(screen: Vector2, append: bool, button: int) -> void:
+	# Once Shift has added patrol points, a plain left click only finishes input.
+	if tactical_mode == "patrol" and patrol_queuing and not append and button == MOUSE_BUTTON_LEFT:
+		tactical_mode = ""; patrol_queuing = false; return
+	target_click(screen, append)
+
 func target_click(screen: Vector2, append: bool) -> void:
 	var actor := pick(screen)
 	var point := actor.position if actor != null else ground_point(screen)
 	if expedition_mode:
+		if mining_mode and actor is SimStructure and actor.kind == "extractor":
+			for deposit in resource_fields.covered_patches(simulation, actor):
+				if deposit.remaining > 0 and deposit.discovered: point = deposit.position; break
 		if mining_mode and actor is SimStructure and actor.kind in ["core", "depot", "gas_tank"]:
 			var nearest := INF
 			for patch in resource_nodes:
@@ -212,11 +223,12 @@ func target_click(screen: Vector2, append: bool) -> void:
 				if distance < nearest: nearest = distance; point = patch.position
 		var patch: Dictionary = simulation.resource_at(point)
 		if mining_mode and (patch.is_empty() or not patch.discovered or patch.remaining <= 0): notify("Mining requires a surveyed resource patch"); return
-		submit("expedition", {"point": point, "mining": mining_mode}); expedition_mode = false
+		submit("expedition", {"point": point, "mining": mining_mode, "append": append}); expedition_mode = false
 	elif tactical_mode != "":
 		var mode := "attack" if tactical_mode == "attack_move" and (actor is SimPredator or actor == mission.hive) else tactical_mode
-		submit("tactical", {"point": point, "mode": mode, "target": actor.simulation_id if actor != null else 0})
-		if not append and tactical_mode != "patrol": tactical_mode = ""
+		submit("tactical", {"point": point, "mode": mode, "target": actor.simulation_id if actor != null else 0, "append": append})
+		patrol_queuing = tactical_mode == "patrol" and append
+		if not append: tactical_mode = ""
 	elif repair_mode:
 		if actor is SimStructure and actor.complete and actor.hp < float(Rules.STRUCTURES[actor.kind].hp):
 			submit("repair", {"target": actor.simulation_id}); repair_mode = false
@@ -228,7 +240,7 @@ func target_click(screen: Vector2, append: bool) -> void:
 			notify("Use illuminated, clear terrain and check available resources"); return
 		submit("build", {"building": build_kind, "point": Hex.snap(point, Terrain.CELL)})
 		if not append: build_kind = ""
-	else: submit("context", {"point": point, "target": actor.simulation_id if actor != null else 0})
+	else: submit("context", {"point": point, "target": actor.simulation_id if actor != null else 0, "append": append})
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
@@ -282,7 +294,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_J: stock_depot()
 			KEY_H: return_home()
 			KEY_G: escort()
-			KEY_N: toggle_auto_recharge()
 			KEY_Y: toggle_repeater()
 			KEY_Z: toggle_turret_reload()
 			KEY_O: toggle_gate()
@@ -296,6 +307,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			KEY_PERIOD: camera_angle += PI / 6
 			KEY_HOME: focus = Vector2.ZERO; camera_angle = 0; zoom = 18
 			KEY_ESCAPE:
+				patrol_queuing = false
 				if hud.help_overlay.visible: hud.toggle_help()
 				else:
 					if build_kind == "" and tactical_mode == "" and not repair_mode and not expedition_mode: selected.clear()
@@ -308,10 +320,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			MOUSE_BUTTON_WHEEL_DOWN: zoom = maxf(3, zoom / 1.1)
 			MOUSE_BUTTON_RIGHT:
 				if build_kind != "" or repair_mode: build_kind = ""; repair_mode = false; wall_start = Vector3.INF
-				else: target_click(event.position, event.shift_pressed)
+				else: command_click(event.position, event.shift_pressed, MOUSE_BUTTON_RIGHT)
 			MOUSE_BUTTON_LEFT:
 				if build_kind == "wall": wall_start = ground_point(event.position)
-				elif build_kind != "" or repair_mode or tactical_mode != "" or expedition_mode: target_click(event.position, event.shift_pressed)
+				elif build_kind != "" or repair_mode or tactical_mode != "" or expedition_mode: command_click(event.position, event.shift_pressed, MOUSE_BUTTON_LEFT)
 				elif event.double_click:
 					var actor := pick(event.position)
 					if actor is SimUnit:
@@ -368,7 +380,7 @@ func button(parent: Node, text: String, callback: Callable) -> Button:
 
 func show_briefing() -> void:
 	overlay_title.text = "People keep the lights on."
-	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nScout with units to discover resources; HQ starts beside a small material field and one methane patch. M starts mining at a patch or receiver; E explores terrain. Q attack-moves, V defends, P patrols. Shift adds orders and patrol points. Vehicle batteries recharge near powered generators or repeaters."
+	overlay_text.text = "You land with HQ, one engineer, and one marine. HQ stores both resources and provides a small emergency grid. Scout the darkness to find extraction and the Lightless Hive.\n\n1. Scout for and repair the extraction beacon with an engineer.\n2. Scout for the hive, then send infantry to steal its core.\n3. Bring the carrier to extraction and hold for 60 seconds.\n\nThe core drops if its carrier dies. If the Lightless recover it, or HQ is destroyed, the mission is lost. Leaving extraction or losing the beacon resets the timer.\n\nScout with units to discover resources; HQ starts beside a small material field and one methane patch. M starts mining at a patch or receiver; E explores terrain. Q attack-moves, V defends, P patrols. Shift adds orders and patrol points. Units recover health near HQ."
 
 func cost_label(kind: String) -> String:
 	var cost := Rules.cost(kind)
@@ -439,7 +451,6 @@ func refresh_context_commands() -> void:
 		"attack": tactical_groups.available(selected), "defend": tactical_groups.available(selected), "patrol": tactical_groups.available(selected),
 		"drill_order": selected.any(func(actor): return actor is SimUnit and actor.kind == "drill"),
 		"destroy": selected.any(func(actor): return actor is SimUnit or (actor is SimStructure and actor != mission.hive)),
-		"recharge": has_vehicle,
 		"repeater": selected.any(func(actor): return actor is SimStructure and actor.kind == "repeater"),
 		"drill": factory != null and factory.kind == "garage",
 		"expedition": complex_commands.expedition_available(complex_commands.expedition_selection(selected)),

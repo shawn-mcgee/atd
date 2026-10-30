@@ -1,5 +1,6 @@
 extends RefCounted
-const LEASH := 8.0
+const Config = preload("res://engine/gameplay_config.gd")
+static var LEASH: float = float(Config.value("tactics", "leash"))
 
 func issue(game, unit: SimUnit, order: String, point: Vector3, target: SimEntity = null, append: bool = false) -> bool:
 	if unit.aboard != null: return false
@@ -73,7 +74,7 @@ func tick(game, dt: float) -> void:
 				elif not unit.moving(): unit.travel(unit.combat_last_seen, game.navigation)
 			continue
 		unit.combat_last_seen = enemy.position
-		var reach := 5.5 if unit.kind == "flamer" else 11.0
+		var reach: float = game.Config.value("simulation", unit.kind + "_range")
 		if unit.position.distance_to(enemy.position) <= reach and game.navigation.can_see(unit.position, enemy.position): unit.path.clear()
 		else:
 			unit.work_clock -= dt

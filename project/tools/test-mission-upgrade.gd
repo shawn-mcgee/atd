@@ -50,11 +50,12 @@ func run() -> void:
 	var jeep: SimUnit = game.jeep
 	jeep.board(game.units[2]); jeep.position = Vector3(-10, 0, -20); jeep.battery = 50
 	game.issue_order(jeep, "move", Vector3(-10, 0, -25)); game.advance_movement(1); game.vehicles.tick(game, 1)
-	check(jeep.battery < 50, "driving drains vehicle batteries")
+	check(jeep.battery == 50, "driving no longer consumes battery")
 	jeep.position = relay.position; jeep.motion_velocity = Vector3.ZERO; game.vehicles.tick(game, 1)
-	check(jeep.battery > 50, "a powered repeater recharges nearby vehicles")
-	jeep.battery = 0; var before: Vector3 = jeep.position; jeep.tick_move(1)
-	check(jeep.position == before and not jeep.light_state, "an empty battery stops propulsion and headlights")
+	check(jeep.battery == 50 and not jeep.charging, "power grids no longer charge vehicles")
+	jeep.battery = 0; game.issue_order(jeep, "move", jeep.position + Vector3(0, 0, -3))
+	var before: Vector3 = jeep.position; jeep.tick_move(1)
+	check(jeep.position != before and jeep.light_state, "piloted vehicles move and shine even with legacy battery zero")
 	var soldier: SimUnit = game.units[3]
 	soldier.position = Vector3(-8, 0, -18)
 	game.issue_order(soldier, "move", Vector3(-8, 0, -22))

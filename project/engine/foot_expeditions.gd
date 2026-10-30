@@ -33,11 +33,11 @@ func tick(game, dt: float) -> void:
 		if group.phase == "work":
 			for unit in workers:
 				game.complex_commands.issue(game, unit, "foot_gather", group.resource.position)
-				if game.resource_fields.within_reach(unit, group.resource.position):
+				if game.resource_fields.within_reach(unit, group.resource.position, game):
 					unit.path.clear(); unit.work_clock += dt
-					if unit.work_clock >= 0.7 and unit.cargo_total() < unit.capacity and group.resource.remaining > 0:
-						unit.work_clock -= 0.7; game.resource_fields.harvest(game, unit, group.resource)
-			if group.resource.remaining <= 0 or workers.any(func(unit): return unit.cargo_total() >= unit.capacity): group.phase = "return"
+					if unit.work_clock >= game.Config.value("simulation", "harvest_seconds") and unit.cargo_total() < unit.capacity and game.resource_fields.available(game, group.resource):
+						unit.work_clock -= game.Config.value("simulation", "harvest_seconds"); game.resource_fields.harvest(game, unit, group.resource)
+			if not game.resource_fields.available(game, group.resource) or workers.any(func(unit): return unit.cargo_total() >= unit.capacity): group.phase = "return"
 		if group.phase == "return":
 			var remaining := 0
 			var deliverable := false
@@ -65,7 +65,7 @@ func tick(game, dt: float) -> void:
 				if home: finish(group)
 				continue
 			if remaining == 0:
-				if group.resource.remaining <= 0:
+				if not game.resource_fields.available(game, group.resource):
 					var next_patch: Dictionary = game.resource_fields.next_patch(game, group.resource)
 					if next_patch.is_empty(): finish(group); continue
 					group.resource = next_patch

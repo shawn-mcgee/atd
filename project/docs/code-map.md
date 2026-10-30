@@ -6,7 +6,7 @@ Read `AGENTS.md` first. Open only the relevant entries below. The current game a
 | --- | --- | --- |
 | Startup, loading screen, restart | `scenes/loading.tscn`, `view/loading.gd`; prepared core handoff in `view/game.gd` | `loading`, `top-down` |
 | Tick loop, command dispatch, IDs, replay | `engine/simulation.gd`: `initialize`, `enqueue`, `step`, `apply_command`, `snapshot`; `engine/state_codec.gd` | `engine`, `gameplay-baseline` |
-| Prices, health, speeds, production stats | `engine/expedition_rules.gd` | `mission-upgrade`, `engine` |
+| Prices, health, speeds, production stats | `config/gameplay.json`, `engine/gameplay_config.gd`, `engine/expedition_rules.gd` | `mission-upgrade`, `engine` |
 | Selection, hotkeys, camera, command targeting | `view/game.gd`: `pick`, `target_click`, `_input`, `_unhandled_input` | `top-down` |
 | Generate or integrate 2D art | [Sprite integration](sprite-integration.md), `view/sprite_library.gd`, root `tools/prepare-sprites.py`; [generation brief](asset-generation-brief.md) for art specs | `sprites`, `top-down`; rendered gallery |
 | Drawing, footprint polygons, tile geometry | `view/terrain_renderer.gd`, `view/primitives.gd`; `engine/structure_footprints.gd`; `engine/hex_grid.gd` | `top-down`, `mission-upgrade` |
@@ -22,7 +22,7 @@ Read `AGENTS.md` first. Open only the relevant entries below. The current game a
 | Exploration and interruptions | `engine/exploration_expeditions.gd`; `complex_commands.gd`: `start_expedition`, `interrupt` | `exploration-interruptions`, `expedition-seating` |
 | Combat facing, muzzle alignment, mining adjacency | `view/sprite_library.gd`, root `tools/prepare-sprites.py`, `engine/resource_fields.gd`; shot dispatch in `engine/simulation.gd` | `combat-and-mining`, `sprites`, mining expedition suites |
 | Infantry and convoy patrol/tactics | `engine/tactical_orders.gd`, `tactical_groups.gd`, `expedition_patrol.gd` | `expedition-patrol`, `mission-upgrade`, `engine` |
-| Economy, power, gates, batteries, drilling | `engine/expedition_economy.gd`, `expedition_power.gd`, `gate_passage.gd`, `vehicle_systems.gd` | `mission-upgrade`, `expedition-delivery`, `engine` |
+| Economy, power, gates, HQ healing, drilling | `engine/expedition_economy.gd`, `expedition_power.gd`, `gate_passage.gd`, `vehicle_systems.gd` | `mission-upgrade`, `expedition-delivery`, `engine` |
 | Creature AI, reinforcement, combat | `engine/predator_director.gd`, `predator.gd`, `turret_system.gd`; `simulation.gd`: `combat_tick` | `predators`, `predator-pressure`, `mission-upgrade` |
 | Expanded map and terrain density | `engine/scenario_layout.gd`, `expedition_terrain.gd`; radius 84, 72 ridges | `map-generation`, `mission-upgrade`, `darkness` |
 | Map generation, mission lifecycle | `engine/scenario_layout.gd`, `hive_mission.gd` | `mission-upgrade`, `gameplay-baseline` |
@@ -31,3 +31,5 @@ Read `AGENTS.md` first. Open only the relevant entries below. The current game a
 Paths above are relative to `project/` unless marked root. Locate functions with `rg -n '^func NAME' path`, then read a bounded range. Shared scene-free test setup is in `tools/fixtures/simulation_fixture.gd` and `mechanics_layout.gd`. Run tests from the repository root; supply `--godot <executable>` if needed. Logs and previews are ignored under `project/art_source/.build/`.
 
 For architecture/API changes, read [engine.md](engine.md). For a presentation-only task, avoid loading unrelated economy/AI modules. Preserve the deterministic core/view boundary.
+
+Gameplay overhaul details and JSON sections: [gameplay-balance.md](gameplay-balance.md). New regression coverage: `todo-upgrades`, `command-input`.

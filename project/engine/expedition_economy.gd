@@ -1,6 +1,7 @@
 extends RefCounted
-var minerals := 100
-var gas := 100.0
+const Config = preload("res://engine/gameplay_config.gd")
+var minerals: int = int(Config.value("economy", "starting_minerals"))
+var gas: float = Config.value("economy", "starting_gas")
 var mineral_capacity := 100
 var gas_capacity := 100
 
@@ -9,9 +10,9 @@ func recalculate(structures: Array) -> void:
 	gas_capacity = 0
 	for b in structures:
 		if not b.complete or b.hp <= 0: continue
-		if b.kind == "core": mineral_capacity += 100; gas_capacity += 100
-		if b.kind == "depot": mineral_capacity += 400
-		if b.kind == "gas_tank": gas_capacity += 200
+		if b.kind == "core": mineral_capacity += int(Config.value("economy", "hq_capacity")); gas_capacity += int(Config.value("economy", "hq_capacity"))
+		if b.kind == "depot": mineral_capacity += int(Config.value("economy", "mineral_depot_capacity"))
+		if b.kind == "gas_tank": gas_capacity += int(Config.value("economy", "gas_tank_capacity"))
 	# Storage loss never erases banked resources. New deliveries wait until there is room.
 
 func can_spend(cost: Dictionary) -> bool:
