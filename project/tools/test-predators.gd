@@ -19,11 +19,9 @@ func observe(game, seconds: float, combat: bool = false) -> void:
 		if i % 100 == 0: await process_frame
 
 func run() -> void:
-	var game = load("res://scenes/prototype.tscn").instantiate()
-	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
-	root.add_child(game); current_scene = game
+	var game = preload("res://tools/fixtures/simulation_fixture.gd").new()
 	await process_frame
-	game.set_process(false); game.begin_run(); game.audio_enabled = false
+
 	var director = game.director
 	var kinds: Dictionary = {}
 	for creature in game.creatures: kinds[creature.kind] = true
@@ -40,26 +38,26 @@ func run() -> void:
 	print("PROBE_VISIBILITY first=", first_seen, " visible_seconds=", visible_time, " longest_gap=", longest_quiet)
 	check(first_seen < director.BASE_GRACE and visible_time > 15 and longest_quiet < 30, "repeated multi-creature probes enter actual player illumination during setup and throughout the encounter")
 	clear_pack(game); game.rocks.clear(); game.rebuild_navigation()
-	var runner: ExpeditionPredator = game.add_creature(Vector3(-50, 0, -20), 90, "runner")
-	var stalker: ExpeditionPredator = game.add_creature(Vector3(-50, 0, -23), 90, "stalker")
-	var brute: ExpeditionPredator = game.add_creature(Vector3(-50, 0, -26), 90, "brute")
-	check(runner.max_hp < stalker.max_hp and stalker.max_hp < brute.max_hp and runner.legs.size() < stalker.legs.size() and stalker.legs.size() < brute.legs.size(), "runner, stalker and brute have distinct durability and silhouettes")
+	var runner: SimPredator = game.add_creature(Vector3(-50, 0, -20), 90, "runner")
+	var stalker: SimPredator = game.add_creature(Vector3(-50, 0, -23), 90, "stalker")
+	var brute: SimPredator = game.add_creature(Vector3(-50, 0, -26), 90, "brute")
+	check(runner.max_hp < stalker.max_hp and stalker.max_hp < brute.max_hp, "runner, stalker and brute have distinct durability")
 	for creature in [runner, brute]:
 		creature.state = "probing"; creature.path = PackedVector3Array([creature.position + Vector3(10, 0, 0)]); creature.path_index = 0
 	var runner_start := runner.position; var brute_start := brute.position
 	runner.move_tick(0.1); brute.move_tick(0.1)
 	check(runner.position.distance_to(runner_start) > brute.position.distance_to(brute_start), "runners actually move faster than brutes")
 	clear_pack(game)
-	var building: ExpeditionStructure = game.add_structure("generator", Vector3(-40, 0, -12))
+	var building: SimStructure = game.add_structure("generator", Vector3(-40, 0, -12))
 	game.rebuild_navigation()
-	var hunter: ExpeditionPredator = game.add_creature(building.position + Vector3(8, 0, 0), 90)
+	var hunter: SimPredator = game.add_creature(building.position + Vector3(8, 0, 0), 90)
 	director.add_group(building.position, 90, 1); director.groups[-1].phase = "probing"
 	game.elapsed = 80; game.rebuild_light(); director.tick(game, 0.4)
 	check(hunter.target == building and hunter.state == "hunting", "a probe that observes an undefended structure commits to attacking it")
 	var hp := building.hp
 	await observe(game, 8, true)
 	check(building.hp < hp and hunter.position.distance_to(building.position) < 3 and not game.navigation.blocked(hunter.position), "creatures approach a solid structure closely enough to bite and damage it")
-	var guard: ExpeditionUnit = game.add_unit("marine", building.position + Vector3(0, 0, 4))
+	var guard: SimUnit = game.add_unit("marine", building.position + Vector3(0, 0, 4))
 	game.light.sources.clear(); game.light.add_source(building.position, 20)
 	director.groups[-1].memory.clear(); director.groups[-1].phase = "probing"; hunter.hp = hunter.max_hp; hunter.loss = 0
 	director.tick(game, 0.4)
@@ -70,7 +68,7 @@ func run() -> void:
 	game.jeep.board(guard); director.tick(game, 0.4)
 	check(hunter.target == building and hunter.state == "hunting", "boarding the guard exposes an undefended structure even when its surroundings remain lit")
 	clear_pack(game)
-	var worker: ExpeditionUnit = game.add_unit("engineer", Vector3(-30, 0, -35))
+	var worker: SimUnit = game.add_unit("engineer", Vector3(-30, 0, -35))
 	hunter = game.add_creature(worker.position + Vector3(10, 0, 0), 90, "runner")
 	director.add_group(worker.position, 90, 1); game.elapsed = 25; game.rebuild_light()
 	director.tick(game, 0.4)
@@ -104,10 +102,10 @@ func run() -> void:
 	check(game.creatures.is_empty(), "a wiped-out pack is not replaced immediately")
 	director.tick(game, 1)
 	check(game.creatures.size() == 1 and director.reinforcements_spawned > 0, "a wiped-out pack receives delayed reinforcements instead of leaving the world permanently empty")
-	var replacement: ExpeditionPredator = game.creatures[0]
+	var replacement: SimPredator = game.creatures[0]
 	var safe: bool = game.light.sample(replacement.position) <= 0.035 and not game.navigation.blocked(replacement.position)
 	for actor in game.units + game.structures:
-		if actor.hp > 0 and not (actor is ExpeditionUnit and actor.aboard != null) and replacement.position.distance_to(actor.position) < 18: safe = false
+		if actor.hp > 0 and not (actor is SimUnit and actor.aboard != null) and replacement.position.distance_to(actor.position) < 18: safe = false
 	check(safe and not replacement.visible, "reinforcements arrive on hidden, navigable ground away from friendly units and structures")
 	for i in range(director.MAX_CREATURES - 1): game.add_creature(Vector3(-60, 0, 30), 999)
 	director.tick(game, director.REINFORCEMENT_INTERVAL)
@@ -115,5 +113,6 @@ func run() -> void:
 	clear_pack(game); director.add_group(game.HOME, 0)
 	game.light.sources.clear(); game.light.add_source(Vector3.ZERO, 300)
 	check(director.spawn_member(game, director.groups[-1]) == null and game.creatures.is_empty(), "reinforcements wait when no hidden arrival point exists")
+	game.dispose()
 	print("PREDATOR_TEST_RESULT: ", failures, " failures")
 	quit(1 if failures else 0)

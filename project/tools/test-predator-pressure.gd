@@ -8,11 +8,9 @@ func check(ok: bool, message: String) -> void:
 func _initialize() -> void: call_deferred("run")
 
 func run() -> void:
-	var game = load("res://scenes/prototype.tscn").instantiate()
-	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
-	root.add_child(game); current_scene = game
+	var game = preload("res://tools/fixtures/simulation_fixture.gd").new()
 	await process_frame
-	game.set_process(false); game.begin_run(); game.audio_enabled = false
+
 	var first_seen := INF; var last_seen := 0.0; var longest_gap := 0.0
 	var contacts := 0; var visible_time := 0.0; var previous := false
 	for i in range(1800):
@@ -29,5 +27,6 @@ func run() -> void:
 	check(first_seen < 40 and contacts >= 6 and last_seen > 140 and longest_gap < 35, "normal combat and casualties still produce recurring visible encounters instead of an empty world")
 	check(game.director.reinforcements_spawned >= 4 and game.creatures.size() <= game.director.MAX_CREATURES, "combat losses are replenished without unbounded population growth")
 	check(game.core.hp > 0 and not game.ended, "the guarded starting base can withstand recurring probes while the player prepares an expedition")
+	game.dispose()
 	print("PREDATOR_PRESSURE_TEST_RESULT: ", failures, " failures")
 	quit(1 if failures else 0)

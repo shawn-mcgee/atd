@@ -8,20 +8,18 @@ func check(ok: bool, message: String) -> void:
 func _initialize() -> void: call_deferred("run")
 
 func scenario(kind: String, on_foot: bool) -> void:
-	var game = load("res://scenes/prototype.tscn").instantiate()
-	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
-	root.add_child(game); current_scene = game
+	var game = preload("res://tools/fixtures/simulation_fixture.gd").new()
 	await process_frame
-	game.set_process(false); game.begin_run(); game.audio_enabled = false
+
 	game.rocks.clear(); game.rebuild_navigation()
 	var command = game.complex_commands
 	var resource: Dictionary = game.resource_at(game.GAS_DEPOSIT if kind == "gas" else game.DEPOSIT)
 	resource.discovered = true; resource.remaining = 200
-	var local: ExpeditionStructure = game.add_structure("gas_tank" if kind == "gas" else "depot", resource.position + Vector3(7, 0, 0), false)
-	var worker: ExpeditionUnit = game.add_unit("engineer", resource.position + Vector3(-1, 0, -2))
+	var local: SimStructure = game.add_structure("gas_tank" if kind == "gas" else "depot", resource.position + Vector3(7, 0, 0), false)
+	var worker: SimUnit = game.add_unit("engineer", resource.position + Vector3(-1, 0, -2))
 	var carrier := worker
 	var crew: Array = [worker]
-	var truck: ExpeditionUnit
+	var truck: SimUnit
 	if not on_foot:
 		truck = game.add_unit("jeep", resource.position + Vector3(0, 0, -2)); carrier = truck
 		crew.append(truck); crew.append(game.add_unit("marine", truck.position + Vector3(1, 0, 0)))
@@ -34,9 +32,9 @@ func scenario(kind: String, on_foot: bool) -> void:
 	if kind == "gas": carrier.gas_cargo = 5
 	else: carrier.cargo = 5; carrier.mined_cargo = 5
 	game.economy.minerals = 0; game.economy.gas = 0
-	var home: ExpeditionStructure = game.find_receiver(carrier.position, kind, true)
+	var home: SimStructure = game.find_receiver(carrier.position, kind, true)
 	command.tick(game, 0.1)
-	var chosen: ExpeditionStructure = worker.target if on_foot else group.receiver
+	var chosen: SimStructure = worker.target if on_foot else group.receiver
 	check(chosen == home, "unfinished %s receiver is ignored" % kind)
 	# Finish the outpost receiver after the expedition has already started home.
 	local.complete = true; local.funded = true
@@ -60,7 +58,7 @@ func scenario(kind: String, on_foot: bool) -> void:
 	if kind == "minerals": check(game.returned_materials == 0, "outpost deposits do not count as a physical HQ return for the mission")
 	# Explicit home-return orders retain their intended destination.
 	check(game.find_receiver(carrier.position, kind, true) == home and game.find_receiver(carrier.position, kind) == local, "nearest-receiver selection and explicit HQ-return selection remain distinct")
-	game.queue_free(); await process_frame
+	game.dispose(); await process_frame
 
 func run() -> void:
 	for kind in ["gas", "minerals"]:

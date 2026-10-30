@@ -15,19 +15,17 @@ func step(game, seconds: float) -> void:
 		if i % 100 == 0: await process_frame
 
 func run() -> void:
-	var game = load("res://scenes/prototype.tscn").instantiate()
-	game.layout = preload("res://tools/fixtures/legacy_layout.gd").new()
-	root.add_child(game); current_scene = game
+	var game = preload("res://tools/fixtures/simulation_fixture.gd").new()
 	await process_frame; await physics_frame
-	game.set_process(false); game.begin_run(); game.audio_enabled = false
+
 	game.rocks.clear(); game.rebuild_navigation()
 	var command = game.complex_commands
 	var exploration = command.exploration
-	var worker: ExpeditionUnit = game.add_unit("engineer", Vector3(-50, 0, -20))
-	var guard: ExpeditionUnit = game.add_unit("marine", worker.position + Vector3(1, 0, 0))
+	var worker: SimUnit = game.add_unit("engineer", Vector3(-50, 0, -20))
+	var guard: SimUnit = game.add_unit("marine", worker.position + Vector3(1, 0, 0))
 	check(command.start_expedition(game, [worker, guard], {}, Vector3(-30, 0, -20)), "engineer and guard begin exploring")
 	var group: Dictionary = exploration.groups[-1]
-	var wall: ExpeditionStructure = game.add_structure("wall", worker.position + Vector3(0, 0, 3), false)
+	var wall: SimStructure = game.add_structure("wall", worker.position + Vector3(0, 0, 3), false)
 	game.rebuild_navigation()
 	check(game.set_order(worker, "build", wall.position, wall), "a build order interrupts exploration")
 	await step(game, 12)
@@ -39,8 +37,8 @@ func run() -> void:
 	# A real terrain right-click must finish as a normal move, with no auto-resume.
 	guard.position = Vector3(-24, 0, -18)
 	command.start_expedition(game, [guard], {}, Vector3(-10, 0, -18))
-	game.select_actor(guard); game.focus = guard.position; game.update_camera()
-	await game.contextual_order(game.camera.unproject_position(Vector3(-20, 0, -14)))
+	game.select_actor(guard)
+	game.contextual_order(Vector3(-20, 0, -14))
 	check(guard.complex_id == 0 and guard.order == "move" and exploration.groups.is_empty(), "ordinary terrain right-click cancels scouting instead of rearming it")
 	await step(game, 8)
 	held = guard.position
@@ -55,10 +53,10 @@ func run() -> void:
 	await step(game, 8)
 	check(guard.order == "idle" and guard.complex_id == 0, "a replacement task completing cannot restore stale exploration")
 	# Unloading must detach every assigned passenger, not just the driver.
-	var jeep: ExpeditionUnit = game.add_unit("jeep", Vector3(12, 0, -18))
-	var driver: ExpeditionUnit = game.add_unit("engineer", jeep.position + Vector3(1, 0, 0))
-	var passenger: ExpeditionUnit = game.add_unit("engineer", jeep.position + Vector3(2, 0, 0))
-	var escort: ExpeditionUnit = game.add_unit("marine", jeep.position + Vector3(0, 0, 2))
+	var jeep: SimUnit = game.add_unit("jeep", Vector3(12, 0, -18))
+	var driver: SimUnit = game.add_unit("engineer", jeep.position + Vector3(1, 0, 0))
+	var passenger: SimUnit = game.add_unit("engineer", jeep.position + Vector3(2, 0, 0))
+	var escort: SimUnit = game.add_unit("marine", jeep.position + Vector3(0, 0, 2))
 	command.start_expedition(game, [jeep, driver, passenger, escort], {}, Vector3(25, 0, -18))
 	group = exploration.groups[-1]
 	await step(game, 2)
@@ -66,15 +64,14 @@ func run() -> void:
 	game.select_actor(jeep); game.unload()
 	check(jeep.complex_id == 0 and driver.complex_id == 0 and passenger.complex_id == 0 and passenger.aboard == null and escort.complex_id == group.id, "unloading detaches the vehicle and all its assigned crew while walking escorts keep exploring")
 	held = jeep.position
-	var repair: ExpeditionStructure = game.add_structure("wall", passenger.position + Vector3(0, 0, 3))
+	var repair: SimStructure = game.add_structure("wall", passenger.position + Vector3(0, 0, 3))
 	repair.hp -= 8; game.rebuild_navigation()
 	game.set_order(passenger, "repair", repair.position, repair)
 	await step(game, 15)
 	check(repair.hp == game.Rules.STRUCTURES.wall.hp and passenger.order == "idle" and passenger.aboard == null and passenger.complex_id == 0 and jeep.position.distance_to(held) < 0.01, "an unloaded engineer finishes repair without reboarding or restarting the vehicle's exploration")
 	# The player can still explicitly opt back into exploration.
-	game.select_actor(passenger); game.choose_expedition()
-	game.focus = passenger.position; game.update_camera()
-	await game.expedition_click(game.camera.unproject_position(passenger.position + Vector3(6, 0, 0)))
+	command.start_expedition(game, [passenger], {}, passenger.position + Vector3(6, 0, 0))
 	check(passenger.complex_id != 0 and command.is_expedition(passenger), "explicit Expedition targeting can start scouting again")
+	game.dispose()
 	print("EXPLORATION_INTERRUPTION_TEST_RESULT: ", failures, " failures")
 	quit(1 if failures else 0)

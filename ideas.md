@@ -14,4 +14,4 @@ Maybe Unit and structure upgrades would be useful (for your units and the lightl
 
 Maybe the lightless can build their own structures on the map so you have to be aware of and squash their hives that produce units or be careful when assaulting their defensive structures... they have acid spraying worms (like factorio)
 
-Maybe extraction should take 90 seconds instead of the current 60 seconds.
+When in defining a patrol, a standard left/right click (no shift) should define the patrol point and exit the patrol input. When queueing patrol points (holding shift) any left/right click should queue the point, then a regular left click (not holding shift) should exit it. Or pressing escape should also exit it.
