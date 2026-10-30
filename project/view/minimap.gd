@@ -38,7 +38,7 @@ func command_point(local: Vector2) -> Vector3:
 		var distance := local.distance_to(project(actor.position))
 		if distance < best: point = actor.position; best = distance
 	for patch in game.resource_nodes:
-		if not patch.discovered or patch.remaining <= 0: continue
+		if not game.resource_visible(patch): continue
 		var distance := local.distance_to(project(patch.position))
 		if distance < best: point = patch.position; best = distance
 	return point
@@ -82,7 +82,7 @@ func _draw() -> void:
 		survey_texture = ImageTexture.create_from_image(image)
 	if survey_texture != null: draw_texture(survey_texture, Vector2.ZERO)
 	for patch in game.resource_nodes:
-		if patch.discovered and patch.remaining > 0: draw_circle(project(patch.position), 2, Color("79e1c7") if patch.kind == "minerals" else Color("b9cb75"))
+		if game.resource_visible(patch): draw_circle(project(patch.position), 2, Color("79e1c7") if patch.kind == "minerals" else Color("b9cb75"))
 	for building in game.structures:
 		if building.visible: draw_circle(project(building.position), 2.5, Color("9cb9d4"))
 	for actor in game.units:

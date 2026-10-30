@@ -37,6 +37,10 @@ func purchase(button: Button, kind: String, shortcut: String) -> void:
 	var cost := Rules.cost(kind)
 	button.text = ""
 	button.tooltip_text = "%s\n%d materials%s%s" % [Rules.title(kind), cost.minerals, " / %d methane" % cost.gas if cost.gas > 0 else "", "\nShortcut: " + shortcut if not shortcut.is_empty() else ""]
+	if Rules.STRUCTURES.has(kind):
+		if kind == "generator": button.tooltip_text += "\nProduces %d power while methane is available" % game.Power.GENERATOR_OUTPUT
+		elif kind == "repeater": button.tooltip_text += "\nExtends connected power; produces no power"
+		elif int(Rules.STRUCTURES[kind].power) > 0: button.tooltip_text += "\nUses %d power; connect to HQ, a generator, or a relay" % int(Rules.STRUCTURES[kind].power)
 	if not button.has_meta("purchase_name"):
 		button.text = ""; button.custom_minimum_size = Vector2(112, 52); button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var content := VBoxContainer.new(); content.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -55,6 +59,8 @@ func purchase(button: Button, kind: String, shortcut: String) -> void:
 		var costs := row(content, 4); costs.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon(costs, MATERIAL, 13); game.label(costs, str(cost.minerals), 10)
 		if cost.gas > 0: icon(costs, METHANE, 13); game.label(costs, str(cost.gas), 10)
+		if game.Power.is_electrical(kind):
+			icon(costs, POWER, 13); game.label(costs, game.Power.power_label(kind).get_slice(" ", 0), 10, game.MINT)
 		button.set_meta("purchase_name", title)
 	button.set_meta("shortcut", shortcut)
 	var key_label: Label = button.get_meta("key_label")
@@ -189,10 +195,11 @@ func make_briefing() -> void:
 func make_help() -> void:
 	help_overlay = ColorRect.new(); help_overlay.color = Color(0, 0.01, 0.02, 0.8); help_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); game.ui.add_child(help_overlay)
 	var card: PanelContainer = game.panel(help_overlay); card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	card.offset_left = -280; card.offset_right = 280; card.offset_top = -240; card.offset_bottom = 240
+	card.offset_left = -300; card.offset_right = 300; card.offset_top = -270; card.offset_bottom = 270
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 12); card.add_child(content)
 	game.label(content, "Controls", 22, game.MINT)
 	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nWASD / arrows pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag rotates\nE explore - M mine\nQ attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nBuild: 1-0 select, T rotates, Shift queues\nEscape cancels targeting - F1 closes help", 14)
+	game.label(content, "Power: HQ +%d without fuel; generators +%d using methane.\nRelays extend power when their supply circles overlap.\nBuildings need a footprint tile inside a supply circle.\nSelect an electrical structure to see its network and capacity." % [game.Power.CORE_OUTPUT, game.Power.GENERATOR_OUTPUT], 12, Chrome.MUTED)
 	help_footer = game.label(content, "", 11, Chrome.MUTED)
 	var buttons := row(content, 10)
 	game.button(buttons, "Close", toggle_help)
@@ -264,6 +271,15 @@ func update() -> void:
 	game.message.visible = game.notice_time > 0 and not game.message.text.is_empty()
 	game.pause_button.text = "RESUME [Space]" if game.paused else "PAUSE [Space]"
 	after_context(); summarize_selection()
+	update_power_preview()
+
+func update_power_preview() -> void:
+	game.power_preview_label.visible = not game.build_kind.is_empty() and game.Power.is_electrical(game.build_kind)
+	if not game.power_preview_label.visible: return
+	var point: Vector3 = game.simulation.navigation.terrain.surface(game.Hex.snap(game.mouse_world, game.Terrain.CELL))
+	var connection: Dictionary = game.Power.placement_connection(game.build_kind, point, game.structures, game.placement_direction)
+	game.power_preview_label.text = connection.text
+	game.power_preview_label.modulate = game.MINT if connection.state in ["ready", "source"] else game.AMBER
 
 func summarize_selection() -> void:
 	selection_grid = {}; grid_panel.visible = false
@@ -284,22 +300,24 @@ func summarize_selection() -> void:
 			if queued > 0: lines.append("Queued  %d" % queued)
 			if actor.is_vehicle():
 				lines.append("Crew  %d / %d" % [actor.occupied_seats(), actor.seat_capacity()] if actor.has_driver() else "Driver required")
-			if actor.cargo_total() > 0: lines.append("Cargo  %d MAT / %d CH4" % [actor.cargo, actor.gas_cargo])
+			lines.append("Cargo  %d / %d" % [actor.cargo_total(), actor.capacity])
+			if actor.cargo_total() > 0: lines.append("%d MAT / %d CH4" % [actor.cargo, actor.gas_cargo])
 		elif actor is SimStructure:
 			if actor.waiting_for_clearance: lines.append("Waiting for clear space")
 			elif not actor.complete: lines.append("Building  %d%%" % (actor.progress * 100))
-			elif not actor.enabled: lines.append("Disabled")
-			elif game.Power.is_electrical(actor.kind) and not actor.powered: lines.append("No power")
+			if not actor.enabled: lines.append("Disabled")
+			if actor.kind == "extractor":
+				var remaining: Dictionary = game.resource_fields.extractor_remaining(game.simulation, actor)
+				lines.append("Materials left: %d\nMethane left: %d" % [remaining.minerals, remaining.gas])
 			if Rules.TURRETS.has(actor.kind) and Rules.TURRETS[actor.kind].magazine > 0:
 				lines.append("Reloading  %.1fs" % actor.reload_remaining if actor.reload_remaining > 0 else "Ammo  %d / %d" % [actor.ammo, Rules.TURRETS[actor.kind].magazine])
 			if not actor.queue.is_empty(): lines.append("Producing %s  %d%%\nQueued  %d" % [Rules.title(actor.queue[0]), actor.production_progress / float(Rules.UNITS[actor.queue[0]].time) * 100, actor.queue.size()])
 		game.details.text = "\n".join(lines)
-		selection_grid = game.power.grid_for(actor, game.structures)
-		grid_panel.visible = not selection_grid.is_empty()
+		selection_grid = game.power.grid_for(actor, game.structures) if actor is SimStructure and game.Power.is_electrical(actor.kind) and actor.connected else {}
+		grid_panel.visible = actor is SimStructure and game.Power.is_electrical(actor.kind)
 		if grid_panel.visible:
-			grid_value.text = "Grid %d    %d / %d used\n%d spare%s" % [selection_grid.id + 1, selection_grid.used, selection_grid.capacity, maxi(0, selection_grid.capacity - selection_grid.used), " / %d needed" % selection_grid.demand if selection_grid.demand > selection_grid.used else ""]
-			grid_value.tooltip_text = "This grid only\nInstalled capacity: %d\nDemand: %d\nMethane: %.2f/s" % [selection_grid.installed_capacity, selection_grid.demand, selection_grid.fuel_rate]
-		elif actor is SimStructure and game.Power.is_electrical(actor.kind): game.details.text += "\nNo grid connection"
+			grid_value.text = "Power: %s\nGrid capacity: %s\nGrid demand: %s" % [game.Power.power_label(actor.kind).get_slice(" ", 0), str(selection_grid.capacity) if not selection_grid.is_empty() else "—", str(selection_grid.demand) if not selection_grid.is_empty() else "—"]
+			grid_value.tooltip_text = ""
 	elif game.selected.size() > 1:
 		game.command_title.text = "%d UNITS / GROUP" % game.selected.size()
 		portrait.texture = game.sprites.texture(game.selected[0].kind)

@@ -68,7 +68,8 @@ func run() -> void:
 	repair.hp -= 8; game.rebuild_navigation()
 	game.set_order(passenger, "repair", repair.position, repair)
 	await step(game, 15)
-	check(repair.hp == game.Rules.STRUCTURES.wall.hp and passenger.order == "idle" and passenger.aboard == null and passenger.complex_id == 0 and jeep.position.distance_to(held) < 0.01, "an unloaded engineer finishes repair without reboarding or restarting the vehicle's exploration")
+	check(repair.hp == game.Rules.STRUCTURES.wall.hp and passenger.order == "idle" and passenger.aboard == null and passenger.complex_id == 0, "an unloaded engineer finishes repair without reboarding or restarting exploration")
+	check(jeep.position.distance_to(held) < 0.01, "an unloaded vehicle holds position while its engineer works nearby")
 	# The player can still explicitly opt back into exploration.
 	command.start_expedition(game, [passenger], {}, passenger.position + Vector3(6, 0, 0))
 	check(passenger.complex_id != 0 and command.is_expedition(passenger), "explicit Expedition targeting can start scouting again")

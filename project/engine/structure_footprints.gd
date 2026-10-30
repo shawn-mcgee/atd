@@ -32,3 +32,11 @@ static func reach(building: SimEntity, point: Vector3) -> float:
 	var distance := INF
 	for tile in points(building): distance = minf(distance, tile.distance_to(point))
 	return distance
+
+static func within_work_reach(point: Vector3, kind: String, anchor: Vector3, direction: int = 0) -> bool:
+	if absf(point.y - anchor.y) > 0.6: return false
+	var here := Hex.to_axial(point, Terrain.CELL)
+	for cell in cells(kind, anchor, direction):
+		var delta: Vector2i = here - cell
+		if maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.x + delta.y))) <= 1: return true
+	return false

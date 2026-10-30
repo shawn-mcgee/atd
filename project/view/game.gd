@@ -148,10 +148,13 @@ func pick(screen: Vector2) -> SimEntity:
 		if Geometry2D.is_point_in_polygon(screen, Primitives.structure_polygon(self, building)): return building
 	return null
 
+func resource_visible(patch: Dictionary) -> bool:
+	return patch.discovered and patch.remaining > 0 and resource_fields.covering_extractor(simulation, patch.position) == null
+
 func pick_resource(screen: Vector2) -> Dictionary:
 	var patches: Array = simulation.resource_nodes.duplicate(); patches.reverse()
 	for patch in patches:
-		if patch.discovered and patch.remaining > 0 and sprites.hit(self, sprites.resource_key(patch), patch.position, 0, screen): return patch
+		if resource_visible(patch) and sprites.hit(self, sprites.resource_key(patch), patch.position, 0, screen): return patch
 	return {}
 
 func _draw() -> void:
@@ -164,6 +167,7 @@ func _exit_tree() -> void:
 
 func refresh_ui() -> void:
 	if hud == null: return
+	if not selected_resource.is_empty() and not resource_visible(selected_resource): selected_resource = {}
 	refresh_context_commands(); hud.update()
 
 func toggle_pause() -> void:
@@ -171,7 +175,7 @@ func toggle_pause() -> void:
 	refresh_ui()
 
 func choose_build(kind: String) -> void:
-	if selected_engineers().is_empty(): return
+	if kind not in BUILD_KINDS or selected_engineers().is_empty(): return
 	build_kind = "" if build_kind == kind else kind
 	tactical_mode = ""; expedition_mode = false; repair_mode = false
 	hud.show_tab("build"); notify("Place %s / T rotates / Shift queues / right-click cancels" % Rules.title(kind))
@@ -181,7 +185,7 @@ func choose_expedition(mining: bool = false) -> void:
 	if not (complex_commands.mining_available(crew) if mining else complex_commands.expedition_available(crew)): return
 	expedition_mode = not expedition_mode or mining_mode != mining; mining_mode = mining
 	build_kind = ""; tactical_mode = ""; repair_mode = false
-	notify("Choose a surveyed patch or receiver" if mining else "Choose terrain to explore")
+	notify("Choose a resource field, extractor, or storage building" if mining else "Choose terrain to explore")
 
 func choose_tactical(mode: String) -> void:
 	if not tactical_groups.available(selected) and not selected.any(func(actor): return actor is SimUnit and actor.kind == "drill"): return
@@ -213,8 +217,9 @@ func target_click(screen: Vector2, append: bool) -> void:
 	var point := actor.position if actor != null else ground_point(screen)
 	if expedition_mode:
 		if mining_mode and actor is SimStructure and actor.kind == "extractor":
-			for deposit in resource_fields.covered_patches(simulation, actor):
-				if deposit.remaining > 0 and deposit.discovered: point = deposit.position; break
+			var deposit: Dictionary = resource_fields.extractor_resource(simulation, actor)
+			if deposit.is_empty(): notify("No resources remain beneath this extractor"); return
+			point = deposit.position
 		if mining_mode and actor is SimStructure and actor.kind in ["core", "depot", "gas_tank"]:
 			var nearest := INF
 			for patch in resource_nodes:
@@ -222,7 +227,7 @@ func target_click(screen: Vector2, append: bool) -> void:
 				var distance: float = patch.position.distance_squared_to(actor.position)
 				if distance < nearest: nearest = distance; point = patch.position
 		var patch: Dictionary = simulation.resource_at(point)
-		if mining_mode and (patch.is_empty() or not patch.discovered or patch.remaining <= 0): notify("Mining requires a surveyed resource patch"); return
+		if mining_mode and (patch.is_empty() or not patch.discovered or patch.remaining <= 0) and not (actor is SimStructure and actor.kind == "extractor"): notify("Mining requires a surveyed resource field or extractor"); return
 		submit("expedition", {"point": point, "mining": mining_mode, "append": append}); expedition_mode = false
 	elif tactical_mode != "":
 		var mode := "attack" if tactical_mode == "attack_move" and (actor is SimPredator or actor == mission.hive) else tactical_mode
@@ -234,10 +239,11 @@ func target_click(screen: Vector2, append: bool) -> void:
 			submit("repair", {"target": actor.simulation_id}); repair_mode = false
 		elif actor != null: selected.assign([actor]); repair_mode = false; refresh_ui()
 	elif build_kind != "":
-		if actor != null and not (actor is SimStructure and actor.kind in ["platform", "ramp"] and actor.complete):
+		if actor is SimStructure and not (actor.kind in ["platform", "ramp"] and actor.complete):
 			selected.assign([actor]); build_kind = ""; refresh_ui(); return
+		point = ground_point(screen)
 		if not simulation.valid_site(build_kind, Hex.snap(point, Terrain.CELL), placement_direction) or not economy.can_spend(Rules.cost(build_kind)):
-			notify("Use illuminated, clear terrain and check available resources"); return
+			notify("Use clear terrain in or beside illumination and check available resources"); return
 		submit("build", {"building": build_kind, "point": Hex.snap(point, Terrain.CELL)})
 		if not append: build_kind = ""
 	else: submit("context", {"point": point, "target": actor.simulation_id if actor != null else 0, "append": append})

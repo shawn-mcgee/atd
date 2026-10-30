@@ -75,6 +75,21 @@ func capture() -> void:
 		mode += "-platforms"; game.zoom = 48; game.focus = Vector2(1, -1)
 		for cell in [Vector2i(2, -2), Vector2i(3, -2), Vector2i(2, -1)]: game.simulation.add_structure("platform", game.Hex.to_world(cell, 1))
 		game.simulation.rebuild_navigation(); game.simulation.rebuild_light(); game.simulation.record_exploration()
+	if "--extractor" in OS.get_cmdline_user_args():
+		mode = "extractor"; game.zoom = 44
+		var sim = game.simulation
+		var center: Vector3 = sim.Hex.to_world(Vector2i(6, -4), 1)
+		for unit in sim.units: unit.position = Vector3(30, 0, 30)
+		for i in range(7):
+			var offsets: Array = [Vector2i.ZERO] + sim.Hex.NEIGHBORS
+			sim.add_resource_patch("minerals" if i < 4 else "gas", center + sim.Hex.to_world(offsets[i], 1), 100 + i * 20)
+			sim.resource_nodes[-1].discovered = true
+		sim.add_structure("generator", center + Vector3(-5, 0, 0))
+		sim.add_structure("floodlight", center + Vector3(0, 0, 4))
+		var extractor: SimStructure = sim.add_structure("extractor", center)
+		sim.rebuild_navigation(); sim.power.tick(sim.structures, sim.economy, 0); sim.rebuild_light(); sim.record_exploration()
+		game.focus = Vector2(center.x, center.z)
+		game.selected.assign([extractor]); game.selected_resource.clear(); game.refresh_ui()
 	if "--resource" in OS.get_cmdline_user_args():
 		game.simulation.resource_fields.discover(game.simulation)
 		for patch in game.simulation.resource_nodes:
@@ -86,6 +101,32 @@ func capture() -> void:
 		for cell in [Vector2i(2, -2), Vector2i(3, -2), Vector2i(2, -1)]:
 			game.simulation.rocks.append({"position": game.Hex.to_world(cell, 1), "cell": cell, "radius": 0.82, "height": 4})
 		game.simulation.rebuild_navigation(); game.simulation.record_exploration()
+	if "--walls" in OS.get_cmdline_user_args():
+		mode = "walls"; game.zoom = 50; game.focus = Vector2(-6.928203, 1.5)
+		var walls: Array[SimStructure] = []
+		for cell in [Vector2i(-5, 0), Vector2i(-4, 0), Vector2i(-3, 0), Vector2i(-4, 1), Vector2i(-4, 2)]:
+			walls.append(game.simulation.add_structure("wall", game.Hex.to_world(cell, 1)))
+		game.simulation.rebuild_navigation(); game.simulation.light.add_source(Vector3(-6.928203, 0, 1.5), 14); game.simulation.record_exploration()
+		game.selected.assign(walls); game.refresh_ui()
+	if "--gates" in OS.get_cmdline_user_args():
+		mode = "batch7"; game.zoom = 64; game.focus = Vector2(-6, 0)
+		var sim = game.simulation
+		var examples: Array[SimStructure] = []
+		for i in range(3):
+			var gate: SimStructure = sim.add_structure("gate", sim.Hex.to_world(Vector2i(-6 + i * 2, 0), 1))
+			gate.powered = true; gate.build_direction = i
+			gate.gate_open = i != 0
+			game.sprites.gates[gate.simulation_id] = [0.0, 0.5, 1.0][i]
+			examples.append(gate)
+		for cell in [Vector2i(-6, -2), Vector2i(-5, -2), Vector2i(-4, -2)]: examples.append(sim.add_structure("wall", sim.Hex.to_world(cell, 1)))
+		sim.rebuild_navigation(); sim.light.add_source(Vector3(-6, 0, 0), 20); sim.record_exploration()
+		game.selected.assign(examples); game.refresh_ui()
+	if "--placement" in OS.get_cmdline_user_args():
+		mode += "-placement"
+		game.selected.assign([game.simulation.units[0]]); game.refresh_ui(); game.choose_build("garage")
+		game.mouse_world = game.Hex.to_world(Vector2i(-4, 0), 1)
+		game.placement_direction = 1 if "--rotated" in OS.get_cmdline_user_args() else 0
+		game.simulation.light.add_source(game.mouse_world, 12); game.simulation.record_exploration()
 	game.queue_redraw()
 	for i in range(4): await process_frame
 	await RenderingServer.frame_post_draw

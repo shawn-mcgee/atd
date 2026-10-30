@@ -9,17 +9,17 @@ Read `AGENTS.md` first. Open only the relevant entries below. The current game a
 | Prices, health, speeds, production stats | `config/gameplay.json`, `engine/gameplay_config.gd`, `engine/expedition_rules.gd` | `mission-upgrade`, `engine` |
 | Selection, hotkeys, camera, command targeting | `view/game.gd`: `pick`, `target_click`, `_input`, `_unhandled_input` | `top-down` |
 | Generate or integrate 2D art | [Sprite integration](sprite-integration.md), `view/sprite_library.gd`, root `tools/prepare-sprites.py`; [generation brief](asset-generation-brief.md) for art specs | `sprites`, `top-down`; rendered gallery |
-| Drawing, footprint polygons, tile geometry | `view/terrain_renderer.gd`, `view/primitives.gd`; `engine/structure_footprints.gd`; `engine/hex_grid.gd` | `top-down`, `mission-upgrade` |
+| Drawing, footprint polygons, tile geometry | `view/terrain_renderer.gd`, `view/primitives.gd`: `placement_polygon`, `structure_polygon`; `engine/structure_footprints.gd`; `engine/hex_grid.gd` | `top-down`, `mission-upgrade`; preview `--engineer --placement` (optional `--rotated`) |
 | Selected unit/structure silhouettes | `view/selection_highlight.gd`, `view/shaders/selection_mask.gdshader`, `selection_outline.gdshader` | `top-down`, `sprites`; preview `--combat --selection` |
 | HUD, tooltips, contextual menus | `view/game_hud.gd`, `rts_theme.gd`, `rts_panel.gd`, `rts_icons.gd`; `view/game.gd`: `refresh_context_commands` | `top-down` |
 | Wispy darkness shader / visual light mask | `view/darkness.gd`, `view/shaders/darkness.gdshader`, `view/shaders/light_mask.gdshader` | `darkness`, `top-down`; rendered preview |
 | Minimap, discovery, illumination | `view/minimap.gd`; `engine/simulation.gd`: `record_exploration`, `rebuild_light`; `engine/illumination.gd`, `resource_fields.gd` | `expedition-scouts`, `top-down` |
 | Frame performance / profiling | [Performance](performance.md), `view/terrain_renderer.gd`, `view/minimap.gd`; `engine/expedition_navigation.gd`: `cache_light_weights` | `terrain-renderer`, `light-weights`; rendered `benchmark-frames.gd` |
-| Routes, terrain, ramps, platforms | `engine/expedition_navigation.gd`, `expedition_terrain.gd`, `structure_footprints.gd` | `mission-upgrade`, `construction-clearance` |
-| Unit movement, boarding, unload | `engine/expedition_unit.gd`; `simulation.gd`: `advance_movement`, `unload`; `soft_unit_spacing.gd` | `unit-spacing`, `expedition-seating` |
-| Construction/repair and clearance | `simulation.gd`: `valid_site`, `order_build`, `process_order`, `continue_maintenance`; `construction_clearance.gd` | `construction-clearance`, `engineer-maintenance` |
-| Mining/convoys/crew priorities | `engine/complex_commands.gd`, `foot_expeditions.gd`, `expedition_scouts.gd` | `expedition-delivery`, `expedition-seating`, `expedition-scouts`, `nearest-receiver` |
-| Exploration and interruptions | `engine/exploration_expeditions.gd`; `complex_commands.gd`: `start_expedition`, `interrupt` | `exploration-interruptions`, `expedition-seating` |
+| Terrain routes / legacy elevation fixtures | `engine/expedition_navigation.gd`, `expedition_terrain.gd`, `structure_footprints.gd`; player ramps/platforms currently disabled | `mission-upgrade`, `construction-clearance` |
+| Unit movement, boarding, unload | `engine/expedition_unit.gd`; `simulation.gd`: `advance_movement`, `unload`; `soft_unit_spacing.gd`: `suggest_passing`, `arrival_point`, `apply` | `unit-avoidance`, `unit-spacing`, `expedition-seating` |
+| Construction/repair and clearance | `simulation.gd`: `valid_site`, `order_build`, `process_order`, `continue_maintenance`; `construction_clearance.gd` | `construction-illumination`, `construction-clearance`, `engineer-maintenance` |
+| Mining/convoys/crew priorities | `engine/resource_fields.gd`, `complex_commands.gd`, `foot_expeditions.gd`, `expedition_scouts.gd` | `todo-logistics`, `expedition-delivery`, `expedition-seating`, `expedition-scouts`, `nearest-receiver` |
+| Exploration and interruptions | `engine/exploration_expeditions.gd`: `prepare_plan`, `choose_destination`, `tick`; `complex_commands.gd`: `start_expedition`, `interrupt` | `exploration-routing`, `exploration-interruptions`, `expedition-seating` |
 | Combat facing, muzzle alignment, mining adjacency | `view/sprite_library.gd`, root `tools/prepare-sprites.py`, `engine/resource_fields.gd`; shot dispatch in `engine/simulation.gd` | `combat-and-mining`, `sprites`, mining expedition suites |
 | Infantry and convoy patrol/tactics | `engine/tactical_orders.gd`, `tactical_groups.gd`, `expedition_patrol.gd` | `expedition-patrol`, `mission-upgrade`, `engine` |
 | Economy, power, gates, HQ healing, drilling | `engine/expedition_economy.gd`, `expedition_power.gd`, `gate_passage.gd`, `vehicle_systems.gd` | `mission-upgrade`, `expedition-delivery`, `engine` |
@@ -32,4 +32,4 @@ Paths above are relative to `project/` unless marked root. Locate functions with
 
 For architecture/API changes, read [engine.md](engine.md). For a presentation-only task, avoid loading unrelated economy/AI modules. Preserve the deterministic core/view boundary.
 
-Gameplay overhaul details and JSON sections: [gameplay-balance.md](gameplay-balance.md). New regression coverage: `todo-upgrades`, `command-input`.
+Gameplay overhaul details and JSON sections: [gameplay-balance.md](gameplay-balance.md). Regression coverage: `todo-upgrades`, `todo-logistics`, `command-input`. Extractor/power HUD preview: `preview-prototype.gd -- --extractor` (optionally `--small`).

@@ -28,7 +28,7 @@ func _init() -> void:
 		regions[key] = texture
 
 func texture(key: String) -> Texture2D:
-	if key == "gate": return regions.wall
+	if key == "gate": return regions.gate_frame
 	if key in ["turret", "laser_turret", "flame_turret"]: key += "_base"
 	return regions.get(key)
 
@@ -98,14 +98,15 @@ func polygon(game, key: String, vertices: PackedVector2Array, anchor: Vector3, a
 	game.draw_polygon(vertices, PackedColorArray([tint]), uvs, textures[entry.sheet])
 
 func building_key(building: SimStructure, stolen: bool = false) -> String:
+	if building.kind == "gate": return "gate_frame"
 	if building.kind == "beacon" and not building.complete: return "beacon_ruined"
 	if building.kind == "hive" and (stolen or building.hp < 400): return "hive_breached"
 	return building.kind + "_base" if building.kind in ["turret", "laser_turret", "flame_turret"] else building.kind
 
 func building_layout(game, building: SimStructure, vertices: PackedVector2Array) -> Dictionary:
 	var angle := building.build_direction * PI / 3
-	if building.kind == "platform":
-		var data: Dictionary = manifest.sprites.platform
+	if building.kind in ["platform", "wall", "gate"]:
+		var data: Dictionary = manifest.sprites[building_key(building)]
 		return {"point": building.position, "angle": angle, "size": Vector2(data.world_size[0], data.world_size[1])}
 	var origin: Vector2 = game.world_to_screen(building.position)
 	var bounds := Rect2(Vector2.ZERO, Vector2.ZERO)
@@ -122,6 +123,17 @@ func draw_building(game, building: SimStructure, vertices: PackedVector2Array, t
 	draw(game, key, layout.point, layout.angle, tint, size)
 
 func hit_building(game, building: SimStructure, vertices: PackedVector2Array, screen: Vector2) -> bool:
+	if building.kind == "gate":
+		var local: Vector2 = (screen - game.world_to_screen(building.position)).rotated(-building.build_direction * PI / 3 - game.camera_angle) / game.zoom
+		for part in gate_parts(building):
+			var rect: Rect2 = part.rect
+			if not rect.has_point(local) or part.alpha < 0.2: continue
+			var entry: Dictionary = manifest.sprites[part.key]
+			if not images.has(entry.sheet): images[entry.sheet] = textures[entry.sheet].get_image()
+			var source: Rect2 = part.source
+			var pixel := Vector2i(source.position + (local - rect.position) / rect.size * source.size)
+			if images[entry.sheet].get_pixelv(pixel).a * part.alpha > 0.2: return true
+		return false
 	var key := building_key(building, game.mission.stolen)
 	if not regions.has(key): return false
 	var layout := building_layout(game, building, vertices)
@@ -177,21 +189,32 @@ func draw_effects(game) -> void:
 			draw(game, "impact_laser" if laser else "impact_kinetic", effect.b, 0, Color(1, 1, 1, alpha), Vector2.ONE * (0.4 + age))
 			if not laser and age < 0.12: draw(game, "muzzle_00", source, angle, Color(1, 1, 1, alpha), Vector2(0.65, 0.4))
 
-func draw_gate(game, building: SimStructure) -> void:
-	# Two posts and sliding leaves; no generated gate pixels are used.
-	var angle: float = building.build_direction * PI / 3 + game.camera_angle
+func gate_parts(building: SimStructure) -> Array[Dictionary]:
 	var opening: float = gates.get(building.simulation_id, 1.0 if building.gate_open else 0.0)
+	var frame: Rect2 = regions.gate_frame.region
+	var parts: Array[Dictionary] = [{"key": "gate_frame", "source": frame, "rect": sprite_rect("gate_frame", 1), "alpha": 1.0}]
+	var travel: float = manifest.sprites.gate_open.slide_distance
+	for key in ["gate_closed", "gate_open"]:
+		var alpha: float = opening if key == "gate_open" else 1.0 - opening
+		if alpha <= 0: continue
+		var source: Rect2 = regions[key].region
+		var rect := sprite_rect(key, 1)
+		for half in range(2):
+			var side := -1 if half == 0 else 1
+			var offset: float = side * travel * (opening - (1.0 if key == "gate_open" else 0.0))
+			parts.append({"key": key, "source": Rect2(source.position + Vector2(0, half * source.size.y / 2), Vector2(source.size.x, source.size.y / 2)),
+				"rect": Rect2(rect.position + Vector2(0, half * rect.size.y / 2 + offset), Vector2(rect.size.x, rect.size.y / 2)), "alpha": alpha})
+	return parts
+
+func draw_gate(game, building: SimStructure, tint: Color = Color.WHITE) -> void:
+	var angle: float = building.build_direction * PI / 3 + game.camera_angle
 	game.draw_set_transform(game.world_to_screen(building.position), angle, Vector2.ONE * game.zoom)
+	for part in gate_parts(building):
+		var entry: Dictionary = manifest.sprites[part.key]
+		game.draw_texture_rect_region(textures[entry.sheet], part.rect, part.source, Color(tint, tint.a * part.alpha))
 	for side in [-1, 1]:
-		game.draw_rect(Rect2(Vector2(-0.28, side * 0.69 - 0.14), Vector2(0.56, 0.28)), Color("a1aaa9"))
-		game.draw_rect(Rect2(Vector2(-0.20, side * 0.69 - 0.07), Vector2(0.4, 0.14)), Color("384954"))
-		var length := 0.62 * (1.0 - opening)
-		var top := 0.06 if side == 1 else -0.06 - length
-		if length > 0.01:
-			game.draw_rect(Rect2(-0.12, top, 0.24, length), Color("667984"))
-			game.draw_line(Vector2(0, top), Vector2(0, top + length), Color("d1a65c"), 0.055)
 		var status := Color("d9826a") if building.gate_locked else Color("70c8bd") if building.powered else Color("d5a45c")
-		game.draw_circle(Vector2(0, side * 0.69), 0.055, status)
+		game.draw_circle(Vector2(0, side * 0.69), 0.035, status * tint)
 	game.draw_set_transform(Vector2.ZERO)
 
 

@@ -3,8 +3,8 @@
 ## Where to work
 
 - Approved original sheets: `art_source/sprites/batch_*.png` (kept unchanged).
-- Runtime copies and metadata: `assets/sprites/`; `atlas.json` maps 63 regions from eight sheets. The three unusable generated gate cells are excluded.
-- Rebuild: from repository root, `python tools/prepare-sprites.py` (Pillow required). This copies the PNG bytes and analyzes alpha bounds; it does not repaint, rotate, resize, or remove backgrounds. Reimport in Godot afterward. Mipmaps are enabled in the tracked PNG import settings.
+- Runtime copies and metadata: `assets/sprites/`; `atlas.json` maps 94 regions, including registered Batch 7 gate layers.
+- Rebuild from the repository root with `python tools/prepare-sprites.py` (Pillow, NumPy and SciPy required). Use `--batch-7` to refresh only ground, cliffs, walls and gates. Both paths retain the approved resource patches and leave source art unchanged. Reimport in Godot afterward; tracked PNG import settings enable mipmaps.
 - Rendering, pivots, orientation, alpha picking, turret heads, gate animation, and combat effects: `view/sprite_library.gd`.
 - Drawing order, terrain, resource depletion, previews, and selection overlays: `view/primitives.gd`. HUD thumbnails: `view/game_hud.gd`.
 - Validation: `python tools/test-game.py --name sprites --name top-down --name engine --name gameplay-baseline --godot <executable>`. Render all families with `Godot --path project --script res://tools/preview-prototype.gd -- --gallery --seed=42`. Preview PNGs/logs stay in `art_source/.build/`.
@@ -12,6 +12,10 @@
 All paths above are relative to `project/`, except the root preparation/test scripts.
 
 ## Corrections and layout
+
+Ramps and platforms remain unavailable for player construction. Walls use the full-tile Batch 7 sprite in world drawing, picking and the selection mask, without connector arms. `python tools/prepare-sprites.py --wall-only` refreshes just the wall (Pillow required).
+
+
 
 The source images differ from the ideal generation brief. Metadata uses their actual dimensions, alpha bounds, relative sizes, and body pivots. Change a crop/pivot/size in the preparation script and regenerate rather than hand-maintaining generated metadata. `world_size` is in simulation world units; `pivot` is a normalized point inside its cropped atlas region. Character weapon extensions do not move the torso pivot.
 
@@ -23,7 +27,7 @@ Buildings draw transparent art without filled polygon foundations. Their existin
 
 Turret bases and heads are separate. Heads and firing infantry aim using shot events tagged with stable shooter IDs; no new target acquisition enters the simulation. Infantry hold the firing direction between shots, including automatic fire while moving. `muzzle_uv` in the preparation script defines each rifle/nozzle/barrel tip relative to its cropped sprite; turret head pivots and sizes are stored in the same manifest. Tracers, flashes, and flames use those attachments with the same rotation and interpolated origin as the drawn weapon. Enemy melee attacks use hit effects rather than gun flashes. Vehicle emergency indicators remain visible, while the forward operating indicator depends on driver/battery state. The supplied art has baked lens colors rather than separate emission layers: a painted bright lens does not emit gameplay light.
 
-Gates use procedural steel posts and sliding leaves, with amber/teal/red state indicators. No generated gate component is displayed. Opening animation lives in a view dictionary and reads `gate_open`; it never changes pathfinding, power, locking, or auto-close rules.
+Gates use the Batch 7 frame, closed-leaf and open-leaf sprites with shared scale, pivot and vertical registration. The two leaf halves slide between their registered positions, blending their authored states during the short transition. Drawing, alpha picking and selection use the same component geometry. Amber/teal/red indicators preserve power and lock feedback. Opening interpolation lives in the view and reads `gate_open`; pathfinding, power, locking and auto-close rules are unchanged.
 
 Resources choose full/medium/low art using the remaining fraction relative to a view-owned starting quantity. Wrecks, the Hive Core, repair sparks, and weapon effects use their corresponding regions. Existing SVG resource icons remain. Optional cargo/smoke/alien-hit regions are available in the catalog without introducing new gameplay or cosmetic clutter.
 
@@ -39,7 +43,7 @@ Synthetic beep generation and sound-cue events were removed. Mining reach is sha
 
 ## Selection silhouettes
 
-`view/selection_highlight.gd` redraws selected visible actors into a transparent, screen-sized GPU mask using the **same** atlas crops, pivots, camera transforms, interpolation, aiming, turret components, wall connectors, and procedural gate panels as the world. `selection_mask.gdshader` reduces these parts to their alpha silhouette. `selection_outline.gdshader` draws a mint exterior stroke around the combined mask, at a fixed screen-pixel width. This replaces unit circles and structure footprint outlines; placement previews still show footprint geometry.
+`view/selection_highlight.gd` redraws selected visible actors into a transparent, screen-sized GPU mask using the **same** atlas crops, pivots, camera transforms, interpolation, aiming, turret components and animated gate layers as the world. `selection_mask.gdshader` reduces these parts to their alpha silhouette. `selection_outline.gdshader` draws a mint exterior stroke around the combined mask, at a fixed screen-pixel width. This replaces unit circles and structure footprint outlines. Placement previews shade and outline the exact union of occupied hex tiles, including concave edges. Shared edges cancel on an integer corner lattice before camera projection. Placed artwork and structure picking retain their established bounds.
 
 The overlay ignores mouse input and sits below darkness/HUD. It resizes with the window and disables the mask viewport when selection is empty. No labels, bars, effects, or invisible/boarded actors enter the mask. For visual review use `--combat --selection` with the preview script. Tune stroke width/color in `view/shaders/selection_outline.gdshader`.
 
@@ -51,11 +55,11 @@ The overlay ignores mouse input and sits below darkness/HUD. It resizes with the
 
 Validate with `--name top-down --name sprites`. Review `--engineer` (construction), `--outpost` (orders), and `--engineer --small` (1100×720) using the preview script. Existing sprite thumbnails serve as portraits. Optional dedicated character portraits or a painted console skin can be added later, but are not needed for this UI.
 
-Latest art refresh: Batches 1/7/9 are imported unchanged. Every Batch 1 character faces south in source and receives a 180-degree correction; updated torso pivots and muzzle points match the new weapons. Batch 9 replaces command and resource icons. Terrain, resource, and building art preserves its source aspect ratio instead of being stretched into hex bounds; overhangs are permitted. Resource selections use the same alpha silhouette pass as actors, including depletion variants, and can be selected through visible sprite overhangs.
+Latest art refresh: Batch 7 ground, cliffs, walls and gate layers use the updated source sheet. All six approved material/methane depletion sprites, their pivots and their metadata are preserved. Batch 1 characters keep their south-facing correction, torso pivots and weapon attachments; Batch 9 supplies command/resource icons.
 
 ### Terrain extraction correction
 
-Batch 7 must not be split at fixed grid boundaries: silhouettes cross row boundaries. `tools/prepare-sprites.py` labels connected alpha islands over the entire source sheet, matches the 16 dominant islands to expected slots, assigns feather pixels to the nearest island, and repacks complete cutouts into 512-pixel slots with at least 32 pixels of transparent gutter. Assertions verify that no opaque island pixels are lost or borrowed. No sprite is resized; original artwork remains untouched. Runtime/source SHA-256 values are recorded separately. The preparation tool additionally requires NumPy and SciPy. Other sheets still use their existing crop mapping.
+Batch 7 silhouettes can cross nominal cell boundaries. The selective importer labels connected alpha islands across the source, selects the dominant island intersecting each requested cell, retains both disconnected parts for gate frames/open leaves, and assigns feather pixels to their nearest island. Complete cutouts are repacked into 512-pixel slots with gutters. Gate layers share crop dimensions and a vertical anchor; leaf centers determine their animation travel. Ground/cliff fitted textures are regenerated. Other runtime cells and source artwork remain unchanged; per-sprite source hashes record the mixed-source atlas. The checked-in prepared atlas is the baseline for preserved cells.
 
 Ground is the intentional aspect-ratio exception: fit the complete ground sprite, including its authored border, to tile dimensions with 2.5% overlap. A solid hex underlay prevents transparent gaps; no center-only UV crop or polygon clipping removes the artwork edges. Cliffs, platforms, resource deposits, and structures keep their natural sprite proportions and overhangs.
 

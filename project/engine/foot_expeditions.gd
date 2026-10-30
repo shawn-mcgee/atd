@@ -31,6 +31,8 @@ func tick(game, dt: float) -> void:
 		if workers.is_empty(): finish(group); continue
 		group.clock += dt
 		if group.phase == "work":
+			var next: Dictionary = game.resource_fields.resolve_patch(game, group.resource)
+			if not next.is_empty(): group.resource = next
 			for unit in workers:
 				game.complex_commands.issue(game, unit, "foot_gather", group.resource.position)
 				if game.resource_fields.within_reach(unit, group.resource.position, game):
@@ -46,7 +48,7 @@ func tick(game, dt: float) -> void:
 				var receiver = game.cargo_receiver(unit)
 				if receiver != null:
 					deliverable = true
-					if unit.position.distance_to(receiver.position) < 4.2:
+					if game.within_work_reach(unit, receiver):
 						unit.path.clear(); unit.order = "convoy_foot_deposit"; game.deposit_cargo(unit, receiver)
 					else: game.complex_commands.issue(game, unit, "foot_return", receiver.position, receiver)
 				else: unit.path.clear(); unit.order = "convoy_waiting_for_depot"

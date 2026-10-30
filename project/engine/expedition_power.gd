@@ -60,10 +60,28 @@ func grid_for(actor: SimEntity, structures: Array, powered_only: bool = false) -
 static func is_electrical(kind: String) -> bool:
 	return Rules.STRUCTURES.has(kind) and (kind in SOURCES or int(Rules.STRUCTURES[kind].power) > 0)
 
+static func power_label(kind: String) -> String:
+	if kind == "core": return "+%d power" % CORE_OUTPUT
+	if kind == "generator": return "+%d power" % GENERATOR_OUTPUT
+	if kind == "repeater": return "0 power / relay"
+	return "-%d power" % int(Rules.STRUCTURES[kind].power)
+
 static func within_range(a: Vector3, b: Vector3) -> bool:
 	return a.distance_squared_to(b) <= LINK_RANGE * LINK_RANGE
 
-static func placement_connection(kind: String, point: Vector3, structures: Array) -> Dictionary:
+func status(building: SimStructure, methane: float) -> String:
+	if not building.complete: return "Power starts when construction finishes"
+	if not building.enabled: return "Power switched off"
+	if not building.connected: return "No power connection / build a relay or generator nearby"
+	if building.powered:
+		if building.kind == "repeater": return "Power connected / extends supply range"
+		if building.kind == "generator": return "Generator running / uses methane"
+		if building.kind == "core": return "HQ emergency power / no fuel required"
+		return "POWERED"
+	if methane <= 0: return "Not enough power / methane empty; HQ emergency supply only"
+	return "Not enough power / add a generator to this network"
+
+static func placement_connection(kind: String, point: Vector3, structures: Array, direction: int = 0) -> Dictionary:
 	var source: SimEntity
 	var nearest := INF
 	var rank := -1
@@ -72,25 +90,25 @@ static func placement_connection(kind: String, point: Vector3, structures: Array
 		var reach := source_range(b) + LINK_RANGE if kind == "repeater" else source_range(b)
 		if kind == "repeater":
 			if b.position.distance_squared_to(point) > reach * reach: continue
-		elif not covers_structure(b, kind, point): continue
+		elif not covers_structure(b, kind, point, direction): continue
 		var candidate_rank := 3 if b.complete and b.enabled and b.connected else 2 if b.complete and b.enabled else 1 if not b.complete else 0
 		var distance := point.distance_squared_to(b.position)
 		if candidate_rank > rank or (candidate_rank == rank and distance < nearest):
 			source = b; nearest = distance; rank = candidate_rank
-	if kind == "generator": return {"state": "source", "text": "New generator / independent power source", "source": source}
-	if source == null: return {"state": "missing", "text": "No generator within %.1fm or repeater within %.1fm" % [GENERATOR_RANGE, LINK_RANGE], "source": null}
-	if not source.complete: return {"state": "planned", "text": "Planned connection / source still under construction", "source": source}
-	if not source.enabled or not source.connected: return {"state": "offline", "text": "In range / source is disconnected or disabled", "source": source}
-	if not source.powered: return {"state": "offline", "text": "Grid connection available / generator has no fuel", "source": source}
+	if kind == "generator": return {"state": "source", "text": "Produces %d power / requires methane" % GENERATOR_OUTPUT, "source": source}
+	if source == null: return {"state": "missing", "text": "No power connection / move closer to HQ, a generator, or a relay", "source": null}
+	if not source.complete: return {"state": "planned", "text": "Power connection planned / finish the nearby source first", "source": source}
+	if not source.enabled or not source.connected: return {"state": "offline", "text": "Nearby source has no power / connect or switch it on", "source": source}
+	if not source.powered: return {"state": "offline", "text": "Connected but no power supplied / check methane and generators", "source": source}
 	var capacity := 0
 	var demand := int(Rules.STRUCTURES[kind].power)
 	for b in structures:
 		if not b.complete or not b.enabled or b.hp <= 0 or b.network != source.network: continue
-		if b.kind == "generator": capacity += GENERATOR_OUTPUT
+		if b.kind == "generator" and b.powered: capacity += GENERATOR_OUTPUT
 		elif b.kind == "core": capacity += CORE_OUTPUT
 		demand += int(Rules.STRUCTURES[b.kind].power)
-	if demand > capacity: return {"state": "overload", "text": "Grid connection available / add generation for this load", "source": source}
-	return {"state": "ready", "text": "Grid connection available", "source": source}
+	if demand > capacity: return {"state": "overload", "text": "Connected / needs %d more power; add a generator" % (demand - capacity), "source": source}
+	return {"state": "ready", "text": "Power connected / extends supply range" if kind == "repeater" else "Power connected / uses %d power" % int(Rules.STRUCTURES[kind].power), "source": source}
 
 func tick(structures: Array, economy: RefCounted, dt: float) -> void:
 	capacity = 0; demand = 0; used = 0; fuel_rate = 0; links.clear(); grids.clear()

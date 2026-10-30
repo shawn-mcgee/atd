@@ -103,7 +103,7 @@ func join_resource(game, selection: Array, resource: Dictionary) -> bool:
 	var anchor: SimUnit
 	var count := 2147483647
 	for group in groups + foot.groups:
-		if group.get("mode", "gather") != "gather" or group.resource != resource: continue
+		if group.get("mode", "gather") != "gather" or not game.resource_fields.same_field(game, group.resource, resource): continue
 		var members: Array = group.members.filter(func(unit): return alive(unit))
 		if members.is_empty(): continue
 		var candidate: SimUnit = group.get("vehicle", members[0])
@@ -171,7 +171,7 @@ func start_expedition(game, selection: Array, resource: Dictionary = {}, destina
 	if resource.is_empty():
 		if not destination.is_finite(): return false
 		return exploration.start(game, roster, destination)
-	if not resource.get("discovered", false) or resource.get("remaining", 0) <= 0:
+	if (not resource.get("discovered", false) and game.resource_fields.covering_extractor(game, resource.position) == null) or resource.get("remaining", 0) <= 0:
 		game.notify("Choose a scanned resource patch with resources remaining"); return false
 	if not mining_available(selection):
 		game.notify("Mining needs engineers / each vehicle also needs a separate driver"); return false
@@ -247,7 +247,7 @@ func tick(game, dt: float) -> void:
 		if not alive(group.driver) or not group.members.has(group.driver):
 			assemble(game, group, group.leg)
 			if not groups.has(group): continue
-		if group.mode == "gather" and not game.resource_fields.available(game, group.resource) and group.phase == "outbound":
+		if group.mode == "gather" and int(group.resource.remaining) <= 0:
 			var next_patch: Dictionary = game.resource_fields.next_patch(game, group.resource)
 			if not next_patch.is_empty(): group.resource = next_patch; group.destination = next_patch.position
 		group.clock += dt
@@ -293,7 +293,7 @@ func tick(game, dt: float) -> void:
 			for unit in group.members:
 				if unit.aboard != null or unit.kind != "engineer": continue
 				issue(game, unit, "repair", group.structure.position, group.structure)
-				if unit.position.distance_to(group.structure.position) < 4:
+				if game.within_work_reach(unit, group.structure):
 					unit.path.clear(); unit.work_clock += dt
 					var building: SimStructure = group.structure
 					if not building.complete:
@@ -309,7 +309,7 @@ func tick(game, dt: float) -> void:
 				if unit.aboard != null or unit.kind != "engineer": continue
 				workers += 1
 				if unit.cargo_total() > 0:
-					if unit.position.distance_to(vehicle.position) < 5: game.transfer_cargo(unit, vehicle)
+					if game.within_work_reach(unit, vehicle): game.transfer_cargo(unit, vehicle)
 					elif unit.cargo_total() >= unit.capacity:
 						issue(game, unit, "transfer", vehicle.position, vehicle); continue
 				issue(game, unit, "gather", group.resource.position)
@@ -329,7 +329,7 @@ func tick(game, dt: float) -> void:
 				vehicle.path.clear(); vehicle.order = "convoy_deposit"
 				game.deposit_cargo(vehicle, receiver)
 				for unit in group.members:
-					if unit.aboard == vehicle or unit.position.distance_to(receiver.position) < 4.2: game.deposit_cargo(unit, receiver)
+					if unit.aboard == vehicle or game.within_work_reach(unit, receiver): game.deposit_cargo(unit, receiver)
 				head_home(game, group)
 			else: issue(game, vehicle, "return", receiver.position, receiver)
 		elif group.phase == "home":
@@ -464,6 +464,6 @@ func nearby_work(game, origin: SimStructure, from_point: Vector3 = Vector3.INF) 
 		var candidate: float = origin.position.distance_to(building.position)
 		if candidate <= distance:
 			var route: PackedVector3Array = game.navigation.path(from_point, building.position)
-			if route.is_empty() or absf(route[-1].y - building.position.y) > 0.5 or game.Footprints.reach(building, route[-1]) >= 4: continue
+			if route.is_empty() or not game.Footprints.within_work_reach(route[-1], building.kind, building.position, building.build_direction): continue
 			result = building; distance = candidate
 	return result

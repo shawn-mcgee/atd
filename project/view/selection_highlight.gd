@@ -1,5 +1,5 @@
 extends ColorRect
-## Screen-space silhouette union: sprites, turret layers, wall arms and gate panels.
+## Screen-space silhouette union: sprites, turret layers and animated gate layers.
 var game: Node2D
 var mask_viewport: SubViewport
 var mask_draw: SelectionMask
@@ -19,8 +19,6 @@ class SelectionMask extends Node2D:
 		for actor in world.selected:
 			if not SimEntity.valid(actor) or not actor.visible or actor.hp <= 0: continue
 			if actor is SimStructure:
-				for offset in actor.connections:
-					world.sprites.draw(self, "wall_arm", actor.position + offset * 0.3, atan2(offset.z, offset.x))
 				if actor.kind == "gate": world.sprites.draw_gate(self, actor)
 				else: world.sprites.draw_building(self, actor, Primitives.structure_polygon(world, actor), Color.WHITE)
 				if world.Rules.TURRETS.has(actor.kind):

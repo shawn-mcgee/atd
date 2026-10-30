@@ -20,7 +20,7 @@ static var TICK: float = float(Config.value("simulation", "tick"))
 const HOME := Vector3.ZERO
 const MINT := Color("7bf4d0")
 const AMBER := Color("efbd77")
-const BUILD_KINDS := ["floodlight", "generator", "repeater", "turret", "wall", "gate", "depot", "gas_tank", "barracks", "garage", "scanner", "platform", "ramp", "extractor", "laser_turret", "flame_turret"]
+const BUILD_KINDS := ["floodlight", "generator", "repeater", "turret", "wall", "gate", "depot", "gas_tank", "barracks", "garage", "scanner", "extractor", "laser_turret", "flame_turret"]
 var layout := preload("res://engine/scenario_layout.gd").new()
 var scenario_seed := 0
 var turret_system := preload("res://engine/turret_system.gd").new()
@@ -186,8 +186,8 @@ func apply_command(command: Dictionary) -> void:
 		"train": train_unit(command.unit)
 		"expedition":
 			var crew := complex_commands.expedition_selection(selected)
-			var resource := resource_at(point) if command.get("mining", false) else {}
-			if not command.get("mining", false) or (not resource.is_empty() and resource.discovered and resource.remaining > 0):
+			var resource: Dictionary = resource_fields.resolve_patch(self, resource_at(point)) if command.get("mining", false) else {}
+			if not command.get("mining", false) or (not resource.is_empty() and (resource.discovered or resource_fields.covering_extractor(self, resource.position) != null) and resource.remaining > 0):
 				for unit in crew:
 					if unit is SimUnit: unit.order_queue.clear()
 				complex_commands.start_expedition(self, crew, resource, point)
@@ -399,8 +399,13 @@ func set_order(unit: SimUnit, order: String, point: Vector3, target: SimEntity =
 	if unit.is_vehicle() and not unit.has_driver():
 		notify("%s needs a driver / board infantry first" % Rules.title(unit.kind)); return false
 	unit.order = order; unit.target = target; unit.work_clock = 0
+	if order == "move": point = soft_spacing.arrival_point(unit, point, units, navigation)
 	if not unit.travel(point, navigation): unit.order = "idle"; notify("No clear route to that location"); return false
 	return true
+
+func within_work_reach(unit: SimUnit, target: SimEntity) -> bool:
+	if unit.aboard != null: return false
+	return Footprints.within_work_reach(unit.position, target.kind, target.position, target.build_direction if target is SimStructure else 0)
 
 func process_order(unit: SimUnit, dt: float) -> void:
 	if unit.aboard != null: return
@@ -408,8 +413,9 @@ func process_order(unit: SimUnit, dt: float) -> void:
 	var target := unit.target
 	if unit.order in ["build", "repair", "board", "escort", "stock", "deliver", "deposit", "to_carrier", "close_gate"] and not SimEntity.valid(target): unit.order = "idle"; return
 	if unit.order in ["build", "repair", "close_gate", "stock", "deliver", "deposit"] and not unit.moving():
-		var reach := 4.2 if unit.order in ["stock", "deliver", "deposit"] else 4.0
-		if (Footprints.reach(target, unit.position) if target is SimStructure else unit.position.distance_to(target.position)) >= reach: unit.travel(target.position, navigation)
+		if unit.kind == "engineer":
+			if not within_work_reach(unit, target): unit.travel(target.position, navigation)
+		elif unit.position.distance_to(target.position) >= 4.2: unit.travel(target.position, navigation)
 	if unit.order in ["board", "escort"]:
 		unit.work_clock -= dt
 		if unit.work_clock <= 0:
@@ -421,7 +427,7 @@ func process_order(unit: SimUnit, dt: float) -> void:
 		if unit.order == "board" and unit.position.distance_to(target.position) < 3.8:
 			if target.board(unit): selected.erase(unit)
 			else: unit.order = "escort"
-	elif unit.order == "build" and Footprints.reach(target, unit.position) < 4:
+	elif unit.order == "build" and within_work_reach(unit, target):
 		unit.path.clear()
 		if target.complete: continue_maintenance(unit, target); return
 		target.progress += dt / float(Rules.STRUCTURES[target.kind].time)
@@ -429,7 +435,7 @@ func process_order(unit: SimUnit, dt: float) -> void:
 			if complete_construction(target): continue_maintenance(unit, target)
 			else: target.progress = 0.99
 		target.state_changed()
-	elif unit.order == "repair" and Footprints.reach(target, unit.position) < 4:
+	elif unit.order == "repair" and within_work_reach(unit, target):
 		unit.path.clear(); unit.work_clock += dt
 		if unit.work_clock >= 1:
 			unit.work_clock = 0
@@ -437,18 +443,26 @@ func process_order(unit: SimUnit, dt: float) -> void:
 			elif economy.spend({"minerals": 1}): target.hp = minf(float(Rules.STRUCTURES[target.kind].hp), target.hp + Config.value("simulation", "repair_per_material"))
 	elif unit.order == "harvest": process_harvest(unit, dt)
 	elif unit.order == "to_carrier":
-		if unit.position.distance_to(target.position) < 3.8:
+		if within_work_reach(unit, target):
 			unit.path.clear(); transfer_cargo(unit, target)
 			if unit.cargo_total() > 0: send_to_receiver(unit)
 			else: set_order(unit, "harvest", unit.harvest_origin)
 		else:
 			unit.work_clock -= dt
 			if unit.work_clock <= 0: unit.travel(target.position, navigation); unit.work_clock = 1
-	elif unit.order in ["stock", "deliver", "deposit"] and unit.position.distance_to(target.position) < 4.2:
+	elif unit.order in ["stock", "deliver", "deposit"] and (within_work_reach(unit, target) if unit.kind == "engineer" else unit.position.distance_to(target.position) < 4.2):
 		unit.path.clear(); deposit_cargo(unit, target)
 		if unit.order == "deposit" and unit.cargo_total() == 0: set_order(unit, "harvest", unit.harvest_origin)
 		elif unit.cargo_total() == 0: unit.order = "idle"
-	elif unit.order == "close_gate" and unit.position.distance_to(target.position) < 4:
+	elif unit.order == "close_gate" and within_work_reach(unit, target):
+		# An adjacent worker must also stay outside the gate's safety clearance.
+		if unit.position.distance_to(target.position) < 2.1:
+			if not unit.moving():
+				for offset in Hex.NEIGHBORS:
+					var point := navigation.terrain.surface(target.position + Hex.to_world(offset, Terrain.CELL) * (2.3 / Terrain.SPACING))
+					if not Footprints.within_work_reach(point, target.kind, target.position) or navigation.blocked(point): continue
+					if not navigation.path(unit.position, point).is_empty(): unit.travel(point, navigation); break
+			return
 		unit.path.clear(); unit.work_clock += dt
 		if unit.work_clock >= 2 and set_gate(target, false, true): unit.order = "idle"
 	elif unit.order == "move" and not unit.moving(): unit.order = "idle"
@@ -485,11 +499,18 @@ func continue_maintenance(unit: SimUnit, building: SimStructure) -> void:
 func consume_materials(_point: Vector3, cost: int) -> bool:
 	return economy.spend({"minerals": cost})
 
+func site_has_light(point: Vector3) -> bool:
+	if light.sample(point) >= 0.055: return true
+	# Permit one hex beyond the lit perimeter, sampled at the site's elevation.
+	for offset in Hex.NEIGHBORS:
+		if light.sample(point + Hex.to_world(offset, Terrain.CELL)) >= 0.055: return true
+	return false
+
 func valid_site(kind: String, point: Vector3, direction_index: int = -1) -> bool:
 	var direction := placement_direction if direction_index < 0 else direction_index
-	if not Rules.STRUCTURES.has(kind) or kind == "core": return false
+	if kind not in BUILD_KINDS: return false
 	point = navigation.terrain.surface(point)
-	if not Terrain.contains(point, 1) or light.sample(point) < 0.055: return false
+	if not Terrain.contains(point, 1) or not site_has_light(point): return false
 	if kind in ["platform", "ramp"] and point.y > 0.1: return false
 	if kind not in ["platform", "ramp"]:
 		if minf(absf(point.y), absf(point.y - Terrain.LEVEL)) > 0.1: return false
@@ -525,10 +546,11 @@ func valid_site(kind: String, point: Vector3, direction_index: int = -1) -> bool
 	return true
 
 func order_build(kind: String, point: Vector3) -> SimStructure:
+	if kind not in BUILD_KINDS: notify("That structure is unavailable"); return null
 	var engineers := selected_engineers()
 	if engineers.is_empty(): notify("Select an engineer on foot to build"); return null
 	point = navigation.terrain.surface(Hex.snap(point, Terrain.CELL))
-	if not valid_site(kind, point): notify("Ramp: high end must join raised ground / T rotates" if kind == "ramp" else "Use illuminated, clear terrain"); return null
+	if not valid_site(kind, point): notify("Ramp: high end must join raised ground / T rotates" if kind == "ramp" else "Use clear terrain in or beside illumination"); return null
 	if not economy.spend(Rules.cost(kind)): notify("Insufficient banked materials or methane"); return null
 	var site := add_structure(kind, point, false); site.funded = true
 	rebuild_navigation(); issue_order(engineers[0], "build", point, site, append_command)
@@ -546,7 +568,7 @@ func order_wall_line(start: Vector3, endpoint: Vector3) -> int:
 		if not economy.spend(Rules.cost("wall")): break
 		var site := add_structure("wall", point, false); site.funded = true
 		sites.append(site)
-	if sites.is_empty(): notify("No affordable walls on illuminated, clear terrain"); return 0
+	if sites.is_empty(): notify("No affordable walls on clear terrain in or beside illumination"); return 0
 	# Keep the engineer working from the beginning; nearby maintenance chains the line.
 	rebuild_navigation()
 	for i in range(sites.size()):
@@ -691,7 +713,7 @@ func load_nearest() -> void:
 	if vehicle == null: return
 	var loaded := 0
 	for unit in units:
-		if not unit.is_vehicle() and unit.aboard == null and unit.position.distance_to(vehicle.position) < 5: loaded += transfer_cargo(unit, vehicle)
+		if not unit.is_vehicle() and unit.aboard == null and (within_work_reach(unit, vehicle) if unit.kind == "engineer" else unit.position.distance_to(vehicle.position) < 5): loaded += transfer_cargo(unit, vehicle)
 	notify("Collected %d carried resources from nearby personnel" % loaded)
 
 func return_home() -> void:
@@ -780,17 +802,20 @@ func process_harvest(unit: SimUnit, dt: float) -> void:
 		if carrier != null and carrier.position.distance_to(unit.position) < 8 and carrier.cargo_total() < carrier.capacity: set_order(unit, "to_carrier", carrier.position, carrier)
 		else: send_to_receiver(unit)
 		return
+	var resource := resource_fields.resolve_patch(self, resource_at(unit.harvest_origin))
+	if resource.is_empty():
+		if unit.cargo_total() > 0: send_to_receiver(unit)
+		else: unit.order = "idle"
+		return
+	if unit.harvest_origin != resource.position:
+		unit.harvest_origin = resource.position; unit.harvest_kind = resource.kind
+		unit.path.clear(); unit.work_clock = 0
 	if not resource_fields.within_reach(unit, unit.harvest_origin, self):
 		if not unit.moving(): unit.travel(unit.harvest_origin, navigation)
 		return
 	unit.path.clear(); unit.work_clock += dt
 	if unit.work_clock < Config.value("simulation", "harvest_seconds"): return
 	unit.work_clock -= Config.value("simulation", "harvest_seconds")
-	var resource := resource_at(unit.harvest_origin)
-	if resource.is_empty() or not resource_fields.available(self, resource):
-		if unit.cargo_total() > 0: send_to_receiver(unit)
-		else: unit.order = "idle"
-		return
 	resource_fields.harvest(self, unit, resource)
 
 func transfer_cargo(source: SimUnit, target: SimUnit) -> int:
@@ -886,7 +911,7 @@ func set_gate(gate: SimStructure, opened: bool, manual: bool = false, automatic:
 		if not gate.powered:
 			var worker := false
 			for unit in units:
-				if unit.kind == "engineer" and unit.aboard == null and unit.position.distance_to(gate.position) < 4: worker = true
+				if unit.kind == "engineer" and within_work_reach(unit, gate): worker = true
 			if not manual or not worker: return false
 		for unit in units:
 			if unit.aboard == null and unit.position.distance_to(gate.position) < 2.1: notify("Gate obstructed by personnel or a vehicle"); return false
@@ -924,18 +949,22 @@ func contextual_order(point: Vector3, actor: SimEntity = null, append: bool = fa
 	if not append:
 		for member in selected:
 			if member is SimUnit: member.order_queue.clear()
-	var resource := resource_at(point) if actor == null else {}
+	var extractor := actor as SimStructure if actor is SimStructure and actor.kind == "extractor" and actor.complete else resource_fields.covering_extractor(self, point) if actor == null else null
+	var resource: Dictionary = resource_fields.extractor_resource(self, extractor) if extractor != null else resource_at(point) if actor == null else {}
+	if extractor != null:
+		if resource.is_empty(): notify("No resources remain beneath this extractor"); return
+		point = resource.position; actor = null
 	if not append and actor is SimUnit and complex_commands.join_member(self, selected, actor):
 		return
 	if not append and actor == null and complex_commands.join_resource(self, selected, resource):
 		return
 	# Only an explicit resource order can retask an expedition implicitly. A plain
 	# terrain right-click is a direct move and permanently interrupts auto-scouting.
-	if not append and actor == null and not resource.is_empty() and resource.discovered and resource.remaining > 0 and selected.any(func(unit): return complex_commands.is_expedition(unit)):
+	if not append and actor == null and not resource.is_empty() and (resource.discovered or extractor != null) and resource.remaining > 0 and selected.any(func(unit): return complex_commands.is_expedition(unit)):
 		complex_commands.start_expedition(self, complex_commands.expedition_selection(selected), resource, point)
 		return
 	var mixed_crew := selected.any(func(unit): return unit is SimUnit and not unit.is_vehicle() and unit.aboard == null)
-	if not append and mixed_crew and actor != mission.hive and actor != mission.beacon and (actor == null or actor is SimStructure) and complex_commands.start(self, selected, {}, actor as SimStructure, point):
+	if not append and mixed_crew and actor != mission.hive and actor != mission.beacon and (actor == null or actor is SimStructure) and complex_commands.start(self, selected, resource, actor as SimStructure, point):
 		return
 	var index := 0
 	for unit in selected:
@@ -950,7 +979,7 @@ func contextual_order(point: Vector3, actor: SimEntity = null, append: bool = fa
 			issue_order(unit, "build" if not actor.complete else "repair", actor.position, actor, append)
 		elif actor is SimStructure and actor.kind in ["depot", "gas_tank", "core"]:
 			issue_order(unit, "stock", actor.position, actor, append)
-		elif not resource.is_empty() and resource.discovered and unit.kind == "engineer":
+		elif not resource.is_empty() and (resource.discovered or extractor != null) and unit.kind == "engineer":
 			issue_order(unit, "harvest", resource.position, null, append)
 		else:
 			var offset := Vector3((index % 3 - 1) * 1.5, 0, (index / 3) * 1.5) if selected.size() > 1 else Vector3.ZERO

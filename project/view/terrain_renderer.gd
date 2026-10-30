@@ -17,7 +17,7 @@ class ResourceLayer extends Node2D:
 	func world_to_screen(point: Vector3) -> Vector2: return world.world_to_screen(point)
 	func _draw() -> void:
 		for patch in world.resource_nodes:
-			if patch.discovered and patch.remaining > 0:
+			if world.resource_visible(patch):
 				world.sprites.draw_resource(self, patch, Color.WHITE * (0.35 + world.light.sample(patch.position) * 0.65))
 
 class TileBatch extends Node2D:

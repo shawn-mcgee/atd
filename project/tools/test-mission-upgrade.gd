@@ -33,7 +33,7 @@ func run() -> void:
 	extractor.powered = true
 	check(game.resource_fields.harvest(game, worker, patch) == 3 and worker.cargo == 3, "powered extractor triples gathering for the same deposit")
 	extractor.powered = false
-	check(game.resource_fields.harvest(game, worker, patch) == 1, "unpowered extractor falls back to hand gathering")
+	check(game.resource_fields.harvest(game, worker, patch) == 0, "unpowered extractor prevents hand gathering beneath its footprint")
 	var boundary: Dictionary = game.rocks.filter(func(rock): return rock.position.length() < 50)[0]
 	var neighbor: Vector3 = boundary.position + game.Terrain.direction(0) * game.Terrain.SPACING
 	game.light.add_source(neighbor, 10)

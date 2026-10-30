@@ -6,6 +6,33 @@ func check(ok: bool, text: String) -> void:
 	else: failures += 1; push_error("FAIL: " + text)
 func _initialize() -> void:
 	call_deferred("run")
+
+func check_placement_footprints(game) -> void:
+	var area_ok := true; var coverage_ok := true; var empty_ok := true; var triangulation_ok := true
+	var original_angle: float = game.camera_angle
+	var anchor: Vector3 = game.Hex.to_world(Vector2i(4, -3), 1)
+	for angle in [0.0, 0.63]:
+		game.camera_angle = angle
+		for kind in ["wall", "ramp", "generator", "garage", "extractor"]:
+			for direction in range(6):
+				var cells: Array = game.simulation.Footprints.cells(kind, anchor, direction)
+				var boundary := Primitives.placement_polygon(game, kind, anchor, direction)
+				var twice_area := 0.0
+				for i in range(boundary.size()): twice_area += boundary[i].cross(boundary[(i + 1) % boundary.size()])
+				area_ok = area_ok and absf(absf(twice_area) * 0.5 / (game.zoom * game.zoom) - cells.size() * 1.5 * sqrt(3.0)) < 0.002
+				triangulation_ok = triangulation_ok and Geometry2D.triangulate_polygon(boundary).size() == (boundary.size() - 2) * 3
+				for cell in cells:
+					var center: Vector3 = game.Hex.to_world(cell, 1)
+					for i in range(6):
+						var heading: float = i * TAU / 6 + PI / 6
+						coverage_ok = coverage_ok and Geometry2D.is_point_in_polygon(game.world_to_screen(center + Vector3(cos(heading), 0, sin(heading)) * 0.98), boundary)
+					for offset in game.Hex.NEIGHBORS:
+						if not cells.has(cell + offset): empty_ok = empty_ok and not Geometry2D.is_point_in_polygon(game.world_to_screen(game.Hex.to_world(cell + offset, 1)), boundary)
+	game.camera_angle = original_angle
+	check(area_ok, "placement area equals the complete occupied hex tiles at every rotation")
+	check(coverage_ok and empty_ok, "placement boundaries cover occupied tiles without covering neighboring tile centers")
+	check(triangulation_ok, "concave placement boundaries triangulate cleanly for preview shading")
+
 func run() -> void:
 	var game = load("res://scenes/top_down.tscn").instantiate()
 	game.initial_seed = 42
@@ -33,6 +60,7 @@ func run() -> void:
 	var depot: SimStructure = engine.add_structure("depot", Vector3(-12, 0, 0))
 	var small := Primitives.structure_polygon(game, depot)
 	check(small.size() == 6 and absf(small[0].distance_to(game.world_to_screen(depot.position)) / game.zoom - 0.8) < 0.00001, "one-cell structures use an 80 percent hexagon")
+	check_placement_footprints(game)
 	untouched = engine.state_hash()
 	await process_frame; await process_frame
 	check(engine.state_hash() == untouched, "drawing and HUD refresh do not change authoritative state")

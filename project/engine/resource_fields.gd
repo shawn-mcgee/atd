@@ -8,8 +8,8 @@ static var HARVEST_REACH: float = Config.value("resources", "reach")
 func within_reach(unit: SimUnit, point: Vector3, game = null) -> bool:
 	if unit.aboard != null or absf(unit.position.y - point.y) > 0.6: return false
 	if game != null:
-		var extractor := extractor_at(game, point)
-		if extractor != null and Footprints.reach(extractor, unit.position) <= HARVEST_REACH: return true
+		var extractor := covering_extractor(game, point)
+		if extractor != null: return Footprints.within_work_reach(unit.position, extractor.kind, extractor.position, extractor.build_direction)
 	var delta := Hex.to_axial(unit.position, Terrain.CELL) - Hex.to_axial(point, Terrain.CELL)
 	if maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.x + delta.y))) > 1: return false
 	return Vector2(unit.position.x - point.x, unit.position.z - point.z).length() <= HARVEST_REACH
@@ -34,11 +34,39 @@ func covered_patches(game, building: SimStructure) -> Array:
 	var footprint := Footprints.cells(building.kind, building.position, building.build_direction)
 	return game.resource_nodes.filter(func(patch): return footprint.has(Hex.to_axial(patch.position, Terrain.CELL)))
 
-func extractor_at(game, point: Vector3) -> SimStructure:
+func covering_extractor(game, point: Vector3) -> SimStructure:
 	var cell := Hex.to_axial(point, Terrain.CELL)
 	for building in game.structures:
-		if building.kind == "extractor" and building.hp > 0 and building.complete and building.powered and building.enabled and Footprints.cells("extractor", building.position).has(cell): return building
+		if building.kind == "extractor" and building.hp > 0 and Footprints.cells("extractor", building.position).has(cell): return building
 	return null
+
+func extractor_at(game, point: Vector3) -> SimStructure:
+	var building := covering_extractor(game, point)
+	return building if building != null and building.complete and building.powered and building.enabled else null
+
+func extractor_resource(game, building: SimStructure) -> Dictionary:
+	var fallback: Dictionary = {}
+	for patch in covered_patches(game, building):
+		if patch.remaining <= 0: continue
+		if patch.discovered: return patch
+		if fallback.is_empty(): fallback = patch
+	return fallback
+
+func extractor_remaining(game, building: SimStructure) -> Dictionary:
+	var totals := {"minerals": 0, "gas": 0}
+	for patch in covered_patches(game, building): totals[patch.kind] += int(patch.remaining)
+	return totals
+
+func resolve_patch(game, resource: Dictionary) -> Dictionary:
+	if resource.is_empty(): return {}
+	return resource if int(resource.remaining) > 0 else next_patch(game, resource)
+
+func same_field(game, a: Dictionary, b: Dictionary) -> bool:
+	if a == b: return true
+	var extractor := covering_extractor(game, a.position)
+	var other := covering_extractor(game, b.position)
+	if extractor != null or other != null: return extractor != null and extractor == other
+	return a.has("field") and b.has("field") and a.field == b.field
 
 func extractor_site(game, point: Vector3, direction: int = 0) -> bool:
 	var cells := Footprints.cells("extractor", point, direction)
@@ -48,7 +76,7 @@ func extractor_site(game, point: Vector3, direction: int = 0) -> bool:
 
 func available(game, resource: Dictionary) -> bool:
 	if int(resource.remaining) > 0: return true
-	var extractor := extractor_at(game, resource.position)
+	var extractor := covering_extractor(game, resource.position)
 	if extractor != null:
 		for patch in covered_patches(game, extractor):
 			if patch.remaining > 0: return true
@@ -56,6 +84,7 @@ func available(game, resource: Dictionary) -> bool:
 
 func harvest(game, unit: SimUnit, resource: Dictionary) -> int:
 	if unit.kind != "engineer" or not within_reach(unit, resource.position, game): return 0
+	if covering_extractor(game, resource.position) != null and extractor_at(game, resource.position) == null: return 0
 	var extractor := extractor_at(game, resource.position)
 	var patches: Array = covered_patches(game, extractor) if extractor != null else [resource]
 	var quantity := int(Config.value("resources", "extractor_yield" if extractor != null else "hand_yield"))
@@ -74,23 +103,25 @@ func harvest(game, unit: SimUnit, resource: Dictionary) -> int:
 	return gathered
 
 func field_remaining(game, resource: Dictionary) -> int:
-	var extractor := extractor_at(game, resource.position)
+	var extractor := covering_extractor(game, resource.position)
 	if extractor != null:
 		var amount := 0
 		for patch in covered_patches(game, extractor): amount += int(patch.remaining)
 		return amount
+	if not resource.has("field"): return int(resource.remaining)
 	var total := 0
 	for patch in game.resource_nodes:
 		if patch.get("field", -1) == resource.get("field", -2): total += int(patch.remaining)
 	return total
 
 func next_patch(game, resource: Dictionary) -> Dictionary:
-	var extractor := extractor_at(game, resource.position)
+	var extractor := covering_extractor(game, resource.position)
 	if extractor != null:
 		for patch in covered_patches(game, extractor):
 			if patch.remaining > 0: return patch
+		return {}
 	for patch in game.resource_nodes:
-		if patch.get("field", -1) == resource.get("field", -2) and patch.discovered and patch.remaining > 0: return patch
+		if patch.get("field", -1) == resource.get("field", -2) and patch.discovered and patch.remaining > 0 and covering_extractor(game, patch.position) == null: return patch
 	return {}
 
 func discover(game) -> void:

@@ -49,7 +49,7 @@ Views read actor arrays, resources, explored cells, power grids, mission state, 
 
 ## Presentation
 
-`view/primitives.gd` retains footprint geometry for selection and placement: HQ uses the outer six occupied tile centers, generators/barracks use three, garages use four, and single-cell bounds use a hexagon of 0.8 tile radius. Two-cell ramps use a narrow ribbon. These are gameplay/selection guides; buildings no longer draw filled polygon foundations.
+`view/primitives.gd` shades and outlines the full occupied hex-tile boundary for placement previews, including concave joins and rotated multi-cell footprints. Walls use full-tile sprites and hex bounds. Other placed sprite bounds retain their outer tile-center hulls and 0.8-radius single-cell hexagons. Buildings have no filled polygon foundations. `Simulation.BUILD_KINDS` defines the enabled construction catalog; ramps and platforms are temporarily excluded from both UI and build commands, while their legacy terrain helpers remain available to fixtures.
 
 Approved art is drawn through `view/sprite_library.gd`. Original sheets are preserved, with atlas metadata, facing corrections, and a 30-degree flat-top-to-pointy-top correction for hex artwork. Full building illustrations are fitted to footprint bounds instead of clipped into triangular fragments. Sprite alpha extends picking to visible artwork; labels and status bars never participate. See [sprite integration](sprite-integration.md) for preparation commands and maintenance details.
 
@@ -57,7 +57,7 @@ The minimap reads the engine's explored-cell memory; exploration does not depend
 
 ## Validation
 
-`test-gameplay-baseline.gd` compares 10 mechanics checkpoints over 200 ticks against the former 3D game, using the frozen original layout to check movement, queued construction, production, economy, and early enemy behavior. Later world-dependent enemy paths are intentionally excluded after the 50% map expansion. Its fixture is data captured before deleting the old renderer. Comparisons tolerate 0.0001 for floating-point differences from replacing native Node3D rotations with state values. Packed paths and queues were copied when capturing checkpoints to prevent later mutation of the fixture.
+`test-gameplay-baseline.gd` compares 10 mechanics checkpoints over 200 ticks against the former 3D game, using the frozen original layout to check movement, queued construction, production, economy, and early enemy behavior. Later world-dependent enemy paths are intentionally excluded after the 50% map expansion. Its fixture is data captured before deleting the old renderer. The comparison uses its historical work radius through a test subclass; current adjacent-tile work and field delivery loops are covered by 	est-todo-logistics.gd. Comparisons tolerate 0.0001 for floating-point differences from replacing native Node3D rotations with state values. Packed paths and queues were copied when capturing checkpoints to prevent later mutation of the fixture.
 
 `test-engine.gd` verifies independently allocated simulations and a serialized replay. `test-top-down.gd` checks picking, footprint sizes, projection inversion, contextual construction, command dispatch, resize behavior, rendering isolation, and equal outcomes at 30/60/144 FPS. The remaining suites preserve focused mechanics checks using a scene-free fixture.
 

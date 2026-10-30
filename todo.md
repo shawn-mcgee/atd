@@ -1,19 +1,15 @@
-# Implemented gameplay changes
+- [x] Allow structure placement over units; blueprints remain fully walkable until completion safely clears occupants.
 
-- [x] Batteries were an interesting idea, but not very fun. Disable/remove vehicle charging.
+- [x] Require engineers to work on or adjacent to their target's footprint when building, repairing, harvesting, delivering, or collecting cargo.
 
-- [x] You should be able to use the minimap to issue commands.
+- [x] Keep direct miners and expeditions assigned to the same resource field across depleted patches and delivery trips.
 
-- [x] Passively heal units that are within range of the hq.
+- [x] Prevent interaction with patches beneath a placed extractor.
 
-- [x] The extractor should be a 7 tile structure so it can occupy all tiles of a resource field. An extractor must overlap with at least one resource tile. An extractor should pull evenly from its resource patches so that they all deplete at roughly the same rate (this also means that an extractor that somehow sits on top of two different resource types will produce resources according to the ratio of one to the other).
+- [x] Show remaining materials and methane when selecting an extractor.
 
-- [x] Repeaters should be able to connect to generators from far away, they shouldn't have to be placed right next to generators the same way that other structures are. The distance at which repeaters can connect to generators is `repeater_radius + generator_radius`. The distance at which repeaters can connect to other repeaters is `repeater_radius + repeater_radius`. Structures that require power simply have to have one tile in range of a powered generator or repeater.
+- [x] Clarify power status, signed generation/consumption, grid capacity, distribution links and coverage. Show grid status only for electrical structures.
 
-- [x] Light should propagate using a flood fill so it doesn't pour over the tops of terrain. Light sources on the 2nd level can move freely to lower levels.
+- [x] Support right-click and Mine commands on extractors, including those with no deposit on their center tile.
 
-- [x] Change gameplay constants to be configurable via json.
-
-- [x] Patrol input: plain left/right click places a point and exits; Shift left/right clicks queue points; plain left click finishes queued input without adding a point; Escape exits.
-
-Implementation details and configuration: [Gameplay balance](project/docs/gameplay-balance.md).
+- [x] Hide covered patches in the world and minimap without removing their data; reveal remaining patches when the extractor is destroyed.

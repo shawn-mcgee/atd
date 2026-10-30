@@ -1,4 +1,10 @@
 extends SceneTree
+# Keep the frozen 3D comparison on its historical work radius. Current one-tile
+# construction, repair and delivery behavior is covered by test-todo-logistics.
+class OriginalWorkSimulation extends "res://engine/simulation.gd":
+	func within_work_reach(unit: SimUnit, target: SimEntity) -> bool:
+		return Footprints.reach(target, unit.position) < 4
+
 var failures := 0
 func _initialize(): call_deferred("run")
 func capture(game):
@@ -27,7 +33,7 @@ func equivalent(a, b) -> bool:
 	if a != b: print("VALUE DIFF ", a, " / ", b)
 	return a == b
 func run():
-	var game = preload("res://engine/simulation.gd").new()
+	var game = OriginalWorkSimulation.new()
 	game.layout = preload("res://tools/fixtures/original_seeded_layout.gd").new()
 	game.initialize(42)
 	game.selected.assign([game.core]); game.train_unit("engineer")

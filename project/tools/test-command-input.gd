@@ -36,6 +36,14 @@ func run() -> void:
 	check(game.tactical_mode == "" and game.simulation.pending_commands.size() == count, "minimap plain left-click finishes queued patrol input")
 	check(not game.context_buttons.has("recharge"), "removed charging controls are absent from the HUD")
 	game.selected.assign([game.simulation.units[0]])
+	check(not game.build_buttons.has("ramp") and not game.build_buttons.has("platform"), "ramps and platforms are absent from construction options")
+	check(not game.simulation.valid_site("ramp", Vector3.ZERO) and not game.simulation.valid_site("platform", Vector3.ZERO), "engine placement rejects disabled ramps and platforms")
+	game.choose_build("platform"); game.choose_build("ramp")
+	check(game.build_kind.is_empty(), "disabled structures cannot activate placement through direct UI calls")
+	var structure_count: int = game.structures.size()
+	game.simulation.apply_command({"kind": "build", "building": "platform", "actors": [game.simulation.units[0].simulation_id], "point": Vector3.ZERO})
+	game.simulation.apply_command({"kind": "build", "building": "ramp", "actors": [game.simulation.units[0].simulation_id], "point": Vector3.ZERO})
+	check(game.structures.size() == structure_count, "queued commands cannot construct removed surface structures")
 	var anchor := Vector3(25, 0, -20)
 	game.simulation.add_resource_patch("minerals", anchor + Vector3(1.7320508075688772, 0, 0), 50)
 	game.simulation.resource_nodes[-1].discovered = true
@@ -43,5 +51,37 @@ func run() -> void:
 	game.mining_mode = true; game.expedition_mode = true
 	game.target_click(game.world_to_screen(extractor.position), false)
 	check(game.simulation.pending_commands[-1].kind == "expedition" and game.simulation.pending_commands[-1].point.distance_to(game.simulation.resource_nodes[-1].position) < 0.01, "mining can target an extractor whose center tile has no deposit")
+	var covered: Dictionary = game.simulation.resource_nodes[-1]
+	var unchanged: String = game.simulation.state_hash()
+	check(not game.resource_visible(covered) and game.pick_resource(game.world_to_screen(covered.position)) != covered, "covered patches are hidden and cannot be picked")
+	game.selected.assign([extractor]); game.refresh_ui()
+	check(game.details.text.contains("Materials left: 50") and game.details.text.contains("Methane left: 0"), "selecting an extractor shows remaining materials and methane")
+	check(game.hud.grid_panel.visible and game.hud.grid_value.text == "Power: -2\nGrid capacity: —\nGrid demand: —", "disconnected electrical structures show their signed cost with no grid values")
+	check(game.simulation.state_hash() == unchanged, "hiding patches and inspecting totals leaves resource data unchanged")
+	extractor.hp = 0
+	check(game.resource_visible(covered), "remaining patches reappear when their extractor is destroyed")
+	extractor.hp = game.Rules.STRUCTURES.extractor.hp
+	game.simulation.power.tick(game.structures, game.economy, 0)
+	game.selected.assign([game.simulation.core]); game.refresh_ui()
+	check(game.hud.grid_panel.visible and game.hud.grid_value.text == "Power: +4\nGrid capacity: 4\nGrid demand: 0" and game.hud.grid_value.tooltip_text.is_empty(), "grid information contains only signed power, capacity and current demand")
+	game.selected.assign([game.simulation.units[0]]); game.refresh_ui()
+	check(not game.hud.grid_panel.visible, "units do not display power grid status")
+	var depot: SimStructure = game.simulation.add_structure("depot", game.simulation.core.position)
+	game.selected.assign([depot]); game.refresh_ui()
+	check(not game.hud.grid_panel.visible, "structures that do not participate in power do not display grid status")
+	game.selected.assign([game.simulation.units[0]]); game.refresh_ui(); game.choose_build("floodlight")
+	game.mouse_world = Vector3(60, 0, 60); game.hud.update_power_preview()
+	check(game.power_preview_label.visible and game.power_preview_label.text.contains("No power connection"), "construction previews explain missing power connections")
+	game.simulation.rocks.clear(); game.simulation.navigation.terrain.natural_enabled = false
+	game.simulation.rebuild_navigation(); game.simulation.light.clear(); game.simulation.light.add_source(Vector3.ZERO, 100)
+	var occupied: Vector3 = game.Hex.to_world(Vector2i(-15, 15), 1)
+	game.simulation.units[0].position = occupied
+	game.simulation.add_unit("marine", occupied)
+	game.choose_build("wall"); game.target_click(game.world_to_screen(occupied), false)
+	var build: Dictionary = game.simulation.pending_commands[-1]
+	check(build.kind == "build" and build.point.distance_to(occupied) < 0.01 and game.selected == [game.simulation.units[0]], "placement clicks through units and retains the selected engineer")
+	game.simulation.apply_command(build)
+	var blueprint: SimStructure = game.simulation.structures[-1]
+	check(blueprint.kind == "wall" and not blueprint.complete and not game.simulation.navigation.blocked(occupied), "placing a blueprint over units keeps its tile fully walkable")
 	game.queue_free(); await process_frame
 	print("COMMAND_INPUT_TEST_RESULT: ", failures, " failures"); quit(1 if failures else 0)

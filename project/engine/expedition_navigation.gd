@@ -156,14 +156,15 @@ func clear_segment(a: Vector3, b: Vector3, friendly: bool = false) -> bool:
 
 func path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: bool = true) -> PackedVector3Array:
 	# Probe planning and creature navigation often request the same exact route.
-	# Packed arrays are copy-on-write, so callers cannot mutate the cached result.
+	# Packed arrays share storage; movement may clear or replace its own route.
+	# Keep the cached route private and return an independent array to each caller.
 	if route_cache_revision != revision or route_cache.size() >= 256:
 		route_cache.clear(); route_cache_revision = revision
 	var key := [a, b, friendly, hash(illumination.sources) if illumination != null else 0]
-	if route_cache.has(key): return route_cache[key]
+	if route_cache.has(key): return route_cache[key].duplicate()
 	var result := find_path(a, b, illumination, friendly)
 	route_cache[key] = result
-	return result
+	return result.duplicate()
 
 func find_path(a: Vector3, b: Vector3, illumination: RefCounted = null, friendly: bool = true) -> PackedVector3Array:
 	# The hex graph is only a search scaffold. Units keep continuous world positions

@@ -13,3 +13,5 @@ Maybe some vehicles are specialty carriers like a tanker for lots of gas but onl
 Maybe Unit and structure upgrades would be useful (for your units and the lightless). That way the lightless can increase in difficulty as the match progresses.
 
 Maybe the lightless can build their own structures on the map so you have to be aware of and squash their hives that produce units or be careful when assaulting their defensive structures... they have acid spraying worms (like factorio)
+
+Does enemy ai actually attack the hq?
