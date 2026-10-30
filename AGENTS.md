@@ -19,9 +19,9 @@ Minimize token usage without sacrificing quality.
 - Preserve deterministic fixed ticks: initialize with an explicit seed, enqueue commands using actor IDs, and call `step()`. Do not poll input, use wall-clock time, call unseeded randomness, or access rendering/scene-tree APIs in the engine.
 - Ground positions retain Vector3 coordinates: x/z are the hex-world plane and y is elevation. Vector3 and AStar3D are math/navigation utilities here; they do not require a 3D renderer or physics scene.
 - `project/view/` handles input, camera, picking, HUD, and drawing. Gameplay actions go through the engine command queue. Camera movement, selection, previews, and drawing must not mutate simulation state.
-- The active scene is `project/scenes/top_down.tscn`. Units are circles. Multi-cell structures use a convex hull of occupied tile centers; single-cell structures use a hexagon with 80 percent tile radius. Two-cell ramps use a narrow polygon joining their centers.
+- The active scene is `project/scenes/top_down.tscn`. Approved sprite sheets render units and structures; footprints remain hex-grid geometry for placement/selection. No filled structure foundations. See `project/docs/sprite-integration.md` for atlas preparation, south-facing corrections, flat-top art rotation, and procedural gates.
 - Keep gameplay and balancing unchanged when editing presentation. Prospective ideas in `ideas.md` are not automatically authorized gameplay changes.
-- The 3D models, shaders, renderer, and Asset Forge pipeline were removed for this experiment. Do not reintroduce them unless requested.
+- The 3D models, 3D renderer/shaders, and Asset Forge pipeline were removed. The new 2D darkness shaders live under `project/view/shaders/`; keep them presentation-only.
 - Do not manually edit `.godot/` or generated import caches.
 
 ## Validation

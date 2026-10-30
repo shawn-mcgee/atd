@@ -33,7 +33,7 @@ func tick(game, dt: float) -> void:
 		if group.phase == "work":
 			for unit in workers:
 				game.complex_commands.issue(game, unit, "foot_gather", group.resource.position)
-				if unit.position.distance_to(group.resource.position) < 3.5:
+				if game.resource_fields.within_reach(unit, group.resource.position):
 					unit.path.clear(); unit.work_clock += dt
 					if unit.work_clock >= 0.7 and unit.cargo_total() < unit.capacity and group.resource.remaining > 0:
 						unit.work_clock -= 0.7; game.resource_fields.harvest(game, unit, group.resource)

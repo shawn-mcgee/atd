@@ -27,6 +27,7 @@ func run() -> void:
 	var patch: Dictionary = game.resource_at(game.DEPOSIT)
 	check(patch.discovered and game.resource_fields.field_remaining(game, patch) == 1200, "scouting reveals a field and inspection sums its patches")
 	var worker: SimUnit = game.units[0]
+	worker.position = patch.position
 	worker.cargo = 0; worker.mined_cargo = 0
 	var extractor: SimStructure = game.add_structure("extractor", patch.position)
 	extractor.powered = true

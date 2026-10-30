@@ -4,6 +4,8 @@ const Rules = preload("res://engine/expedition_rules.gd")
 const MATERIAL = preload("res://assets/ui/material.svg")
 const METHANE = preload("res://assets/ui/methane.svg")
 const POWER = preload("res://assets/ui/power.svg")
+const Chrome = preload("res://view/rts_theme.gd")
+const Icons = preload("res://view/rts_icons.gd")
 var game: Node2D
 var material_value: Label
 var methane_value: Label
@@ -18,6 +20,9 @@ var selection_grid: Dictionary = {}
 var help_overlay: ColorRect
 var help_footer: Label
 var ready := false
+var build_grid: GridContainer
+var portrait: TextureRect
+var health: ProgressBar
 
 func icon(parent: Node, texture: Texture2D, pixels: int = 20) -> TextureRect:
 	var node := TextureRect.new(); node.texture = texture
@@ -33,66 +38,98 @@ func purchase(button: Button, kind: String, shortcut: String) -> void:
 	button.text = ""
 	button.tooltip_text = "%s\n%d materials%s%s" % [Rules.title(kind), cost.minerals, " / %d methane" % cost.gas if cost.gas > 0 else "", "\nShortcut: " + shortcut if not shortcut.is_empty() else ""]
 	if not button.has_meta("purchase_name"):
-		button.text = ""; button.custom_minimum_size = Vector2(112, 44)
+		button.text = ""; button.custom_minimum_size = Vector2(112, 52); button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var content := VBoxContainer.new(); content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); content.offset_left = 9; content.offset_right = -9; content.offset_top = 4; content.offset_bottom = -4
 		content.add_theme_constant_override("separation", 0); button.add_child(content)
+		button.set_meta("card_content", content)
 		var heading := row(content, 4); heading.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var title: Label = game.label(heading, Rules.title(kind), 13); title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var art: Texture2D = game.sprites.texture(kind)
+		if art != null: icon(heading, art, 26)
+		var title: Label = game.label(heading, Rules.title(kind).to_upper(), 11); title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; title.max_lines_visible = 2; title.custom_minimum_size.y = 26
 		var key: Label = game.label(heading, "", 12, game.AMBER); key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		button.set_meta("key_label", key)
 		var costs := row(content, 4); costs.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		icon(costs, MATERIAL, 13); game.label(costs, str(cost.minerals), 11)
-		if cost.gas > 0: icon(costs, METHANE, 13); game.label(costs, str(cost.gas), 11)
+		icon(costs, MATERIAL, 13); game.label(costs, str(cost.minerals), 10)
+		if cost.gas > 0: icon(costs, METHANE, 13); game.label(costs, str(cost.gas), 10)
 		button.set_meta("purchase_name", title)
 	button.set_meta("shortcut", shortcut)
 	var key_label: Label = button.get_meta("key_label")
-	key_label.text = "[" + shortcut + "]" if not shortcut.is_empty() else "Click"
+	key_label.text = "[" + shortcut + "]" if not shortcut.is_empty() else ""
 	key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	button.custom_minimum_size.y = 44
+	button.custom_minimum_size.y = 52
 
 func command(parent: Node, key: String, title: String, shortcut: String, callback: Callable) -> void:
-	var item: Button = game.button(parent, title, callback)
-	item.custom_minimum_size = Vector2(100, 32)
+	var item: Button = game.button(parent, "", callback)
+	item.custom_minimum_size = Vector2(108, 44); item.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	item.tooltip_text = title + (" [" + shortcut + "]" if not shortcut.is_empty() else "")
-	item.set_meta("short_title", title)
-	item.set_meta("shortcut", shortcut)
+	item.set_meta("short_title", title); item.set_meta("shortcut", shortcut)
 	game.context_buttons[key] = item
+	if Rules.UNITS.has(key): return
+	var content := HBoxContainer.new(); content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.offset_left = 7; content.offset_right = -7; content.offset_top = 5; content.offset_bottom = -5
+	content.add_theme_constant_override("separation", 5); item.add_child(content)
+	icon(content, Icons.texture(key), 19)
+	var caption: Label = game.label(content, title.to_upper(), 10)
+	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL; caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; caption.max_lines_visible = 2
+	item.set_meta("command_name", caption)
+	var badge: Label = game.label(content, shortcut, 10, Chrome.GOLD)
+	item.set_meta("key_label", badge); item.set_meta("card_content", content)
+
+func resource_readout(parent: Node, title: String, texture: Texture2D) -> Label:
+	var panel := PanelContainer.new(); panel.custom_minimum_size.x = 130
+	panel.add_theme_stylebox_override("panel", Chrome.box(Chrome.INK, Color("48564e"), 5)); parent.add_child(panel)
+	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 0); panel.add_child(content)
+	game.label(content, title, 9, Chrome.MUTED)
+	var values := row(content, 6); icon(values, texture, 16)
+	var value: Label = game.label(values, "", 15, Chrome.GOLD); value.mouse_filter = Control.MOUSE_FILTER_PASS
+	return value
 
 func setup(world: Node2D) -> void:
 	game = world
 	var layer := CanvasLayer.new(); game.add_child(layer)
 	game.ui = Control.new(); game.ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); game.ui.mouse_filter = Control.MOUSE_FILTER_IGNORE; layer.add_child(game.ui)
+	game.ui.theme = Chrome.make()
 	game.world_bars = preload("res://view/world_status_bars.gd").new(); game.ui.add_child(game.world_bars); game.world_bars.setup(game)
 	game.selection_box = game.SelectionBox.new(); game.selection_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); game.selection_box.mouse_filter = Control.MOUSE_FILTER_IGNORE; game.ui.add_child(game.selection_box)
 	var header: PanelContainer = game.panel(game.ui); header.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	header.offset_left = 18; header.offset_right = -18; header.offset_top = 14; header.offset_bottom = 72
-	var top := row(header, 22)
+	header.offset_left = 8; header.offset_right = -8; header.offset_top = 8; header.offset_bottom = 74
+	var top := row(header, 12)
 	var identity := VBoxContainer.new(); identity.add_theme_constant_override("separation", 1); top.add_child(identity)
-	game.label(identity, "AGAINST THE DARKNESS", 16)
-	game.objective_label = game.label(identity, "", 12, Color("8fa8b4"))
+	game.label(identity, "AGAINST THE DARKNESS / FIELD COMMAND", 13, Chrome.GOLD)
+	game.objective_label = game.label(identity, "", 11, Chrome.MUTED)
 	var spacer := Control.new(); spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL; top.add_child(spacer)
 	game.sensors = game.label(top, "", 12, game.AMBER); game.sensors.visible = false
-	var resources := row(top, 18)
-	var material := row(resources, 6); material.custom_minimum_size.x = 125; icon(material, MATERIAL); material_value = game.label(material, "", 17); material_value.mouse_filter = Control.MOUSE_FILTER_PASS
-	var methane := row(resources, 6); methane.custom_minimum_size.x = 125; icon(methane, METHANE); methane_value = game.label(methane, "", 17); methane_value.mouse_filter = Control.MOUSE_FILTER_PASS
+	var resources := row(top, 8)
+	material_value = resource_readout(resources, "MATERIALS / MAT", MATERIAL)
+	methane_value = resource_readout(resources, "METHANE / CH4", METHANE)
 	game.stats = material_value # Compatibility for callers that check UI initialization.
-	game.pause_button = game.button(top, "Pause [Space]", game.toggle_pause); game.pause_button.tooltip_text = "Pause / resume [Space]"
-	var help: Button = game.button(top, "Help [F1]", toggle_help); help.tooltip_text = "Controls and mission details [F1]"
+	game.pause_button = game.button(top, "PAUSE [Space]", game.toggle_pause); game.pause_button.tooltip_text = "Pause / resume [Space]"
+	var help: Button = game.button(top, "HELP [F1]", toggle_help); help.tooltip_text = "Controls and mission details [F1]"
 	# One stable bottom dock; minimap occupies the space immediately to its right.
 	game.command_panel = game.panel(game.ui); game.command_panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	var dock := row(game.command_panel, 20)
-	var selection := VBoxContainer.new(); selection.custom_minimum_size.x = 220; selection.add_theme_constant_override("separation", 8); dock.add_child(selection)
-	game.command_title = game.label(selection, "No selection", 17, game.MINT)
-	game.details = game.label(selection, "", 13); game.details.custom_minimum_size.x = 220; game.details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	grid_panel = row(selection, 8); icon(grid_panel, POWER, 20); grid_value = game.label(grid_panel, "", 12, Color("8cc7ff")); grid_value.mouse_filter = Control.MOUSE_FILTER_PASS
+	var dock := row(game.command_panel, 14)
+	var selection := VBoxContainer.new(); selection.custom_minimum_size.x = 264; selection.add_theme_constant_override("separation", 6); dock.add_child(selection)
+	game.command_title = game.label(selection, "NO SELECTION", 14, Chrome.GOLD)
+	game.command_title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var identity_row := row(selection, 10)
+	var portrait_frame := PanelContainer.new(); portrait_frame.add_theme_stylebox_override("panel", Chrome.box(Chrome.INK, Color("657167"), 5)); identity_row.add_child(portrait_frame)
+	portrait = icon(portrait_frame, null, 84); portrait.custom_minimum_size.y = 94
+	var info := ScrollContainer.new(); info.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	info.custom_minimum_size = Vector2(150, 102); info.size_flags_horizontal = Control.SIZE_EXPAND_FILL; identity_row.add_child(info)
+	game.details = game.label(info, "", 12); game.details.custom_minimum_size.x = 146; game.details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; game.details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	health = ProgressBar.new(); health.show_percentage = false; health.custom_minimum_size.y = 7; selection.add_child(health)
+	grid_panel = row(selection, 6); icon(grid_panel, POWER, 15); grid_value = game.label(grid_panel, "", 11, Color("9bbda5")); grid_value.mouse_filter = Control.MOUSE_FILTER_PASS
 	var commands := VBoxContainer.new(); commands.size_flags_horizontal = Control.SIZE_EXPAND_FILL; commands.add_theme_constant_override("separation", 6); dock.add_child(commands)
 	game.command_content = commands
 	var tabs := row(commands, 6)
-	order_tab = game.button(tabs, "Commands", func(): show_tab("orders")); order_tab.toggle_mode = true
-	build_tab = game.button(tabs, "Build", func(): show_tab("build")); build_tab.toggle_mode = true
+	order_tab = game.button(tabs, "ORDERS", func(): show_tab("orders")); order_tab.toggle_mode = true
+	build_tab = game.button(tabs, "CONSTRUCTION", func(): show_tab("build")); build_tab.toggle_mode = true
 	build_tab.tooltip_text = "1-0 select the first ten structures; click other cards\nT rotates / Shift queues / Right-click cancels"
 	game.command_scroll = ScrollContainer.new(); game.command_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED; game.command_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL; commands.add_child(game.command_scroll)
 	order_grid = GridContainer.new(); order_grid.columns = 5; order_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -128,7 +165,7 @@ func setup(world: Node2D) -> void:
 	game.construction_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	var builds := VBoxContainer.new(); builds.add_theme_constant_override("separation", 4); game.construction_panel.add_child(builds)
 	game.power_preview_label = game.label(builds, "", 12, game.MINT); game.power_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; game.power_preview_label.visible = false
-	var options := GridContainer.new(); options.columns = 4; options.size_flags_horizontal = Control.SIZE_EXPAND_FILL; options.add_theme_constant_override("h_separation", 6); options.add_theme_constant_override("v_separation", 6); builds.add_child(options)
+	var options := GridContainer.new(); build_grid = options; options.columns = 4; options.size_flags_horizontal = Control.SIZE_EXPAND_FILL; options.add_theme_constant_override("h_separation", 6); options.add_theme_constant_override("v_separation", 6); builds.add_child(options)
 	for i in range(game.BUILD_KINDS.size()):
 		var kind: String = game.BUILD_KINDS[i]
 		var item: Button = game.button(options, "", func(): game.choose_build(kind)); game.build_buttons[kind] = item
@@ -157,7 +194,7 @@ func make_help() -> void:
 	var content := VBoxContainer.new(); content.add_theme_constant_override("separation", 12); card.add_child(content)
 	game.label(content, "Controls", 22, game.MINT)
 	game.label(content, "Click / drag to select - right-click to order\nShift adds selections, orders and patrol points\nWASD / arrows pan - wheel zoom - F home\nMiddle drag pans - Alt + middle drag rotates\nE explore - M mine\nQ attack move - V defend - P patrol\nB board - U unload - G escort\nR repair / reload - N auto recharge\nZ auto reload - Y relay power\nX stop - Delete destroy - Space pause\nBuild: 1-0 select, T rotates, Shift queues\nEscape cancels targeting - F1 closes help", 14)
-	help_footer = game.label(content, "", 12, Color("8fa8b4"))
+	help_footer = game.label(content, "", 11, Chrome.MUTED)
 	var buttons := row(content, 10)
 	game.button(buttons, "Close", toggle_help)
 	game.button(buttons, "Restart mission", func(): game.get_tree().reload_current_scene())
@@ -197,9 +234,14 @@ func after_context() -> void:
 		if Rules.UNITS.has(key): continue
 		var item: Button = game.context_buttons[key]
 		var shortcut: String = item.get_meta("shortcut", "")
-		if not shortcut.is_empty():
-			item.text += " [" + shortcut + "]"
-			item.tooltip_text = item.text
+		item.tooltip_text = item.text + (" [" + shortcut + "]" if not shortcut.is_empty() else "")
+		if item.has_meta("command_name"):
+			item.get_meta("command_name").text = item.text.to_upper()
+			item.get_meta("key_label").text = "DEL" if shortcut == "Delete" else shortcut
+			item.get_meta("card_content").modulate = Color(0.5, 0.5, 0.5) if item.disabled else Color.WHITE
+			item.text = ""
+	for item in game.build_buttons.values():
+		item.get_meta("card_content").modulate = Color(0.5, 0.5, 0.5) if item.disabled else Color.WHITE
 	var turrets: Array = game.selected_turrets()
 	if not turrets.is_empty(): game.context_buttons.auto_reload.button_pressed = turrets.all(func(turret): return turret.auto_reload)
 	var vehicles: Array = game.selected_vehicles()
@@ -210,9 +252,11 @@ func after_context() -> void:
 
 func fit() -> void:
 	if not ready: return
-	game.command_panel.offset_left = 18; game.command_panel.offset_right = -286; game.command_panel.offset_top = -288 if active_tab == "build" else -238; game.command_panel.offset_bottom = -18
-	order_grid.columns = 4 if game.get_viewport().get_visible_rect().size.x >= 1250 else 3
-	game.message.offset_left = 22; game.message.offset_right = game.get_viewport().get_visible_rect().size.x - 300; game.message.offset_top = game.command_panel.offset_top - 38; game.message.offset_bottom = game.command_panel.offset_top - 6
+	game.command_panel.offset_left = 8; game.command_panel.offset_right = -248; game.command_panel.offset_top = -264 if active_tab == "build" else -220; game.command_panel.offset_bottom = -8
+	var command_width: float = game.get_viewport_rect().size.x - 560
+	order_grid.columns = clampi(int(command_width / 122), 3, 6)
+	build_grid.columns = clampi(int(command_width / 128), 3, 6)
+	game.message.offset_left = 14; game.message.offset_right = game.get_viewport().get_visible_rect().size.x - 260; game.message.offset_top = game.command_panel.offset_top - 28; game.message.offset_bottom = game.command_panel.offset_top - 5
 	if game.minimap != null: game.minimap.fit()
 
 func update() -> void:
@@ -223,16 +267,19 @@ func update() -> void:
 	game.sensors.visible = game.sensor_activity > 0 and (game.units.any(func(unit): return unit.kind == "scout" and unit.has_driver()) or game.structures.any(func(b): return b.kind == "scanner" and b.powered))
 	game.sensors.text = "Movement detected"
 	game.message.visible = game.notice_time > 0 and not game.message.text.is_empty()
-	game.pause_button.text = "Resume [Space]" if game.paused else "Pause [Space]"
+	game.pause_button.text = "RESUME [Space]" if game.paused else "PAUSE [Space]"
 	after_context(); summarize_selection()
 
 func summarize_selection() -> void:
 	selection_grid = {}; grid_panel.visible = false
+	portrait.texture = null; health.visible = false
 	if game.selected.size() == 1 and SimEntity.valid(game.selected[0]):
 		var actor: SimEntity = game.selected[0]
 		var enemy: bool = actor is SimPredator
+		portrait.texture = game.sprites.texture(actor.kind)
 		game.command_title.text = "Lightless " + Rules.PREDATORS[actor.kind].name if enemy else Rules.title(actor.kind)
 		var maximum: float = actor.max_hp if enemy else Rules.UNITS[actor.kind].hp if actor is SimUnit else Rules.STRUCTURES[actor.kind].hp
+		health.visible = true; health.value = clampf(actor.hp / maximum * 100, 0, 100)
 		var lines: Array[String] = ["Health  %d / %d" % [maxi(0, int(actor.hp)), int(maximum)]]
 		if actor is SimUnit:
 			var order: String = game.tactical_groups.describe(actor)
@@ -260,7 +307,8 @@ func summarize_selection() -> void:
 			grid_value.tooltip_text = "This grid only\nInstalled capacity: %d\nDemand: %d\nMethane: %.2f/s" % [selection_grid.installed_capacity, selection_grid.demand, selection_grid.fuel_rate]
 		elif actor is SimStructure and game.Power.is_electrical(actor.kind): game.details.text += "\nNo grid connection"
 	elif game.selected.size() > 1:
-		game.command_title.text = "%d selected" % game.selected.size()
+		game.command_title.text = "%d UNITS / GROUP" % game.selected.size()
+		portrait.texture = game.sprites.texture(game.selected[0].kind)
 		var counts: Dictionary = {}
 		for actor in game.selected:
 			var title: String = Rules.title(actor.kind) if not actor is SimPredator else "Lightless " + actor.kind
@@ -270,6 +318,8 @@ func summarize_selection() -> void:
 		game.details.text = "\n".join(lines)
 	elif not game.selected_resource.is_empty():
 		var resource: Dictionary = game.selected_resource
+		portrait.texture = game.sprites.texture("materials_full" if resource.kind == "minerals" else "methane_full")
 		game.command_title.text = "Materials patch" if resource.kind == "minerals" else "Methane patch"
 		game.details.text = "Patch  %d\nField  %d" % [resource.remaining, game.resource_fields.field_remaining(game, resource)]
 	else: game.command_title.text = "No selection"; game.details.text = ""
+	game.command_title.text = game.command_title.text.to_upper()

@@ -11,8 +11,12 @@ const BUILD_KINDS = Simulation.BUILD_KINDS
 const MINT = Simulation.MINT
 const AMBER = Simulation.AMBER
 const Primitives = preload("res://view/primitives.gd")
+const RTSTheme = preload("res://view/rts_theme.gd")
 @export var initial_seed := 0
 var simulation = Simulation.new()
+var sprites = preload("res://view/sprite_library.gd").new()
+var darkness: ColorRect
+var selection_highlight: ColorRect
 var selected: Array[SimEntity] = []
 var selected_resource: Dictionary = {}
 var build_kind := ""
@@ -61,13 +65,17 @@ var overlay_text: Label
 var overlay_button: Button
 
 func _ready() -> void:
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	get_window().min_size = Vector2i(1100, 720)
 	var seed_value := initial_seed if initial_seed > 0 else randi_range(1, 2147483647)
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--seed="): seed_value = int(argument.trim_prefix("--seed="))
 	simulation.initialize(seed_value)
+	for patch in simulation.resource_nodes: sprites.initial_resources[patch.position] = int(patch.remaining)
 	hud = preload("res://view/game_hud.gd").new(); hud.setup(self)
 	minimap = preload("res://view/minimap.gd").new(); ui.add_child(minimap); minimap.setup(self)
+	darkness = preload("res://view/darkness.gd").new(); add_child(darkness); darkness.setup(self)
+	selection_highlight = preload("res://view/selection_highlight.gd").new(); add_child(selection_highlight); selection_highlight.setup(self)
 	get_viewport().size_changed.connect(func(): hud.fit(); queue_redraw())
 	show_briefing(); refresh_ui()
 	RenderingServer.set_default_clear_color(Color("080e16"))
@@ -95,9 +103,9 @@ func _process(dt: float) -> void:
 	for event in simulation.events:
 		if event.serial > last_event:
 			if event.type == "message": notify(event.text)
-			elif event.type == "sound": play_cue(event.frequency, event.duration, event.volume)
 		last_event = maxi(last_event, event.serial)
 	selected = selected.filter(func(actor): return SimEntity.valid(actor) and actor.hp > 0 and (not actor is SimUnit or actor.aboard == null))
+	sprites.tick(self, 0.0 if simulation.paused else dt)
 	notice_time = maxf(0, notice_time - dt)
 	if simulation.ended and not shown_ending:
 		shown_ending = true; overlay.visible = true
@@ -126,11 +134,13 @@ func pick(screen: Vector2) -> SimEntity:
 	candidates.reverse()
 	for actor in candidates:
 		if actor.hp <= 0 or not actor.visible or (actor is SimUnit and actor.aboard != null): continue
-		if screen.distance_to(world_to_screen(actor_position(actor))) <= maxf(8, Primitives.unit_radius(actor) * zoom): return actor
+		if sprites.hit(self, actor.kind, actor_position(actor), sprites.actor_angle(actor), screen): return actor
+		if screen.distance_to(world_to_screen(actor_position(actor))) <= maxf(6, Primitives.unit_radius(actor) * zoom): return actor
 	var buildings: Array = simulation.structures + [simulation.mission.hive]
 	buildings.reverse()
 	for building in buildings:
 		if building.hp <= 0 or not building.visible: continue
+		if sprites.hit_building(self, building, Primitives.structure_polygon(self, building), screen): return building
 		if Geometry2D.is_point_in_polygon(screen, Primitives.structure_polygon(self, building)): return building
 	return null
 
@@ -283,7 +293,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		match event.button_index:
 			MOUSE_BUTTON_MIDDLE: dragging = true
-			MOUSE_BUTTON_WHEEL_UP: zoom = minf(42, zoom * 1.1)
+			MOUSE_BUTTON_WHEEL_UP: zoom = minf(160, zoom * 1.1)
 			MOUSE_BUTTON_WHEEL_DOWN: zoom = maxf(3, zoom / 1.1)
 			MOUSE_BUTTON_RIGHT:
 				if build_kind != "" or repair_mode: build_kind = ""; repair_mode = false; wall_start = Vector3.INF
@@ -306,24 +316,24 @@ func _get(property: StringName):
 func style(color: Color) -> StyleBoxFlat:
 	var box := StyleBoxFlat.new()
 	box.bg_color = color
-	box.border_color = Color("37525d")
-	box.set_border_width_all(1)
-	box.set_corner_radius_all(4)
-	box.content_margin_left = 14
-	box.content_margin_right = 14
+	box.border_color = RTSTheme.EDGE
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(0)
+	box.content_margin_left = 12
+	box.content_margin_right = 12
 	box.content_margin_top = 10
 	box.content_margin_bottom = 10
 	return box
 
 
 func panel(parent: Node) -> PanelContainer:
-	var node := PanelContainer.new()
-	node.add_theme_stylebox_override("panel", style(Color(0.025, 0.05, 0.068, 0.95)))
+	var node = preload("res://view/rts_panel.gd").new()
+	node.add_theme_stylebox_override("panel", style(RTSTheme.PANEL))
 	parent.add_child(node)
 	return node
 
 
-func label(parent: Node, text: String, size: int = 15, color: Color = Color("d4e4eb")) -> Label:
+func label(parent: Node, text: String, size: int = 15, color: Color = RTSTheme.TEXT) -> Label:
 	var node := Label.new()
 	node.text = text
 	node.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -339,10 +349,7 @@ func button(parent: Node, text: String, callback: Callable) -> Button:
 	node.custom_minimum_size.y = 34
 	node.focus_mode = Control.FOCUS_NONE
 	node.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	node.add_theme_stylebox_override("normal", style(Color("172e38")))
-	node.add_theme_stylebox_override("hover", style(Color("294b54")))
-	node.add_theme_stylebox_override("pressed", style(Color("38666b")))
-	node.add_theme_font_size_override("font_size", 13)
+	RTSTheme.apply_button(node)
 	node.pressed.connect(callback)
 	parent.add_child(node)
 	return node
@@ -569,21 +576,3 @@ func cancel_training() -> void:
 
 func train_unit(kind: String) -> void:
 	submit("train", {"unit": kind})
-
-func play_cue(frequency: float, duration: float, volume: float) -> void:
-	if DisplayServer.get_name() == "headless": return
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = 22050
-	var samples := PackedByteArray()
-	samples.resize(int(duration * 22050) * 2)
-	for i in range(samples.size() / 2):
-		var t := float(i) / 22050
-		var sample := int(sin(t * frequency * TAU) * (1.0 - t / duration) * volume * 32767)
-		samples.encode_s16(i * 2, sample)
-	stream.data = samples
-	var player := AudioStreamPlayer.new()
-	player.stream = stream
-	add_child(player)
-	player.finished.connect(player.queue_free)
-	player.play()

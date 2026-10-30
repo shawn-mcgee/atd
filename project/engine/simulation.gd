@@ -220,14 +220,10 @@ func notify(message: String) -> void:
 func finish(won: bool, reason: String) -> void:
 	ended = true; victorious = won; notify(reason)
 
-func shot(a: Vector3, b: Vector3, color: Color) -> void:
+func shot(a: Vector3, b: Vector3, color: Color, shooter: SimEntity = null) -> void:
 	event_serial += 1
-	events.append({"serial": event_serial, "tick": tick_number, "type": "shot", "a": a, "b": b, "color": color})
-	if events.size() > 128: events.pop_front()
-
-func play_cue(frequency: float, duration: float, volume: float) -> void:
-	event_serial += 1
-	events.append({"serial": event_serial, "tick": tick_number, "type": "sound", "frequency": frequency, "duration": duration, "volume": volume})
+	events.append({"serial": event_serial, "tick": tick_number, "type": "shot", "a": a, "b": b, "color": color,
+		"shooter": shooter.simulation_id if shooter != null else 0, "weapon": shooter.kind if shooter != null else ""})
 	if events.size() > 128: events.pop_front()
 
 func update_scanner_contacts() -> void:
@@ -574,7 +570,7 @@ func combat_tick(_dt: float) -> void:
 				if enemy is SimPredator: enemy.hurt(10)
 				else: enemy.hp -= 10
 			unit.cooldown = 0.85 if unit.kind == "flamer" else 0.65
-			shot(unit.position + Vector3.UP * 1.2, enemy.position + Vector3.UP * 0.7, Color("f28a42") if unit.kind == "flamer" else AMBER)
+			shot(unit.position + Vector3.UP * 1.2, enemy.position + Vector3.UP * 0.7, Color("f28a42") if unit.kind == "flamer" else AMBER, unit)
 	turret_system.tick(self, _dt)
 	for creature in creatures:
 		var target := creature.target
@@ -583,7 +579,7 @@ func combat_tick(_dt: float) -> void:
 		if target is SimUnit and target.aboard != null: continue
 		if creature.position.distance_to(target.position) < 3 and navigation.can_see(creature.position, target.position):
 			target.hp -= float(Rules.PREDATORS[creature.kind].damage); creature.cooldown = float(Rules.PREDATORS[creature.kind].attack_delay)
-			shot(creature.position + Vector3.UP * 0.7, target.position + Vector3.UP, Color("d66b82"))
+			shot(creature.position + Vector3.UP * 0.7, target.position + Vector3.UP, Color("d66b82"), creature)
 
 func cleanup_dead() -> void:
 	var changed := false
@@ -777,7 +773,7 @@ func process_harvest(unit: SimUnit, dt: float) -> void:
 		if carrier != null and carrier.position.distance_to(unit.position) < 8 and carrier.cargo_total() < carrier.capacity: set_order(unit, "to_carrier", carrier.position, carrier)
 		else: send_to_receiver(unit)
 		return
-	if unit.position.distance_to(unit.harvest_origin) > 3.5:
+	if not resource_fields.within_reach(unit, unit.harvest_origin):
 		if not unit.moving(): unit.travel(unit.harvest_origin, navigation)
 		return
 	unit.path.clear(); unit.work_clock += dt

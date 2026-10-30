@@ -29,4 +29,4 @@ func tick(game, dt: float) -> void:
 				if other.hp > 0 and other.position.distance_to(enemy.position) <= float(stats.splash) and game.light.sample(other.position) >= 0.065 and game.navigation.can_see(turret.position, other.position): other.hurt(float(stats.damage))
 		else: enemy.hurt(float(stats.damage))
 		turret.cooldown = float(stats.delay)
-		game.shot(turret.position + Vector3.UP * 1.5, enemy.position + Vector3.UP * 0.7, Color("f28a42") if turret.kind == "flame_turret" else Color("e96fee") if turret.kind == "laser_turret" else game.AMBER)
+		game.shot(turret.position + Vector3.UP * 1.5, enemy.position + Vector3.UP * 0.7, Color("f28a42") if turret.kind == "flame_turret" else Color("e96fee") if turret.kind == "laser_turret" else game.AMBER, turret)

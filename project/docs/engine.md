@@ -41,17 +41,19 @@ The renderer resolves a mouse position into a point/target before submitting a c
 
 ## Observation, replay, and lifetime
 
-Views read actor arrays, resources, explored cells, power grids, mission state, and scanner contacts. `events` is a bounded stream of messages, sound cues, and shot effects identified by increasing serial numbers. Consume by serial without clearing it or making gameplay depend on a consumer.
+Views read actor arrays, resources, explored cells, power grids, mission state, and scanner contacts. `events` is a bounded stream of messages and shooter-tagged shot effects identified by increasing serial numbers. Consume by serial without clearing it or making gameplay depend on a consumer.
 
 `snapshot()` and `state_hash()` provide canonical diagnostic state. `replay_data()` returns a versioned seed and command log; JSON round-trip it and pass it to `load_replay()` on a fresh simulation. Then run the same number of ticks. This is command replay from a new game, not save-game restoration. Floating-point math and Godot AStar remain in use: replay is validated on the same engine/runtime, without claiming cross-platform network lockstep.
 
 `dispose()` breaks actor-reference cycles when restarting or replacing a simulation. Scene nodes belong only to the view; removing a view does not require freeing a tree of gameplay nodes.
 
-## Primitive presentation
+## Presentation
 
-`view/primitives.gd` computes the convex hull of occupied tile centers for structures with three or more footprint cells. Thus HQ uses the outer six centers, generators/barracks are triangles, and garages are quadrilaterals. Single-cell structures use a hexagon of 0.8 tile radius. A two-point ramp footprint needs area to draw and pick, so it uses a narrow ribbon joining those centers. Elevation stays in gameplay even though the camera looks straight down.
+`view/primitives.gd` retains footprint geometry for selection and placement: HQ uses the outer six occupied tile centers, generators/barracks use three, garages use four, and single-cell bounds use a hexagon of 0.8 tile radius. Two-cell ramps use a narrow ribbon. These are gameplay/selection guides; buildings no longer draw filled polygon foundations.
 
-Units and visible enemies are circles, with facing marks, selection outlines, and focus lines. Labels, HUD, and status bars never participate in picking. A click tests unit circles and structure polygons first, then falls through to the terrain coordinate conversion. The minimap reads the engine's explored-cell memory; exploration no longer depends on the minimap existing.
+Approved art is drawn through `view/sprite_library.gd`. Original sheets are preserved, with atlas metadata, facing corrections, and a 30-degree flat-top-to-pointy-top correction for hex artwork. Full building illustrations are fitted to footprint bounds instead of clipped into triangular fragments. Sprite alpha extends picking to visible artwork; labels and status bars never participate. See [sprite integration](sprite-integration.md) for preparation commands and maintenance details.
+
+The minimap reads the engine's explored-cell memory; exploration does not depend on a minimap existing. All sprite caches, effects, headings, and gate animation remain view-only state. Elevation and navigation remain in the core despite the overhead presentation.
 
 ## Validation
 

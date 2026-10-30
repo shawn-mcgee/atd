@@ -1,4 +1,13 @@
 extends RefCounted
+const Hex = preload("res://engine/hex_grid.gd")
+const Terrain = preload("res://engine/expedition_terrain.gd")
+const HARVEST_REACH := Terrain.SPACING + Terrain.CELL * 0.2
+
+func within_reach(unit: SimUnit, point: Vector3) -> bool:
+	if unit.aboard != null or absf(unit.position.y - point.y) > 0.6: return false
+	var delta := Hex.to_axial(unit.position, Terrain.CELL) - Hex.to_axial(point, Terrain.CELL)
+	if maxi(absi(delta.x), maxi(absi(delta.y), absi(delta.x + delta.y))) > 1: return false
+	return Vector2(unit.position.x - point.x, unit.position.z - point.z).length() <= HARVEST_REACH
 
 func setup(game) -> void:
 	# Fields preserve their total yield; starter deposits can specify fewer cells.
@@ -17,6 +26,7 @@ func setup(game) -> void:
 			game.resource_nodes[-1].field = field_id
 
 func harvest(game, unit: SimUnit, resource: Dictionary) -> int:
+	if unit.kind != "engineer" or not within_reach(unit, resource.position): return 0
 	var quantity := 1
 	for building in game.structures:
 		if building.kind == "extractor" and building.complete and building.powered and building.enabled and game.Hex.to_axial(building.position, game.Terrain.CELL) == game.Hex.to_axial(resource.position, game.Terrain.CELL):

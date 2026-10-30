@@ -6,9 +6,9 @@ Open `project/project.godot`, press **F5**, then **Begin Expedition**. Restart t
 
 ## Simulation and presentation
 
-The experiment now runs a headless deterministic gameplay core in `project/engine/` and a separate top-down 2D view in `project/view/`. The original gameplay rules remain: the view draws units as circles and structures as footprint polygons. HQ is a large hexagon, generators are triangles, and single-cell structures are 80 percent tile size. Ramps and platforms still affect navigation, elevation, and sight lines.
+The experiment now runs a headless deterministic gameplay core in `project/engine/` and a separate top-down 2D view in `project/view/`. The original gameplay rules remain: the view draws the approved unit, building, terrain, resource, and effect sprites. Structure footprints remain authoritative for placement and selection. HQ retains its seven-cell hexagonal footprint, generators retain triangular three-cell footprints, and single-cell structure bounds remain 80 percent tile size. Transparent building art has no filled polygon foundation. Ramps and platforms still affect navigation, elevation, and sight lines.
 
-The model assets, Asset Forge pipeline, 3D renderer, and shaders have been removed. A future 2D or 3D renderer can read the same core and submit the same commands. See [engine architecture](project/docs/engine.md) for the command API, replay format, and boundaries.
+The model assets, Asset Forge pipeline, 3D renderer, and shaders have been removed. The [sprite integration guide](project/docs/sprite-integration.md) documents atlas preparation, orientation corrections, and procedural gates. A future 2D or 3D renderer can read the same core and submit the same commands. See [engine architecture](project/docs/engine.md) for the command API, replay format, and boundaries. The [asset generation brief](project/docs/asset-generation-brief.md) defines the shared art style, technical specifications, and eight batched sprite sheets.
 
 ## Mission
 
@@ -50,7 +50,7 @@ Leaving the extraction radius resets the timer. A destroyed extraction beacon be
 | Comma / period / Home / F | Rotate camera / reset camera / focus HQ |
 | Space / Escape | Pause / cancel targeting or selection |
 
-Selection details and contextual commands share the bottom dock. Commands display their hotkeys in brackets. Engineers have a Build tab, with resource icons, construction costs, and visible key badges on each card; structures without a numeric shortcut are marked **Click**. Production cards show the number for the selected factory. The minimap stays in the bottom-right corner. F1 opens the full controls, including construction modifiers. Selected units show target/destination lines.
+Selection details and contextual commands share the bottom dock. Commands display their hotkeys in brackets. Engineers have a Build tab, with resource icons, construction costs, and visible key badges on each card; structures without a numeric shortcut are marked **Click**. Production cards show the number for the selected factory. The minimap stays in the bottom-right corner. F1 opens the full controls, including construction modifiers. Selected units show target/destination lines. Firing infantry face their shot target; flashes, tracers, and flames originate at sprite weapon attachments. Synthetic beeping has been removed.
 
 ## Starting scenario and generation
 
@@ -78,7 +78,7 @@ Ammunition turrets automatically reload when empty. Select turrets and press **R
 
 Resources are **Materials (MAT)** and **Methane (CH4)**. Remote fields comprise seven one-cell patches; starter deposits are smaller. Move units or crewed vehicles into the darkness to illuminate and discover resource cells. Mining automation only follows discovered patches. Click a surveyed patch to inspect its remaining amount and the field total. Engineers physically carry resources to the matching receiver; vehicles transport larger shipments. Mining expeditions require at least one working engineer and a separate driver for every vehicle.
 
-An **Extractor** costs 70 MAT + 10 CH4, occupies a resource patch, and consumes 2 power. An engineer gathers **3 resources per cycle** from an operating extractor, or 1 by hand. Extraction still requires an engineer and delivery. Selecting a receiver for mining chooses the nearest surveyed active field of its resource type.
+An **Extractor** costs 70 MAT + 10 CH4, occupies a resource patch, and consumes 2 power. An engineer gathers **3 resources per cycle** from an operating extractor, or 1 by hand. Extraction still requires an engineer and delivery. Manual and expedition mining require the engineer to stand on the deposit or an adjacent hex, within physical reach and at the same elevation. Selecting a receiver for mining chooses the nearest surveyed active field of its resource type.
 
 Construction spends banked resources immediately, but an engineer must reach and complete the blueprint. Nearby maintenance chains completed work to other repairs or blueprints. Occupants move safely aside before a blueprint becomes solid.
 
@@ -102,7 +102,7 @@ Game URL after the first successful deployment: **https://shawn-mcgee.github.io/
 
 Commit the `project/` sources together with the workflow and `project/export_presets.cfg`. CI downloads the pinned Godot **4.7.2** Linux editor and matching export templates, verifies their official SHA-512 checksums, imports the project, exports `build/web/index.html`, and uploads the web directory as the Pages artifact. No personal access token or repository secret is required by the workflow.
 
-The Web preset uses Compatibility/WebGL 2, disables threads and native extensions, and disables the PWA service worker. It works on ordinary Pages hosting without cross-origin isolation headers, including the repository's `/atd/` URL prefix. Procedural audio uses stream playback on Web. Generated output and local export credentials stay ignored.
+The Web preset uses Compatibility/WebGL 2, disables threads and native extensions, and disables the PWA service worker. It works on ordinary Pages hosting without cross-origin isolation headers, including the repository's `/atd/` URL prefix. Generated output and local export credentials stay ignored.
 
 To preview locally, install the **4.7.2** export templates through Godot's **Editor > Manage Export Templates**, then run from the outer repository root in PowerShell 7:
 
@@ -136,4 +136,4 @@ The legacy GPU picking, mesh occlusion, and 3D camera tests have been replaced b
 
 ## Current limits
 
-First-pass balance and primitive visuals/audio; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Gameplay illumination does not cast wall shadows, although weapon sight lines and navigation respect obstacles. Deterministic replay targets the same Godot version and math implementation; cross-platform network lockstep has not been established. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `project/todo.md`. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.
+First-pass balance and placeholder effects; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Gameplay illumination does not cast wall shadows, although weapon sight lines and navigation respect obstacles. Deterministic replay targets the same Godot version and math implementation; cross-platform network lockstep has not been established. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `project/todo.md`. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.

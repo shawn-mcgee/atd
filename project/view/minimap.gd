@@ -2,29 +2,43 @@ extends Control
 const Hex = preload("res://engine/hex_grid.gd")
 const Terrain = preload("res://engine/expedition_terrain.gd")
 var game: Node2D
-var scale_factor := 1.24
+var scale_factor := 1.0
 
 func setup(world: Node2D) -> void:
-	game = world; mouse_filter = Control.MOUSE_FILTER_STOP
+	game = world; mouse_filter = Control.MOUSE_FILTER_STOP; clip_contents = true
 	set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT); fit()
 	tooltip_text = "Click or drag to pan / surveyed terrain and visible contacts"
 
 func fit() -> void:
-	offset_left = -268; offset_right = -18; offset_top = -268; offset_bottom = -18
+	offset_left = -240; offset_right = -8; offset_top = -240; offset_bottom = -8
+	scale_factor = minf((232.0 - 16) / (2 * Terrain.MAP_RADIUS * sqrt(3.0)), (232.0 - 44) / (3 * Terrain.MAP_RADIUS)) * 0.96
+
+func map_area() -> Rect2:
+	return Rect2(Vector2(8, 26), size - Vector2(16, 44))
 
 func project(point: Vector3) -> Vector2:
-	return Vector2(point.x, point.z) * scale_factor + size * 0.5
+	return Vector2(point.x, point.z) * scale_factor + map_area().get_center()
 
 func _process(_dt: float) -> void:
 	queue_redraw()
 
 func _gui_input(event: InputEvent) -> void:
 	if (event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed) or (event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT):
-		game.focus = (event.position - size * 0.5) / scale_factor; accept_event()
+		if map_area().has_point(event.position):
+			game.focus = (event.position - map_area().get_center()) / scale_factor; accept_event()
 
 func _draw() -> void:
 	if game == null: return
-	draw_rect(Rect2(Vector2.ZERO, size), Color("0a131e")); draw_rect(Rect2(Vector2.ZERO, size), Color("3a5965"), false)
+	draw_rect(Rect2(Vector2.ZERO, size), Color("1c2527")); draw_rect(Rect2(Vector2.ONE, size - Vector2.ONE * 2), Color("626b65"), false, 2)
+	draw_line(Vector2(2, 2), Vector2(size.x - 2, 2), Color("7b8276"))
+	draw_rect(map_area(), Color("090f11"))
+	draw_circle(Vector2(12, 14), 2, Color("79aa8c"))
+	draw_string(ThemeDB.fallback_font, Vector2(20, 18), "TACTICAL / NADIR", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("d5ad68"))
+	draw_string(ThemeDB.fallback_font, Vector2(10, size.y - 5), "LOCAL SECTOR / LIVE", HORIZONTAL_ALIGNMENT_LEFT, -1, 9, Color("92998c"))
+	for fraction in [0.25, 0.5, 0.75]:
+		var area := map_area()
+		draw_line(area.position + Vector2(area.size.x * fraction, 0), area.position + Vector2(area.size.x * fraction, area.size.y), Color(0.3, 0.4, 0.3, 0.12))
+		draw_line(area.position + Vector2(0, area.size.y * fraction), area.position + Vector2(area.size.x, area.size.y * fraction), Color(0.3, 0.4, 0.3, 0.12))
 	for cell in game.simulation.explored:
 		var point := Hex.to_world(cell, Terrain.CELL)
 		var color := Color("62747e") if game.simulation.explored[cell] == "cliff" else Color("334e56")

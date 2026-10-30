@@ -1,0 +1,1226 @@
+{
+  "version": 1,
+  "sheets": {
+    "batch_01_characters": {
+      "file": "batch_01_characters.png",
+      "size": [
+        1536,
+        1024
+      ],
+      "sha256": "447ed4af9dc09ada8f4bc56086fc02d79dc36d27b9386fc70fb070e10d3f2574"
+    },
+    "batch_02_vehicles": {
+      "file": "batch_02_vehicles.png",
+      "size": [
+        1536,
+        1024
+      ],
+      "sha256": "25eb12451f97d7969603728b550cd1d1186234ae06f2b2aff211ef64eaae979e"
+    },
+    "batch_03_large_buildings": {
+      "file": "batch_03_large_buildings.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "sha256": "b9a998afc03f8a3a250954feb35d983edb891f084b4df5fc8c4201c159d3f9f5"
+    },
+    "batch_04_utility_buildings": {
+      "file": "batch_04_utility_buildings.png",
+      "size": [
+        1536,
+        1024
+      ],
+      "sha256": "c037a19460cc184b51d417537ef9984e3398ba731169e11809404d98166015d3"
+    },
+    "batch_05_turret_components": {
+      "file": "batch_05_turret_components.png",
+      "size": [
+        1536,
+        1024
+      ],
+      "sha256": "22afe69057d3f8663c871b9d930861b5abdb576356b95de4b5749523ddeda562"
+    },
+    "batch_06_objectives_and_ramps": {
+      "file": "batch_06_objectives_and_ramps.png",
+      "size": [
+        1536,
+        1024
+      ],
+      "sha256": "21d81a1370dd687d47e18e44da41ebdac1fe43a3ca5264a958013ea343ba0dd9"
+    },
+    "batch_07_terrain_and_connections": {
+      "file": "batch_07_terrain_and_connections.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "sha256": "90e8cd9b20cd92ec9b93bca95de3a8c5c6ef7330affbeab83163aa86aa65006a"
+    },
+    "batch_08_items_and_effects": {
+      "file": "batch_08_items_and_effects.png",
+      "size": [
+        1254,
+        1254
+      ],
+      "sha256": "3da373ccea20b9ec236bbc535fbe2bfa5814eeb8edbc1e032bc228fc9c8b3502"
+    }
+  },
+  "sprites": {
+    "engineer": {
+      "sheet": "batch_01_characters",
+      "region": [
+        157,
+        172,
+        264,
+        322
+      ],
+      "pivot": [
+        0.5,
+        0.6
+      ],
+      "world_size": [
+        0.8,
+        0.9
+      ],
+      "rotation_degrees": 0
+    },
+    "marine": {
+      "sheet": "batch_01_characters",
+      "region": [
+        623,
+        45,
+        255,
+        459
+      ],
+      "pivot": [
+        0.5,
+        0.7
+      ],
+      "world_size": [
+        0.8,
+        1.2
+      ],
+      "rotation_degrees": 0,
+      "muzzle_uv": [
+        0.5,
+        0.018
+      ]
+    },
+    "flamer": {
+      "sheet": "batch_01_characters",
+      "region": [
+        1134,
+        58,
+        297,
+        454
+      ],
+      "pivot": [
+        0.5,
+        0.7
+      ],
+      "world_size": [
+        0.9,
+        1.2
+      ],
+      "rotation_degrees": 0,
+      "muzzle_uv": [
+        0.61,
+        0.025
+      ]
+    },
+    "runner": {
+      "sheet": "batch_01_characters",
+      "region": [
+        126,
+        581,
+        320,
+        355
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        0.8,
+        1
+      ],
+      "rotation_degrees": 180
+    },
+    "stalker": {
+      "sheet": "batch_01_characters",
+      "region": [
+        542,
+        534,
+        482,
+        424
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1,
+        1.1
+      ],
+      "rotation_degrees": 180
+    },
+    "brute": {
+      "sheet": "batch_01_characters",
+      "region": [
+        1024,
+        513,
+        486,
+        448
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.3,
+        1.4
+      ],
+      "rotation_degrees": 180
+    },
+    "scout": {
+      "sheet": "batch_02_vehicles",
+      "region": [
+        161,
+        109,
+        251,
+        388
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1,
+        1.6
+      ],
+      "rotation_degrees": 180
+    },
+    "jeep": {
+      "sheet": "batch_02_vehicles",
+      "region": [
+        602,
+        37,
+        302,
+        475
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.4,
+        2
+      ],
+      "rotation_degrees": 180
+    },
+    "drill": {
+      "sheet": "batch_02_vehicles",
+      "region": [
+        1099,
+        9,
+        334,
+        503
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.7,
+        2.2
+      ],
+      "rotation_degrees": 180
+    },
+    "scout_wreck": {
+      "sheet": "batch_02_vehicles",
+      "region": [
+        95,
+        580,
+        352,
+        368
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1,
+        1.6
+      ],
+      "rotation_degrees": 180
+    },
+    "jeep_wreck": {
+      "sheet": "batch_02_vehicles",
+      "region": [
+        563,
+        559,
+        403,
+        405
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.4,
+        2
+      ],
+      "rotation_degrees": 180
+    },
+    "drill_wreck": {
+      "sheet": "batch_02_vehicles",
+      "region": [
+        1035,
+        512,
+        463,
+        468
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.7,
+        2.2
+      ],
+      "rotation_degrees": 180
+    },
+    "core": {
+      "sheet": "batch_03_large_buildings",
+      "region": [
+        43,
+        20,
+        577,
+        607
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "generator": {
+      "sheet": "batch_03_large_buildings",
+      "region": [
+        679,
+        79,
+        530,
+        548
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "barracks": {
+      "sheet": "batch_03_large_buildings",
+      "region": [
+        56,
+        627,
+        553,
+        574
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "garage": {
+      "sheet": "batch_03_large_buildings",
+      "region": [
+        662,
+        627,
+        547,
+        580
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "depot": {
+      "sheet": "batch_04_utility_buildings",
+      "region": [
+        43,
+        43,
+        445,
+        464
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "gas_tank": {
+      "sheet": "batch_04_utility_buildings",
+      "region": [
+        552,
+        85,
+        472,
+        425
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "repeater": {
+      "sheet": "batch_04_utility_buildings",
+      "region": [
+        1024,
+        39,
+        483,
+        464
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "floodlight": {
+      "sheet": "batch_04_utility_buildings",
+      "region": [
+        70,
+        561,
+        344,
+        410
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "scanner": {
+      "sheet": "batch_04_utility_buildings",
+      "region": [
+        595,
+        567,
+        353,
+        373
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "extractor": {
+      "sheet": "batch_04_utility_buildings",
+      "region": [
+        1123,
+        539,
+        367,
+        418
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "turret_base": {
+      "sheet": "batch_05_turret_components",
+      "region": [
+        53,
+        47,
+        440,
+        411
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "laser_turret_base": {
+      "sheet": "batch_05_turret_components",
+      "region": [
+        563,
+        47,
+        410,
+        411
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "flame_turret_base": {
+      "sheet": "batch_05_turret_components",
+      "region": [
+        1044,
+        47,
+        440,
+        411
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "turret_head": {
+      "sheet": "batch_05_turret_components",
+      "region": [
+        79,
+        514,
+        344,
+        444
+      ],
+      "pivot": [
+        0.5,
+        0.7
+      ],
+      "world_size": [
+        0.9,
+        1.2
+      ],
+      "rotation_degrees": 0,
+      "muzzle_uv": [
+        0.5,
+        0.018
+      ]
+    },
+    "laser_turret_head": {
+      "sheet": "batch_05_turret_components",
+      "region": [
+        612,
+        512,
+        312,
+        456
+      ],
+      "pivot": [
+        0.5,
+        0.7
+      ],
+      "world_size": [
+        0.9,
+        1.2
+      ],
+      "rotation_degrees": 0,
+      "muzzle_uv": [
+        0.5,
+        0.018
+      ]
+    },
+    "flame_turret_head": {
+      "sheet": "batch_05_turret_components",
+      "region": [
+        1061,
+        577,
+        412,
+        383
+      ],
+      "pivot": [
+        0.5,
+        0.7
+      ],
+      "world_size": [
+        0.9,
+        1.2
+      ],
+      "rotation_degrees": 0,
+      "muzzle_uv": [
+        0.5,
+        0.025
+      ]
+    },
+    "beacon_ruined": {
+      "sheet": "batch_06_objectives_and_ramps",
+      "region": [
+        24,
+        12,
+        488,
+        500
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "beacon": {
+      "sheet": "batch_06_objectives_and_ramps",
+      "region": [
+        512,
+        13,
+        451,
+        472
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "hive": {
+      "sheet": "batch_06_objectives_and_ramps",
+      "region": [
+        1044,
+        12,
+        481,
+        497
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "hive_breached": {
+      "sheet": "batch_06_objectives_and_ramps",
+      "region": [
+        17,
+        512,
+        495,
+        480
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "ramp": {
+      "sheet": "batch_06_objectives_and_ramps",
+      "region": [
+        512,
+        538,
+        500,
+        443
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "natural_ramp": {
+      "sheet": "batch_06_objectives_and_ramps",
+      "region": [
+        1044,
+        558,
+        475,
+        429
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "ground_a": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        37,
+        22,
+        256,
+        292
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "ground_b": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        344,
+        21,
+        253,
+        293
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "cliff_top": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        641,
+        8,
+        283,
+        306
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "platform": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        964,
+        22,
+        263,
+        292
+      ],
+      "pivot": [
+        0.5,
+        0.45
+      ],
+      "world_size": [
+        1.82,
+        2.020684410646388
+      ],
+      "rotation_degrees": 0
+    },
+    "materials_full": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        38,
+        332,
+        255,
+        290
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "materials_medium": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        347,
+        333,
+        253,
+        289
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "materials_low": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        657,
+        314,
+        250,
+        308
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "methane_full": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        968,
+        314,
+        254,
+        308
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "methane_medium": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        37,
+        634,
+        253,
+        293
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "methane_low": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        347,
+        638,
+        252,
+        288
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "wall": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        646,
+        627,
+        279,
+        300
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "wall_arm": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        963,
+        712,
+        269,
+        228
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        0.95,
+        0.36
+      ],
+      "rotation_degrees": 0
+    },
+    "rubble": {
+      "sheet": "batch_07_terrain_and_connections",
+      "region": [
+        967,
+        940,
+        258,
+        266
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "hive_core": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        22,
+        5,
+        291,
+        309
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        0.48,
+        0.55
+      ],
+      "rotation_degrees": 0
+    },
+    "material_crate": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        369,
+        87,
+        206,
+        168
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "methane_canister": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        677,
+        53,
+        215,
+        221
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "muzzle_00": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        1013,
+        122,
+        165,
+        94
+      ],
+      "pivot": [
+        0.02,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "muzzle_01": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        59,
+        314,
+        203,
+        213
+      ],
+      "pivot": [
+        0.02,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "impact_kinetic": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        366,
+        345,
+        228,
+        246
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "impact_laser": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        689,
+        375,
+        218,
+        212
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "flame_00": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        996,
+        378,
+        227,
+        209
+      ],
+      "pivot": [
+        0.02,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "flame_01": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        42,
+        658,
+        254,
+        246
+      ],
+      "pivot": [
+        0.02,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "flame_02": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        332,
+        705,
+        295,
+        162
+      ],
+      "pivot": [
+        0.02,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "repair_sparks_00": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        627,
+        675,
+        244,
+        201
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "repair_sparks_01": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        974,
+        660,
+        237,
+        280
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "smoke_00": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        68,
+        978,
+        186,
+        203
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "smoke_01": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        314,
+        979,
+        313,
+        212
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "alien_hit_00": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        627,
+        940,
+        275,
+        251
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    },
+    "alien_hit_01": {
+      "sheet": "batch_08_items_and_effects",
+      "region": [
+        961,
+        940,
+        269,
+        283
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "world_size": [
+        1.5,
+        1.5
+      ],
+      "rotation_degrees": 0
+    }
+  },
+  "notes": "Original pixels unchanged. Aliens and vehicles face south; rotate 180 degrees at draw time. Gate is procedural."
+}

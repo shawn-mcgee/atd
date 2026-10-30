@@ -49,68 +49,93 @@ static func draw_world(game) -> void:
 		var color := Color("101925").lerp(base, 0.25 + 0.75 * strength)
 		var polygon := hexagon(game, point, Terrain.CELL * 0.98)
 		game.draw_colored_polygon(polygon, color)
+		var texture_key := "cliff_top" if type == "cliff" else "natural_ramp" if type == "ramp" else "ground_a" if posmod(cell.x + cell.y, 7) != 0 else "ground_b"
+		var ground_light := 0.15 + strength * 0.5
+		game.sprites.polygon(game, texture_key, polygon, point, 0, Color(ground_light * 0.9, ground_light, ground_light * 1.05))
 		outline(game, polygon, Color(0.45, 0.65, 0.7, 0.08 + strength * 0.14))
 	for patch in game.resource_nodes:
 		if not patch.discovered or patch.remaining <= 0: continue
-		var color := Color("7be0cb") if patch.kind == "minerals" else Color("b2cd73")
-		color.a = 0.9 if game.light.sample(patch.position) > 0.05 else 0.3
-		var polygon := hexagon(game, patch.position, Terrain.CELL * 0.65)
-		game.draw_colored_polygon(polygon, Color(color, color.a * 0.25)); outline(game, polygon, color, 2)
+		var ratio: float = float(patch.remaining) / maxf(1, game.sprites.initial_resources.get(patch.position, patch.remaining))
+		var state := "full" if ratio > 0.66 else "medium" if ratio > 0.25 else "low"
+		var key := ("materials_" if patch.kind == "minerals" else "methane_") + state
+		var strength: float = game.light.sample(patch.position)
+		game.sprites.draw(game, key, patch.position, 0, Color.WHITE * (0.35 + strength * 0.65), Vector2(1.4, 1.5))
 	for rock in game.rocks:
 		if not game.simulation.explored.has(rock.cell): continue
 		var polygon := hexagon(game, rock.position, Terrain.CELL * 0.98)
 		var lit: float = game.light.sample(rock.position)
-		game.draw_colored_polygon(polygon, Color("29353f").lerp(Color("667580"), lit)); outline(game, polygon, Color("8397a1") * (0.4 + lit * 0.6), 2)
+		game.sprites.polygon(game, "cliff_top", polygon, rock.position, 0, Color.WHITE * (0.3 + lit * 0.7))
+		outline(game, polygon, Color("8397a1") * (0.4 + lit * 0.6), 1.5)
 	var font := ThemeDB.fallback_font
-	for building in game.structures + [game.mission.hive]:
+	var buildings: Array = game.structures + [game.mission.hive]
+	buildings.sort_custom(func(a, b):
+		if (a.kind == "platform") != (b.kind == "platform"): return a.kind == "platform"
+		return game.world_to_screen(a.position).y < game.world_to_screen(b.position).y)
+	for building in buildings:
 		if not building.visible or building.hp <= 0: continue
 		var polygon := structure_polygon(game, building)
 		var center := Vector2.ZERO
 		for vertex in polygon: center += vertex
 		center /= polygon.size()
 		var color: Color = COLORS.get(building.kind, Color("8aa4b0"))
-		var fill := color.darkened(0.5 if building.complete else 0.75)
-		if building.kind == "gate" and building.gate_open: fill.a = 0.2
-		game.draw_colored_polygon(polygon, fill)
-		outline(game, polygon, game.MINT if game.selected.has(building) else color, 2)
-		for offset in building.connections: game.draw_line(game.world_to_screen(building.position), game.world_to_screen(building.position + offset * 0.5), color, maxf(3, game.zoom * 0.35), true)
-		if game.zoom >= 10:
+		var strength: float = game.light.sample(building.position)
+		var brightness := 0.45 + strength * 0.55
+		if Power.is_electrical(building.kind) and not building.powered: brightness *= 0.7
+		var tint := Color(brightness, brightness, brightness, 1.0 if building.complete else 0.5)
+		var key: String = building.kind
+		if key == "beacon" and not building.complete: key = "beacon_ruined"
+		if key == "hive" and (game.mission.stolen or building.hp < 400): key = "hive_breached"
+		if Rules.TURRETS.has(key): key += "_base"
+		for offset in building.connections:
+			game.sprites.draw(game, "wall_arm", building.position + offset * 0.3, atan2(offset.z, offset.x), tint)
+		if building.kind == "gate": game.sprites.draw_gate(game, building)
+		else:
+			game.sprites.draw_building(game, building, polygon, tint)
+		if Rules.TURRETS.has(building.kind):
+			var head_angle: float = game.sprites.headings.get(building.simulation_id, 0.0)
+			game.sprites.draw(game, building.kind + "_head", building.position, head_angle, tint)
+		if building.kind == "core": game.draw_circle(game.world_to_screen(building.position) + Vector2(0, -3), 1.8, game.AMBER)
+		if game.selected.has(building) and game.zoom >= 10:
 			var text: String = ABBREVIATIONS.get(building.kind, "")
-			game.draw_string(font, center - Vector2(font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11).x / 2, -4), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("e0edf1"))
+			game.draw_string(font, center + Vector2(-12, -18), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("e0edf1"))
 		if not building.complete:
 			game.draw_line(center + Vector2(-14, 15), center + Vector2(-14 + 28 * building.progress, 15), game.AMBER, 3)
 		if Power.is_electrical(building.kind) and not building.powered and building.complete:
 			game.draw_circle(center + Vector2(10, -10), 3, Color("ef886a"))
 	for wreck in game.wrecks:
-		game.draw_circle(game.world_to_screen(wreck.node.position), game.zoom * 0.7, Color("50433a"))
+		game.sprites.draw(game, wreck.node.kind + "_wreck", wreck.node.position, -wreck.node.yaw, Color(1, 1, 1, minf(1, float(wreck.life) / 5)))
 	for actor in game.units + game.creatures:
 		if actor.hp <= 0 or not actor.visible or (actor is SimUnit and actor.aboard != null): continue
 		var center: Vector2 = game.world_to_screen(game.actor_position(actor))
 		var radius: float = unit_radius(actor) * game.zoom
 		var color: Color = Color("dc7185") if actor is SimPredator else COLORS.get(actor.kind, Color.WHITE)
-		game.draw_circle(center, radius, color.darkened(0.25))
-		game.draw_arc(center, radius, 0, TAU, 24, color, 1.5, true)
+		game.sprites.draw(game, actor.kind, game.actor_position(actor), game.sprites.actor_angle(actor))
 		if game.selected.has(actor):
-			game.draw_arc(center, radius + 4, 0, TAU, 24, game.MINT, 1.5, true)
 			var target: SimEntity = actor.focus_target if SimEntity.valid(actor.focus_target) else actor.target
 			if SimEntity.valid(target): game.draw_line(center, game.world_to_screen(target.position), Color(game.MINT, 0.5), 1, true)
 			elif actor is SimUnit and actor.moving(): game.draw_line(center, game.world_to_screen(actor.goal), Color(game.MINT, 0.3), 1, true)
 		if actor is SimUnit:
-			var facing := Vector2(actor.facing.x, actor.facing.z).rotated(game.camera_angle)
-			game.draw_line(center, center + facing * radius * 1.3, Color("15252d"), 2, true)
-			if actor.is_vehicle() and not actor.has_driver(): game.draw_circle(center, 2, game.AMBER)
+			if actor.is_vehicle():
+				game.draw_circle(center, 1.4, game.AMBER)
+				if actor.has_driver() and actor.battery > 0:
+					var facing := Vector2(actor.facing.x, actor.facing.z).rotated(game.camera_angle)
+					game.draw_circle(center + facing * radius, 1.4, Color("dcf5e6"))
+			if actor.order in ["build", "repair"] and SimEntity.valid(actor.target) and actor.position.distance_to(actor.target.position) < 3.5:
+				game.sprites.draw(game, "repair_sparks_0%d" % (int(game.elapsed * 8) % 2), actor.position.lerp(actor.target.position, 0.6), 0, Color.WHITE, Vector2.ONE * 0.5)
 	for blip in game.sensor_blips: game.draw_arc(game.world_to_screen(blip.position), game.zoom, 0, TAU, 24, Color(game.AMBER, 0.7), 1, true)
 	if game.mission.item.visible:
 		var point: Vector2 = game.world_to_screen(game.mission.item.position)
-		game.draw_circle(point, 4, Color("ffd790"))
-	for event in game.simulation.events:
-		if event.type == "shot" and game.tick_number - int(event.tick) <= 1: game.draw_line(game.world_to_screen(event.a), game.world_to_screen(event.b), event.color, 2, true)
+		game.sprites.draw(game, "hive_core", game.mission.item.position)
+	game.sprites.draw_effects(game)
 	if game.build_kind != "" and game.mouse_world.is_finite():
 		var point := Hex.snap(game.mouse_world, Terrain.CELL)
 		var valid: bool = game.simulation.valid_site(game.build_kind, point, game.placement_direction)
 		var polygon := footprint_polygon(game, game.build_kind, point, game.placement_direction)
 		var color := Color("7bf4d0") if valid else Color("ee7185")
-		game.draw_colored_polygon(polygon, Color(color, 0.3)); outline(game, polygon, color, 2)
+		game.draw_colored_polygon(polygon, Color(color, 0.3))
+		var key: String = game.build_kind + "_base" if Rules.TURRETS.has(game.build_kind) else game.build_kind
+		game.sprites.polygon(game, key, polygon, point, game.placement_direction * PI / 3, Color(color, 0.6))
+		outline(game, polygon, color, 2)
 		if Power.is_electrical(game.build_kind):
 			for source in game.structures:
 				if source.kind in Power.SOURCES:

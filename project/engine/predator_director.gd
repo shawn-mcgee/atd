@@ -144,7 +144,6 @@ func change(group: Dictionary, phase: String, game) -> void:
 	if phase == "staging":
 		# Broad scanner activity, without exposing coordinates or a countdown.
 		game.report_activity(group.anchor)
-		game.play_cue(90.0, 0.45, 0.16)
 	if phase == "assault": assaults_started += 1
 
 func tick(game, dt: float) -> void:
