@@ -681,6 +681,9 @@ runs only the 64-per-side stress case. The CPU target is below 4 ms per full tic
 including hash boundaries and command ticks; this remains an optimization target,
 not a verified performance guarantee. Add `--verify` to check hostile separation
 on every tick and replay from a JSON checkpoint, outside timed intervals.
+The headless wrapper and Web self-test both call `tests/movement_benchmark.gd`;
+add `--benchmark` to the browser harness command to save release-Web measurements
+in `test-results/movement-browser.json`. Both modes measure the same complete ticks.
 Timings are diagnostics, not guarantees; dense crowd work remains separate from
 static route searches and is reported explicitly by the opposing-group probe.
 
@@ -711,10 +714,14 @@ rasterization, shared static routes, hostile separation and restore/replay.
 
 Exploration shares shrinking unknown-tile envelopes between observers of the same
 owner/radius in a hex; fully discovered envelopes require no further tile scans.
-Radius stencils are prepared once. Movement uses integer-vector spatial bucket keys,
+Radius stencils and immutable tile-key tables are prepared once; rollback retains
+only those static tables and discards all observer/discovery cache entries.
+Movement shares ordered lists of live spatial buckets between nearby queries,
+invalidating them when a previously empty bucket gains a body. It uses integer-vector spatial bucket keys,
 scalar swept-circle contact math and cached static clearance certificates covering
 every steering direction in a tile; hostile contacts still run every movement tick.
 Illumination validates once at tick entry and
 invalidates on source/blocker movement, creation, death and transformation. Veil
 maintenance avoids per-cell filter allocations and sorts only tissue needing damage.
-These derived caches are discarded on restore.
+State-dependent derived caches are discarded on restore. Integer roots use a native
+estimate corrected by exact integer division, including at int64 square boundaries.

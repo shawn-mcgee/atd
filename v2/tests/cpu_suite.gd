@@ -19,6 +19,10 @@ func run() -> Dictionary:
 			_check((root == 0 and value == 0) or (root > 0 and root <= value / root and root + 1 > value / (root + 1)), "integer root remains exact at bit boundaries")
 	var top := Sim.integer_sqrt(9223372036854775807)
 	_check(top == 3037000499, "integer root handles maximum signed input without overflow")
+	for root in [1, 2, 3, 15, 255, 65535, 65536, 1048575, 134217728, 2147483647, 3037000499]:
+		for offset in [-1, 0, 1]:
+			_check(Sim.integer_sqrt(root * root + offset) == root - (1 if offset == -1 else 0), "native root estimate is corrected exactly around perfect squares")
+	_crowd_windows()
 	_fringe()
 	_sweeps()
 	_hash_boundaries()
@@ -56,6 +60,26 @@ func run() -> Dictionary:
 	for tick in 80: game.step([])
 	_check(game.state_hash() == expected and expected == Canonical.hash_of(game.state), "JSON restore reproduces local forces, obstacle snapshots and exact hashes")
 	return {"checks": checks, "failures": failures}
+
+func _crowd_windows() -> void:
+	var game = Fixture.new()._game()
+	game._spawn("engineer", 1, [0, 0, 0]); var first = game.state.actors.back()
+	game._spawn("engineer", 1, [3072, 0, 0]); var second = game.state.actors.back()
+	var crowd := Crowd.new()
+	crowd.rebuild(game.state.actors, game.content.units, {})
+	var found := crowd.query(1, 0, 0, Hex.SCALE)
+	_check(found.size() == 1 and found[0].id == int(first.id), "initial cached window excludes distant bodies")
+	second.position = [-800, 0, 0]; crowd.moved(second)
+	found = crowd.query(1, 0, 0, Hex.SCALE)
+	_check(found.size() == 2, "entering an empty bucket invalidates cached windows")
+	second.position = [400, 0, 0]; crowd.moved(second)
+	found = crowd.query(1, 0, 0, Hex.SCALE)
+	_check(found.size() == 2 and found[0].id != found[1].id, "live bucket arrays update without duplicate bodies")
+	second.hp = 0
+	found = crowd.query(1, 0, 0, Hex.SCALE)
+	_check(found.size() == 1 and found[0].id == int(first.id), "dead bodies disappear from cached windows")
+	for value in [-4097, -4096, -2049, -2048, -1, 0, 2047, 2048, 4096]:
+		_check(Crowd.coordinate(value) == floori(float(value) / 2048.0), "bucket coordinates floor both sides of zero")
 
 func _fringe() -> void:
 	var fixture = Fixture.new()

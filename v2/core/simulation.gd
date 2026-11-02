@@ -71,7 +71,7 @@ func checkpoint() -> Dictionary:
 func restore(saved: Dictionary) -> void:
 	assert(saved.content_hash == state.content_hash, "Checkpoint content mismatch")
 	state = Canonical.normalize(saved)
-	_exploration_cache.clear()
+	Exploration.reset(_exploration_cache)
 	_illumination_cache.clear()
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
@@ -498,18 +498,13 @@ static func distance_squared(a: Array, b: Array) -> int:
 	var r := int(a[2]) - int(b[2])
 	return q * q + r * r + q * r
 
+@warning_ignore("integer_division")
 static func integer_sqrt(value: int) -> int:
 	if value <= 0: return 0
-	# Start Newton near the root using integer bit length, rather than at value.
-	var bits := 1; var high := value
-	for shift in [32, 16, 8, 4, 2, 1]:
-		if high >= (1 << shift): high >>= shift; bits += shift
-	@warning_ignore("integer_division")
-	var x := 1 << ((bits + 1) / 2)
-	@warning_ignore("integer_division")
-	var y := (x + value / x) / 2
-	while y < x:
-		x = y
-		@warning_ignore("integer_division")
-		y = (x + value / x) / 2
-	return x
+	# Native sqrt supplies only an estimate. Integer division corrects either
+	# rounding direction and proves the exact floor, including all int64 inputs.
+	# No floating-point approximation can enter movement or checkpoint state.
+	var root := int(sqrt(float(value)))
+	while root > value / root: root -= 1
+	while root + 1 <= value / (root + 1): root += 1
+	return root

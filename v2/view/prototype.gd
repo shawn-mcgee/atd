@@ -131,6 +131,9 @@ func _web_test_action(arguments: Array) -> void:
 				if session.controls(int(actor.owner)) and actor.definition == "nest": selected.append(int(actor.id))
 			_order({"kind": "veil_stance", "stance": "defensive"})
 	var info := {"running": session.running, "room": session.transport.room, "players": session.roster.size(), "error": session.error, "status": status.text}
+	if str(arguments[0]) == "benchmark":
+		var probe = load("res://tests/movement_benchmark.gd").new()
+		info.benchmark = probe.run(PackedStringArray(str(arguments[1]).split(" ", false)))
 	if str(arguments[0]).begins_with("config_"):
 		var content = config_editor.validate_content()
 		info.config_files = config_editor.workspace.files.size()

@@ -56,7 +56,12 @@ async function main() {
   const nativeLog = path.join(results, 'foundation.log');
   if (!fs.existsSync(nativeLog)) throw new Error('Run test-rewrite.py first to provide a native parity result');
   const native = JSON.parse(fs.readFileSync(nativeLog, 'utf8').split('\n').find(line => line.startsWith('ATD_RESULT ')).slice(11));
+  if (foundation.checks !== native.checks) throw new Error('Native/browser test counts differ; rebuild the Web export');
   if (foundation.deterministic_hash !== native.deterministic_hash) throw new Error('Native/browser deterministic hashes differ');
+  const benchmark = args.includes('--benchmark')
+    ? (await state(host, 'benchmark', '--opposing --large --verify')).benchmark : null;
+  if (benchmark && !benchmark.ok) throw new Error('Browser movement collision/replay verification failed');
+  if (benchmark) fs.writeFileSync(path.join(results, 'movement-browser.json'), JSON.stringify(benchmark, null, 2));
   await host.screenshot({ path: path.join(results, 'configurator.png') });
   // Exercise actual browser downloads/upload, preserving editable project files.
   const projectDownload = host.waitForEvent('download');
@@ -165,7 +170,7 @@ async function main() {
   }
   if (errors.length) throw new Error(errors.join('\n'));
   const result = { ok: true, native_browser_hash: foundation.deterministic_hash, foundation_checks: foundation.checks,
-    browser_match: comparison, native_browser_match: nativeBrowserMatch, screenshots: ['configurator.png', 'arena.png', 'veil.png'] };
+    browser_match: comparison, native_browser_match: nativeBrowserMatch, benchmark, screenshots: ['configurator.png', 'arena.png', 'veil.png'] };
   fs.writeFileSync(path.join(results, 'browser.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 }

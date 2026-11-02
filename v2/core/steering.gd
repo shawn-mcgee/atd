@@ -12,23 +12,18 @@ static func _scaled(game, q: int, r: int, length: int) -> Vector2i:
 	return Vector2i(q * length / size, r * length / size)
 
 static func _nearest(body: Crowd.Body, candidates: Array[Crowd.Body], reach: int) -> Array[Crowd.Body]:
-	var result: Array[Crowd.Body] = []
-	var distances: Array[int] = []
+	var entries: Array = []
 	for other in candidates:
 		if other.id == body.id: continue
 		var q := body.q - other.q; var r := body.r - other.r
 		var distance := q * q + q * r + r * r
 		var limit := body.radius + other.radius + reach
-		if distance >= limit * limit: continue
-		if result.size() == MAX_NEIGHBORS:
-			var last := result.size() - 1
-			if distance > distances[last] or (distance == distances[last] and other.id >= result[last].id): continue
-			result.pop_back(); distances.pop_back()
-		var index := result.size()
-		result.append(other); distances.append(distance)
-		while index > 0 and (distance < distances[index - 1] or (distance == distances[index - 1] and other.id < result[index - 1].id)):
-			result[index] = result[index - 1]; distances[index] = distances[index - 1]; index -= 1
-		result[index] = other; distances[index] = distance
+		if distance < limit * limit: entries.append([distance, other.id, other])
+	# Native lexicographic sorting avoids an interpreted insertion loop for each
+	# candidate. IDs break every distance tie before the body object is reached.
+	entries.sort()
+	var result: Array[Crowd.Body] = []
+	for i in mini(MAX_NEIGHBORS, entries.size()): result.append(entries[i][2])
 	return result
 
 static func _legal(game, body: Crowd.Body, point: Array, blocked: Dictionary, enemies: Array[Crowd.Body], open_static: bool) -> bool:
