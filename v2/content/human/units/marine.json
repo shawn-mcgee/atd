@@ -9,7 +9,7 @@
       "production_ticks": 80,
       "visual": {
         "shape": "cylinder",
-        "radius": 0.5,
+        "radius": 0.2,
         "color": "68cbd6"
       },
       "capabilities": {

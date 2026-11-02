@@ -2,6 +2,9 @@ extends RefCounted
 const Hex = preload("res://core/hex_cells.gd")
 
 static func record(game, cache: Dictionary) -> void:
+	for key in game.state.veil.cells:
+		var cell: Dictionary = game.state.veil.cells[key]
+		if int(cell.hp) > 0: game.state.revealed[str(cell.owner)][key] = true
 	for actor in game.state.actors:
 		if int(actor.hp) <= 0: continue
 		var signature := [actor.definition, actor.position]

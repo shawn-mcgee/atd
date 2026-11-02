@@ -1,5 +1,5 @@
 extends RefCounted
-## Predict missing frames as no new commands. AI runs inside the restored simulation.
+## Predict missing frames as no new commands. Local sandbox participants use the same input frames as network peers.
 signal frame_ready(frame: Dictionary)
 signal confirmed(tick: int, state_hash: String)
 signal events_confirmed(events: Array)
@@ -7,6 +7,8 @@ const Simulation = preload("res://core/simulation.gd")
 const Canonical = preload("res://core/canonical.gd")
 var simulation = Simulation.new()
 var local_id := 1
+var local_ids: Array[int] = []
+var pending_by_player: Dictionary = {}
 var human_ids: Array[int] = []
 var frames: Dictionary = {}
 var checkpoints: Dictionary = {}
@@ -21,6 +23,8 @@ var input_delay := 2
 
 func initialize(content: Dictionary, players: Array, seed_value: int, own_id: int) -> void:
 	local_id = own_id
+	local_ids.assign([own_id])
+	pending_by_player.clear()
 	window = int(content.settings.rollback_ticks)
 	input_delay = int(content.settings.input_delay)
 	human_ids.clear(); frames.clear(); checkpoints.clear(); hashes.clear(); pending.clear()
@@ -35,12 +39,15 @@ func initialize(content: Dictionary, players: Array, seed_value: int, own_id: in
 	checkpoints[0] = simulation.checkpoint()
 	hashes[0] = simulation.state_hash()
 
-func queue(command: Dictionary) -> bool:
-	if not human_ids.has(local_id) or not error.is_empty(): return false
+func queue(command: Dictionary, player: int = -1) -> bool:
+	if player == -1: player = local_id
+	if not local_ids.has(player) or not human_ids.has(player) or not error.is_empty(): return false
 	var command_list = _sanitize([command])
 	if command_list == null: return false
-	if pending.size() >= 32: return false
-	pending.append(command_list[0])
+	var commands: Array = pending if player == local_id else pending_by_player.get(player, [])
+	if commands.size() >= 32: return false
+	commands.append(command_list[0])
+	if player != local_id: pending_by_player[player] = commands
 	return true
 
 func advance() -> bool:
@@ -49,11 +56,13 @@ func advance() -> bool:
 	# A slow/missing peer stalls the session before unconfirmed history is discarded.
 	if tick - confirmed_tick > window: return false
 	var future := tick + input_delay
-	if human_ids.has(local_id) and not frames.get(future, {}).has(local_id):
-		var commands := pending.duplicate(true)
-		pending.clear()
-		if not receive(local_id, future, commands): return false
-		frame_ready.emit({"tick": future, "commands": commands})
+	for player in local_ids:
+		if not human_ids.has(player) or frames.get(future, {}).has(player): continue
+		var source: Array = pending if player == local_id else pending_by_player.get(player, [])
+		var commands := source.duplicate(true)
+		source.clear()
+		if not receive(player, future, commands): return false
+		frame_ready.emit({"player": player, "tick": future, "commands": commands})
 	simulation.step(_commands_at(tick))
 	_save()
 	_confirm()

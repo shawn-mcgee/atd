@@ -58,20 +58,22 @@ func _run() -> void:
 		var body = view.actor_nodes[int(actor.id)].get_node("Body")
 		_check(body.mesh is CapsuleMesh or body.mesh is CylinderMesh, "every actor uses an allowed round mesh")
 		_check(body.has_node("Facing") and body.get_node("Facing").visible, "every actor has an orientation indicator")
-		var radius := float(simulation.content.units[actor.definition].visual.radius) * sqrt(3.0) * 0.5
+		var radius := float(simulation.content.units[actor.definition].visual.radius) * sqrt(3.0)
 		_check(is_equal_approx(float(body.mesh.radius if body.mesh is CapsuleMesh else body.mesh.top_radius), radius), "configured radius reaches the actor mesh")
 	# The grid has unit-length center-to-vertex vectors. Its edge midpoint is the apothem.
 	var edge_midpoint := (Vector3(cos(PI / 6.0), 0, sin(PI / 6.0)) + Vector3(0, 0, 1)) * 0.5
 	for shape in ["capsule", "cylinder"]:
-		var definition: Dictionary = simulation.content.units.hq.duplicate(true)
-		definition.visual.shape = shape
-		definition.visual.radius = 1
-		var unit_radius_node: Node3D = view._actor_node(simulation.entity(1), definition)
-		var mesh = unit_radius_node.get_node("Body").mesh
-		var mesh_radius := float(mesh.radius if mesh is CapsuleMesh else mesh.top_radius)
-		_check(is_equal_approx(mesh_radius, edge_midpoint.length()), "radius one touches tile edge midpoints and stays inside the hex")
-		_check(is_equal_approx(float(unit_radius_node.get_meta("radius")), mesh_radius), "picking uses the same tile-inner-radius scale as the mesh")
-		unit_radius_node.queue_free()
+		for radius_in_tiles in [0.5, 1.0]:
+			var definition: Dictionary = simulation.content.units.hq.duplicate(true)
+			definition.visual.shape = shape
+			definition.visual.radius = radius_in_tiles
+			var unit_radius_node: Node3D = view._actor_node(simulation.entity(1), definition)
+			var mesh = unit_radius_node.get_node("Body").mesh
+			var mesh_radius := float(mesh.radius if mesh is CapsuleMesh else mesh.top_radius)
+			var expected_radius: float = edge_midpoint.length() if radius_in_tiles == 0.5 else view._world([1024, 0, 0]).length()
+			_check(is_equal_approx(mesh_radius, expected_radius), "radius half fits the hex; radius one equals adjacent tile-center spacing")
+			_check(is_equal_approx(float(unit_radius_node.get_meta("radius")), mesh_radius), "picking uses the same inner-diameter scale as the mesh")
+			unit_radius_node.queue_free()
 	simulation.entity(2).facing = [1024, 0, 0]
 	state_hash = simulation.state_hash()
 	view._sync_meshes()
@@ -125,6 +127,8 @@ func _run() -> void:
 	_check(view.veil_overlay.get_node("Membrane").visible, "Lightless can inspect their Veil")
 	_check(view.veil_overlay.get_node("Perception").visible, "perception overlay is available")
 	view.selected.assign([1])
+	view._refresh_hud()
+	_check("Passive Scavenger: 0/6 alive" in view.inspector.text and "Next birth:" in view.inspector.text, "source inspector exposes passive count and timer")
 	view.stance_choices.select(1)
 	view._set_veil_stance()
 	_check(simulation.state_hash() == state_hash, "stance controls enqueue rather than mutate")
@@ -171,6 +175,50 @@ func _run() -> void:
 	_check(int(simulation.state.banks["1"]) == bank_before + 500 and "Nest lost: +500 chyme" in view.event_log.text, "confirmed Nest loss reports the one-time owned grant")
 	view._confirmed_events([{"type": "nest_destroyed", "owner": 2, "amount": 999, "production_rate": 8, "construction_rate": 8}])
 	_check(not "999" in view.event_log.text, "economic notices from other participants remain private")
+	view._reset()
+	var veil_only: Dictionary = view._content().data.duplicate(true)
+	for definition in veil_only.units.values():
+		if definition.faction == "lightless": definition.capabilities.erase("perception")
+	view.session.start_local(veil_only, 42, "lightless")
+	view.set_process(false)
+	view.session.advance()
+	simulation = view.session.rollback.simulation
+	simulation.entity(6).position = simulation.entity(1).position.duplicate()
+	state_hash = simulation.state_hash()
+	view.veil_overlay.show_veil = false
+	view.veil_overlay.show_perception = true
+	view._sync_meshes()
+	_check(view.actor_nodes[6].visible, "enemy mesh is shown through Veil perception without actor sensors")
+	_check(view.veil_overlay.get_node("Perception").visible and not view.veil_overlay.get_node("Membrane").visible, "perception overlay shows membrane coverage independently of membrane fill")
+	_check(simulation.state_hash() == state_hash, "Veil perception drawing remains read-only")
+	view._reset()
+	view.faction.select(0)
+	view._local()
+	view.set_process(false)
+	simulation = view.session.rollback.simulation
+	state_hash = simulation.state_hash()
+	view._switch_control(1)
+	_check(simulation.state_hash() == state_hash and view.session.controls(2) and not view.session.controls(1), "sandbox switches faction without changing simulation state")
+	view.selected.assign([1, 4])
+	view._order({"kind": "train", "definition": "scavenger"})
+	for tick in 3: view.session.advance()
+	_check(int(simulation.state.banks["1"]) == 100 and int(simulation.state.banks["2"]) < 100, "switched faction spends only its own bank through queued input")
+	state_hash = simulation.state_hash()
+	view._switch_control(2)
+	_check(simulation.state_hash() == state_hash and view.session.controls(1) and view.session.controls(2), "sandbox both mode grants both participants without state mutation")
+	view.selected.assign([2, 5])
+	view._order({"kind": "move", "point": [0, 0, 0]})
+	for tick in 3: view.session.advance()
+	_check(simulation.entity(2).order.get("kind") == "move" and simulation.entity(5).order.get("kind") == "move", "mixed selection routes commands to each actor owner")
+	view._sync_meshes()
+	_check(view.actor_nodes[1].visible and view.actor_nodes[4].visible, "both mode combines faction vision")
+	view._switch_control(0)
+	view.selected.assign([5])
+	view._order({"kind": "stop"})
+	for tick in 3: view.session.advance()
+	_check(simulation.entity(5).order.get("kind") == "move", "single-faction mode rejects orders to the other faction")
+	for tick in 130: view.session.advance()
+	_check(view.session.rollback.confirmed_tick == int(simulation.state.tick) - 1 and view.session.error.is_empty(), "sandbox supplies idle frames for both factions beyond rollback window")
 	await process_frame
 	_check(view.hud.get_global_rect().end.y <= 800, "scrollable HUD stays inside the viewport")
 	view.queue_free()

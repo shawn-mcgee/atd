@@ -2,7 +2,7 @@ extends RefCounted
 ## JSON is configuration, not executable code. All errors include a field path.
 const Canonical = preload("res://core/canonical.gd")
 const ConfigFiles = preload("res://authoring/config_files.gd")
-const CAPABILITIES := ["move", "weapon", "perception", "illumination", "detection", "factory", "veil_source", "chyme_collector", "chyme_receiver", "chyme_source", "metamorphosis", "mission_worker", "extraction_point"]
+const CAPABILITIES := ["move", "weapon", "perception", "illumination", "detection", "factory", "veil_source", "chyme_collector", "chyme_receiver", "chyme_source", "metamorphosis", "mission_worker", "extraction_point", "passive_spawner"]
 var data: Dictionary = {}
 var errors: Array[String] = []
 
@@ -101,6 +101,14 @@ func load_text(source: String) -> bool:
 				continue
 			match cap:
 				"move": _number(caps[cap], "speed", 0.1, 15, cap_path)
+				"passive_spawner":
+					if definition.get("faction") != "lightless" or caps.has("move"): errors.append(cap_path + ": requires a stationary Lightless structure")
+					_number(caps[cap], "interval_ticks", 1, 10000, cap_path, true)
+					_number(caps[cap], "max_alive", 1, 64, cap_path, true)
+					_number(caps[cap], "spawn_radius", 1, 4, cap_path, true)
+					var product = caps[cap].get("definition")
+					if not product is String or not definitions.get(product) is Dictionary or definitions[product].get("faction") != "lightless" or not definitions[product].get("capabilities") is Dictionary or not definitions[product].capabilities.has("move"):
+						errors.append(cap_path + ".definition: expected a mobile Lightless definition")
 				"mission_worker":
 					if definition.get("faction") != "human" or not caps.has("move"): errors.append(cap_path + ": requires a mobile Human worker")
 					for spec in [["capacity", 1, 10000], ["mining_amount", 1, 10000], ["mining_interval_ticks", 1, 10000]]: _number(caps[cap], spec[0], spec[1], spec[2], cap_path, true)

@@ -84,6 +84,8 @@ static func _change(game, actor: Dictionary, type: String) -> void:
 	actor.ready_tick = maxi(int(actor.ready_tick), int(game.state.tick))
 	actor.chyme = 0
 	actor.next_chyme_tick = int(game.state.tick) + int(game.content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0))
+	actor.passive_started_tick = int(game.state.tick)
+	actor.passive_remaining = int(game.content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0))
 
 static func _scaled_hp(hp: int, old_max: int, new_max: int) -> int:
 	@warning_ignore("integer_division")

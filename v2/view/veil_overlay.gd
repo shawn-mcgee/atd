@@ -54,6 +54,13 @@ func refresh(game, owner: int, selected: Array) -> void:
 	_surface("Links", Mesh.PRIMITIVE_LINES, lines, [], Color("cfaddf"))
 	var illumination: Array = []
 	var perception: Array = []
+	if show_perception:
+		for cell in veil.cells.values():
+			if int(cell.owner) != owner or int(cell.hp) <= 0: continue
+			var center := _world(Hex.point([cell.q, cell.r])) + Vector3(0, 0.025, 0)
+			for edge in 6:
+				perception.append(center + _corner(edge))
+				perception.append(center + _corner(edge + 1))
 	for actor in game.state.actors:
 		if int(actor.owner) != owner: continue
 		var caps: Dictionary = game.content.units[actor.definition].capabilities

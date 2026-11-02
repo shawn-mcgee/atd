@@ -9,6 +9,7 @@ const Construction = preload("res://core/construction.gd")
 const Exploration = preload("res://core/exploration.gd")
 const Escalation = preload("res://core/nest_escalation.gd")
 const Mission = preload("res://core/mission.gd")
+const Spawning = preload("res://core/spawning.gd")
 const SCALE := 1024
 var content: Dictionary
 var state: Dictionary
@@ -17,7 +18,7 @@ var _exploration_cache: Dictionary = {}
 func initialize(definitions: Dictionary, players: Array, seed_value: int) -> void:
 	content = definitions.duplicate(true)
 	_exploration_cache.clear()
-	state = {"version": 7, "content_hash": Canonical.hash_of(content), "tick": 0, "next_id": 1,
+	state = {"version": 9, "content_hash": Canonical.hash_of(content), "tick": 0, "next_id": 1,
 		"rng": seed_value & 0x7fffffff, "players": players.duplicate(true), "actors": [], "banks": {}, "revealed": {}, "escalations": {}, "events": [], "event_serial": 0, "veil": Veil.initial_state()}
 	var starts := [[-8, 0], [8, 0], [0, -8], [0, 8], [-8, 8], [8, -8], [-4, -4], [4, 4]]
 	var span := mini(8, int(content.settings.map_radius) - 3)
@@ -57,7 +58,6 @@ func step(commands: Array) -> void:
 	for command in commands: _apply(command)
 	for actor in state.actors:
 		if int(actor.hp) <= 0 or Mission.defeated(self, int(actor.owner)): continue
-		Mission.ai(self, actor)
 		if actor.order.get("kind") in Mission.WORK_ORDERS:
 			Mission.work(self, actor)
 			continue
@@ -71,6 +71,7 @@ func step(commands: Array) -> void:
 		var caps: Dictionary = definition.capabilities
 		Chyme.passive(self, actor)
 		if not actor.production.is_empty(): _production(actor)
+		Spawning.tick(self, actor)
 		if actor.order.get("kind") == "attack":
 			var ordered_target = entity(int(actor.order.target))
 			if ordered_target == null or (not actor.order.get("manual", false) and Mission.defeated(self, int(ordered_target.owner))): actor.order = {}
@@ -102,8 +103,9 @@ func step(commands: Array) -> void:
 	Escalation.resolve(self)
 	Mission.resolve(self)
 	state.actors = state.actors.filter(func(actor): return int(actor.hp) > 0)
-	Exploration.record(self, _exploration_cache)
 	Veil.tick(self)
+	Exploration.record(self, _exploration_cache)
+	Mission.record_visibility(self)
 	state.tick = int(state.tick) + 1
 
 func entity(id: int):
@@ -116,6 +118,7 @@ func visible_to(owner: int, target: Dictionary) -> int:
 	return visibility_at(owner, target.position)
 
 func visibility_at(owner: int, point: Array) -> int:
+	if Veil.perceives(self, owner, point): return 2
 	var detected := false
 	for source in state.actors:
 		if int(source.owner) != owner or int(source.hp) <= 0: continue
@@ -190,6 +193,7 @@ func _spawn(type: String, owner: int, position: Array) -> void:
 		"hp": int(content.units[type].hp), "order": {}, "ready_tick": 0, "production": [], "construction": {}, "veil_networks": [],
 		"nacre": 0, "mining_ready_tick": 0,
 		"facing": [0, 0, -SCALE],
+		"spawn_source": 0, "passive_started_tick": int(state.tick), "passive_remaining": int(content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0)),
 		"chyme": 0, "next_chyme_tick": int(state.tick) + int(content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0)),
 		"veil_stance": {"mode": "neutral", "network": 0, "order": 0, "target": [], "expires": 0}})
 	state.next_id = int(state.next_id) + 1
@@ -229,25 +233,12 @@ func _nearest_enemy(actor: Dictionary):
 func _automatic_order(actor: Dictionary) -> void:
 	if actor.order.get("manual", false): return
 	if actor.order.get("kind") == "deliver_chyme": return
-	var collector: Dictionary = content.units[actor.definition].capabilities.get("chyme_collector", {})
-	if _is_ai(int(actor.owner)) and not collector.is_empty() and int(actor.chyme) >= int(collector.capacity):
-		Chyme.order_delivery(self, actor, 0, false)
-		if actor.order.get("kind") == "deliver_chyme": return
 	var stance: Dictionary = actor.veil_stance
 	var active: bool = stance.mode != "neutral" and not stance.target.is_empty() and (int(stance.expires) == 0 or int(stance.expires) > int(state.tick))
 	if active:
 		var target = _nearest_enemy(actor)
 		actor.order = {"kind": "attack", "target": int(target.id), "veil_order": true} if target != null else {"kind": "move", "point": stance.target.duplicate(), "veil_order": true}
-	elif _is_ai(int(actor.owner)):
-		var target = _nearest_enemy(actor)
-		if target != null: actor.order = {"kind": "attack", "target": int(target.id)}
-		elif actor.order.get("veil_order", false): actor.order = {}
 	elif actor.order.get("veil_order", false): actor.order = {}
-
-func _is_ai(owner: int) -> bool:
-	for player in state.players:
-		if int(player.id) == owner: return player.controller == "ai"
-	return false
 
 func valid_point(value) -> bool:
 	if not value is Array or value.size() != 3: return false

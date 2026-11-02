@@ -16,7 +16,7 @@ The player establishes a base, scouts the darkness, gathers resources, and expan
 **Rewrite objectives**
 Human participants land on the planet, repair the extraction point, destroy the Nest, and mine nacre from its remains. Nacre must be transported to and deposited at the extraction point. Once the extraction point holds the required threshold of nacre, extraction can be triggered. Reaching the threshold enables the player to start an extraction countdown when they choose. The player must defend the extraction point until the countdown completes. They can delay starting it to gather and extract additional nacre, accepting the risk of remaining on the planet longer. The first Human participant to successfully extract wins the match, ending it for all participants.
 
-The Lightless defeat a Human participant by destroying that participant's HQ or extraction point. To win the match, the Lightless must defeat every Human participant, including AI-controlled Humans. Defeating one Human participant does not end a match while others remain.
+The Lightless defeat a Human participant by destroying that participant's HQ or extraction point. To win the match, the Lightless must defeat every Human participant, including AI-controlled Humans once AI is implemented. Defeating one Human participant does not end a match while others remain.
 
 The Hive Recovery rules below describe the existing implementation. Its Hive Core, dropped-core loss condition, extraction timer, and repairable destroyed beacon are historical reference points; they are not automatically the rules for the nacre objective.
 
@@ -78,7 +78,7 @@ In the rewrite, illumination and perception both provide full visibility and tar
 **Veil (Lightless) — Planned**
 The Veil is a membrane passively produced by Lightless structures within a certain radius. It grows outward from the producing structure, branching onto unoccupied tiles. Veil does not grow on illuminated tiles. Illumination damages existing Veil and notifies Lightless connected to that Veil network. When a Veil-producing structure is destroyed, the Veil it produced decays over time. A surviving source maintains areas of Veil that overlap its own; only areas with no surviving source support decay. Growth radius, growth rate, and decay rate are tunable values.
 
-The Veil acts as a nervous system for the Lightless. Destroying it or stepping onto it with a unit alerts the Lightless. Stepping onto Veil does not itself damage it. Perception can reveal Veil without damaging it or preventing its growth; illumination prevents growth and damages existing Veil. The Veil also provides a communication network between connected Lightless.
+The Veil acts as a nervous system for the Lightless. Destroying it or stepping onto it with a unit alerts the Lightless. Stepping onto Veil does not itself damage it. Perception can reveal Veil without damaging it or preventing its growth; illumination prevents growth and damages existing Veil. Every tile covered in living Veil also provides perception to its owning Lightless participant, in addition to unit and structure perception. The Veil also provides a communication network between connected Lightless.
 
 **Veil stances**
 Both friendly and hostile units can be detected when they enter Veil. Entering Lightless adopt the stance of their participant's global Veil network. When a hostile unit enters, the network's stance determines how its Lightless automatically respond.
@@ -133,7 +133,7 @@ A note on values - Any actual numbers in this document are subject to tuning and
 
 Speed is a trait that defines how fast a unit can move and it is defined in terms of tiles per second where one tile unit is the length of its inner diameter.
 
-Size is a trait that defines how large a unit is in terms of tiles where each unit of size corresponds to one tile's inner radius.
+Size, shape radii, movement and ranges use one shared distance unit: a tile's inner diameter (the distance from one edge to the opposite edge). A shape radius of 0.5 fits inside a tile; a radius of 1 gives a shape two tiles wide.
 
 Perception defines the perception radius of a unit in tiles. Perception also reveals tiles within range without illuminating them.
 
@@ -446,19 +446,19 @@ A direct order detaches a unit from its coordinated mission. Manual unloading ca
 
 #### Players, factions, and AI
 
-Each player controls their own units. A player can play as Humans or as the Lightless. AI can control either faction as well.
+Each player controls their own units. A player can play as Humans or as the Lightless. The current v2 demo is multiplayer only. Do not implement AI behavior until the player control interface is established for both factions. Local sandbox mode must allow switching between control of Humans, Lightless, or both factions within the running session.
 
-A match has exactly one Lightless participant. At most one human player may choose the Lightless; if nobody does, AI controls the Lightless. Every match must also have at least one Human-faction participant, using AI if no human player chooses Humans.
+A match has exactly one Lightless participant and at least one Human-faction participant. In the current demo, players must fill both factions; missing factions block multiplayer start. Once AI is added, it may fill either required faction when no player selects it.
 
-Ownership, faction, and controller type are separate properties: ownership determines whose units an actor can command, faction determines its gameplay rules and available content, and controller type determines whether a human or AI issues its orders. The core must support both factions under either controller type.
+Ownership, faction, and controller type are separate properties: ownership determines whose units an actor can command, faction determines its gameplay rules and available content, and controller type determines whether a human or AI issues its orders. Both factions must first be fully controllable by players; AI controllers are a later addition.
 
-The pre-match configurator should support choosing Human or Lightless faction and human or AI control for each participant. For the time being, every match is a free-for-all with no teams. Each participant opposes every other participant, including those of the same faction. Choosing the same faction does not create an alliance. The configurator must enforce the faction limits and AI fallbacks above. Information and resource-sharing rules and structure ownership remain to be defined. The rewrite objectives above replace the existing Hive Recovery objective.
+The pre-match configurator supports choosing Human or Lightless faction for each player; AI controller selection is deferred. For the time being, every match is a free-for-all with no teams. Each participant opposes every other participant, including those of the same faction. Choosing the same faction does not create an alliance. The configurator must enforce the faction limits above without AI fallbacks in the demo. Information and resource-sharing rules and structure ownership remain to be defined. The rewrite objectives above replace the existing Hive Recovery objective.
 
 #### Networking and rollback for the rewrite
 
 WebRTC multiplayer, using webrtc-coordinator for room coordination and signaling, is required. Rollback networking is required in the first playable multiplayer rewrite; it is not deferred to a later version.
 
-The simulation must support deterministic fixed ticks, tick-stamped player commands with a consistent execution order, complete state capture and restoration, and replay from a restored checkpoint without rendering. Gameplay state includes AI decisions and memory, random state, actor ownership and IDs, orders, resources, construction, visibility, Veil networks, and mission outcomes. Derived caches must be restored or rebuilt consistently.
+The simulation must support deterministic fixed ticks, tick-stamped player commands with a consistent execution order, complete state capture and restoration, and replay from a restored checkpoint without rendering. Gameplay state includes random state, actor ownership and IDs, orders, resources, construction, visibility, Veil networks, and mission outcomes. Derived caches must be restored or rebuilt consistently.
 
 The session layer retains recent checkpoints and command history, predicts missing remote input, and restores and re-simulates when late commands differ from predictions. Rollback must not duplicate presentation events or permanently commit match results and progression from speculative state.
 
@@ -468,7 +468,7 @@ Validation must cover checkpoint restoration and replay equality, delayed-comman
 
 #### Content authoring and tuning for the rewrite
 
-The rewrite needs a content pipeline for authoring and tuning gameplay as part of the prototyping workflow. A pre-match configurator should support both single-player and multiplayer sessions, letting players experiment with values and behaviors before starting a match.
+The rewrite needs a content pipeline for authoring and tuning gameplay as part of the prototyping workflow. A pre-match configurator should support both single-player and multiplayer sessions, letting players experiment with values and behaviors before starting a match. The current demo supports multiplayer and a local sandbox, with single-player AI deferred until both faction control interfaces are established.
 
 Content definitions should support more than editing the numeric stats of a fixed roster. The intended direction includes authoring entire units in the app through a structured format such as JSON. With the simplified 3D view, a unit definition can also describe its readable primitive shape, color, and label. JSON definitions combine existing capabilities, such as movement, weapons, mining, transport, burrowing, and Veil communication. Authors choose capabilities and configure their values; new capability logic is implemented in game code.
 
@@ -503,7 +503,7 @@ Further feedback includes rally points for production structures, visible queued
 These are unresolved design choices, not additional mechanics already approved for implementation. The settled rules are sufficient to begin the deterministic core, rollback/session layer, capability-based content pipeline, and simple top-down orthographic 3D view. Remaining rules should be resolved before implementing their affected features; numerical balance values can be exposed for tuning.
 
 - **Content authoring:** JSON definitions compose existing capabilities; new capability logic is added in code. Set the initial editable content types, presets, multiplayer content distribution, and live tuning; see Content authoring and tuning above.
-- **Players and objectives:** Matches are free-for-all, with exactly one Lightless participant and at least one Human-faction participant; AI fills either required faction when no human player selects it. The Lightless must defeat every Human participant to win, with destruction of a participant's HQ or extraction point defeating that participant. The first Human participant to extract with nacre wins and ends the match. Define structure ownership and information/resource sharing.
+- **Players and objectives:** Matches are free-for-all, with exactly one Lightless participant and at least one Human-faction participant; players must fill both factions in the current demo; AI fallbacks are deferred until both faction control interfaces are established. The Lightless must defeat every Human participant to win, with destruction of a participant's HQ or extraction point defeating that participant. The first Human participant to extract with nacre wins and ends the match. Define structure ownership and information/resource sharing.
 - **Visibility and targeting:** Perception and illumination provide the same visibility and targeting for ordinary units; only illumination causes light-specific effects. Detection alone permits turrets only. Define detection-only contact display and how Shade detection immunity, Thresher burrowing, and revealing melee attackers interact with these rules.
 - **Light and behavior:** Perception does not cause illumination-specific reactions or damage Veil; Stalkers can hunt unilluminated units in perceived areas. Define what illumination counts as protective light, which species can cross it independently, and which need a Father. The current director can launch assaults without a coordinating unit.
 - **Damage and armor:** Flat armor reduction is settled for now. Specify minimum damage, damage/armor types, bonus-damage ordering, attack intervals, friendly fire, and ray obstruction.

@@ -11,6 +11,8 @@ const EscalationSuite = preload("res://tests/escalation_suite.gd")
 const MissionSuite = preload("res://tests/mission_suite.gd")
 const OrientationSuite = preload("res://tests/orientation_suite.gd")
 const ConfigFilesSuite = preload("res://tests/config_files_suite.gd")
+const SpawningSuite = preload("res://tests/spawning_suite.gd")
+const VeilPerceptionSuite = preload("res://tests/veil_perception_suite.gd")
 var failures: Array[String] = []
 var checks := 0
 
@@ -26,8 +28,9 @@ func run() -> Dictionary:
 	invalid.units.marine.capabilities.script = {}
 	_check(not bad.load_text(Canonical.text(invalid)), "unknown capabilities rejected")
 	var fallback := Rules.participants([{"id": 1, "faction": "lightless", "controller": "human"}])
-	_check(fallback.size() == 2 and fallback[1].faction == "human" and fallback[1].controller == "ai", "AI supplies missing Human faction")
-	_check(Rules.participants([{"id": 1, "faction": "lightless", "controller": "human"}, {"id": 2, "faction": "lightless", "controller": "ai"}]).is_empty(), "only one Lightless participant")
+	_check(fallback.is_empty(), "missing faction is rejected without AI fallback")
+	_check(Rules.participants([{"id": 1, "faction": "lightless", "controller": "human"}, {"id": 2, "faction": "lightless", "controller": "human"}]).is_empty(), "only one Lightless participant")
+	_check(Rules.participants([{"id": 1, "faction": "human", "controller": "ai"}, {"id": 2, "faction": "lightless", "controller": "human"}]).is_empty(), "AI participants are unsupported")
 	var players := Rules.participants([{"id": 1, "faction": "human", "controller": "human"}, {"id": 9, "faction": "lightless", "controller": "human"}])
 	var sim = Sim.new()
 	sim.initialize(content.data, players, 42)
@@ -136,7 +139,13 @@ func run() -> Dictionary:
 	var config_files: Dictionary = ConfigFilesSuite.new().run()
 	checks += int(config_files.checks)
 	for failure in config_files.failures: failures.append("Config files: " + str(failure))
-	return {"ok": failures.is_empty(), "checks": checks, "failures": failures, "deterministic_hash": Canonical.hash_of([a.simulation.state_hash(), veil.hash, chyme.hash, construction.hash, escalation.hash, mission.hash, orientation.hash, config_files.hash])}
+	var spawning: Dictionary = SpawningSuite.new().run()
+	checks += int(spawning.checks)
+	for failure in spawning.failures: failures.append("Spawning: " + str(failure))
+	var veil_perception: Dictionary = VeilPerceptionSuite.new().run()
+	checks += int(veil_perception.checks)
+	for failure in veil_perception.failures: failures.append("Veil perception: " + str(failure))
+	return {"ok": failures.is_empty(), "checks": checks, "failures": failures, "deterministic_hash": Canonical.hash_of([a.simulation.state_hash(), veil.hash, chyme.hash, construction.hash, escalation.hash, mission.hash, orientation.hash, config_files.hash, spawning.hash, veil_perception.hash])}
 
 func _check(condition: bool, message: String) -> void:
 	checks += 1

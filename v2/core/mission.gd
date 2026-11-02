@@ -105,33 +105,11 @@ static func work(game, actor: Dictionary) -> void:
 static func _return_cargo(actor: Dictionary, progress: Dictionary) -> void:
 	actor.order = {"kind": "deliver_nacre", "target": int(progress.extraction), "resume": int(actor.order.target), "manual": bool(actor.order.get("manual", false))}
 
-static func ai(game, actor: Dictionary) -> void:
-	if not enabled(game) or not game._is_ai(int(actor.owner)) or actor.order.get("manual", false) or not actor.order.is_empty(): return
-	var progress: Dictionary = game.state.mission.humans.get(str(actor.owner), {})
-	if progress.is_empty(): return
-	if int(actor.id) == int(progress.extraction):
-		order(game, actor, "start_extraction")
-	elif game.content.units[actor.definition].capabilities.has("mission_worker"):
-		if int(progress.repair_remaining) > 0: order(game, actor, "repair_point")
-		elif int(actor.nacre) > 0: order(game, actor, "deliver_nacre")
-		else:
-			var best := 0
-			var distance := 0x7fffffffffffffff
-			for key in game.state.mission.fields:
-				var field: Dictionary = game.state.mission.fields[key]
-				if not int(actor.owner) in field.known_by or int(field.remaining) <= 0: continue
-				var candidate: int = game.distance_squared(actor.position, field.position)
-				if candidate < distance: best = int(key); distance = candidate
-			if best > 0: order(game, actor, "mine_nacre", best, false)
-
 static func resolve(game) -> void:
 	if not enabled(game): return
 	for actor in game.state.actors:
 		if actor.definition == "nest" and int(actor.hp) <= 0 and not game.state.mission.fields.has(str(actor.id)):
 			game.state.mission.fields[str(actor.id)] = {"position": actor.position.duplicate(), "remaining": int(settings(game).nacre_amount), "known_by": []}
-	for field in game.state.mission.fields.values():
-		for player in game.state.players:
-			if not int(player.id) in field.known_by and game.visibility_at(int(player.id), field.position) == 2: field.known_by.append(int(player.id))
 	var living := 0
 	for player in game.state.players:
 		if player.faction != "human": continue
@@ -158,6 +136,12 @@ static func resolve(game) -> void:
 		if int(progress.countdown) == 0:
 			_win(game, int(player.id), "human", int(progress.deposited))
 			return
+
+static func record_visibility(game) -> void:
+	# Resolve discoveries after membrane growth/decay, using this tick's final senses.
+	for field in game.state.mission.fields.values():
+		for player in game.state.players:
+			if not int(player.id) in field.known_by and game.visibility_at(int(player.id), field.position) == 2: field.known_by.append(int(player.id))
 
 static func _win(game, owner: int, faction: String, nacre: int) -> void:
 	game.state.mission.outcome = {"winner": owner, "faction": faction, "nacre": nacre, "tick": int(game.state.tick)}

@@ -99,9 +99,9 @@ HQ passively heals friendly units, including vehicle occupants, within **7m** at
 
 The repository uses **Settings > Pages > Build and deployment > Source: GitHub Actions**. The workflow in `.github/workflows/github-pages.yml` exports and deploys pushes to `main`. Pull requests to `main` build the web export without deploying; **Actions > Build and deploy Godot Web > Run workflow** can also rebuild `main` manually.
 
-Game URL after the first successful deployment: **https://shawn-mcgee.github.io/atd/**.
+Game URLs after deployment: v1 at **https://shawn-mcgee.github.io/atd/** and **https://shawn-mcgee.github.io/atd/v1/**; v2 at **https://shawn-mcgee.github.io/atd/v2/**.
 
-Commit the `v1/` sources together with the workflow and `v1/export_presets.cfg`. CI downloads the pinned Godot **4.7.2** Linux editor and matching export templates, verifies their official SHA-512 checksums, imports the project, exports `build/web/index.html`, and uploads the web directory as the Pages artifact. No personal access token or repository secret is required by the workflow.
+Commit both projects with their export presets, `tools/build-web.ps1`, and the workflow. CI downloads the pinned Godot **4.7.2** Linux editor and matching export templates, verifies their official SHA-512 checksums, runs the shared build script to export both projects into `build/web/v1/` and `build/web/v2/`, copies v1 to `build/web/` for the default URL, and uploads that directory as the Pages artifact. No personal access token or repository secret is required by the workflow.
 
 The Web preset uses Compatibility/WebGL 2, disables threads and native extensions, and disables the PWA service worker. It works on ordinary Pages hosting without cross-origin isolation headers, including the repository's `/atd/` URL prefix. Generated output and local export credentials stay ignored.
 
@@ -112,7 +112,7 @@ pwsh -NoProfile -File tools/build-web.ps1
 python -m http.server 8000 --directory build/web
 ```
 
-Open **http://localhost:8000/**. `build-web.ps1` also accepts `-GodotExecutable` for another local engine path. The local portable PowerShell 7 installed during setup is available at `$env:LOCALAPPDATA\ATD-Tools\PowerShell\pwsh.exe` if `pwsh` is not on PATH. Exported games need an HTTP server; opening `index.html` directly from disk will not work.
+Open **http://localhost:8000/** or **http://localhost:8000/v1/** for v1, and **http://localhost:8000/v2/** for v2. Single-project builds remain available with `-ProjectDirectory v1` (output `build/web/`) or `-ProjectDirectory v2` (output `build/rewrite-web/`). `build-web.ps1` also accepts `-GodotExecutable` for another local engine path. The local portable PowerShell 7 installed during setup is available at `$env:LOCALAPPDATA\ATD-Tools\PowerShell\pwsh.exe` if `pwsh` is not on PATH. Exported games need an HTTP server; opening `index.html` directly from disk will not work.
 
 ### Project files and checks
 

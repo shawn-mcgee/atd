@@ -11,6 +11,10 @@ static func initial_state() -> Dictionary:
 static func settings(game) -> Dictionary:
 	return game.content.settings.get("veil", DEFAULTS)
 
+static func perceives(game, owner: int, point: Array) -> bool:
+	var cell: Dictionary = game.state.veil.cells.get(Hex.key(Hex.from_point(point)), {})
+	return not cell.is_empty() and int(cell.owner) == owner and int(cell.hp) > 0
+
 static func tick(game) -> void:
 	var veil: Dictionary = game.state.veil
 	var alive: Dictionary = {}

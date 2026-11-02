@@ -10,6 +10,7 @@ const Construction = preload("res://core/construction.gd")
 const Escalation = preload("res://core/nest_escalation.gd")
 const Mission = preload("res://core/mission.gd")
 const ConfigEditor = preload("res://view/config_editor.gd")
+const Spawning = preload("res://core/spawning.gd")
 var session = Session.new()
 var camera: Camera3D
 var actors_root: Node3D
@@ -31,6 +32,7 @@ var stats: Label
 var inspector: Label
 var event_log: Label
 var faction: OptionButton
+var sandbox_control: OptionButton
 var seed_value: SpinBox
 var room: LineEdit
 var endpoint: LineEdit
@@ -90,14 +92,14 @@ func _web_test_action(arguments: Array) -> void:
 		"move":
 			selected.clear()
 			for actor in session.rollback.simulation.state.actors:
-				if int(actor.owner) == session.own_id and actor.definition == "marine": selected.append(int(actor.id))
+				if session.controls(int(actor.owner)) and actor.definition == "marine": selected.append(int(actor.id))
 			_order({"kind": "move", "point": [0, 0, 0]})
 		"lightless": faction.select(1); _local()
 		"defensive":
 			stance_choices.select(1)
 			selected.clear()
 			for actor in session.rollback.simulation.state.actors:
-				if int(actor.owner) == session.own_id and actor.definition == "nest": selected.append(int(actor.id))
+				if session.controls(int(actor.owner)) and actor.definition == "nest": selected.append(int(actor.id))
 			_order({"kind": "veil_stance", "stance": "defensive"})
 	var info := {"running": session.running, "room": session.transport.room, "players": session.roster.size(), "error": session.error, "status": status.text}
 	if str(arguments[0]).begins_with("config_"):
@@ -179,7 +181,7 @@ func _build_ui() -> void:
 	seed_value = SpinBox.new()
 	seed_value.min_value = 0; seed_value.max_value = 2147483647; seed_value.value = 42
 	box.add_child(seed_value)
-	_button(box, "Start local match", _local)
+	_button(box, "Start local sandbox", _local)
 	endpoint = LineEdit.new()
 	endpoint.text = Transport.DEFAULT_URL
 	box.add_child(endpoint)
@@ -202,7 +204,7 @@ func _build_ui() -> void:
 	status = _label(box, "", 14)
 	status.custom_minimum_size.x = 410
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_label(box, "Prototype: repair, destroy the Nest, mine nacre, extract.\nHuman economy and full faction AI follow later.", 14)
+	_label(box, "Prototype: repair, destroy the Nest, mine nacre, extract.\nMultiplayer demo; local sandbox has no AI.", 14)
 	editor_panel = PanelContainer.new()
 	editor_panel.position = Vector2(470, 20)
 	editor_panel.size = Vector2(790, 740)
@@ -236,6 +238,10 @@ func _build_ui() -> void:
 	var hud_box := VBoxContainer.new()
 	hud_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hud_scroll.add_child(hud_box)
+	sandbox_control = OptionButton.new()
+	for label in ["Control Humans", "Control Lightless", "Control both factions"]: sandbox_control.add_item(label)
+	hud_box.add_child(sandbox_control)
+	sandbox_control.item_selected.connect(_switch_control)
 	stats = _label(hud_box, "", 15)
 	mission_status = _label(hud_box, "", 14)
 	extract_button = _button(hud_box, "Start extraction", _start_extraction)
@@ -303,6 +309,8 @@ func _lobby_changed(players: Array) -> void:
 func _started() -> void:
 	lobby.hide(); editor_panel.hide(); hud.show()
 	accumulator = 0
+	sandbox_control.visible = not session.networked
+	sandbox_control.select(0 if session.faction == "human" else 1)
 	selected.clear()
 	_catalog = ""
 	_target_mode = ""
@@ -316,7 +324,7 @@ func _started() -> void:
 
 func _focus_base() -> void:
 	for actor in session.rollback.simulation.state.actors:
-		if int(actor.owner) == session.own_id and actor.definition in ["hq", "nest"]:
+		if session.controls(int(actor.owner)) and actor.definition in ["hq", "nest"]:
 			var point := _world(actor.position)
 			camera.position = Vector3(point.x + 5, 40, point.z)
 			return
@@ -345,7 +353,45 @@ func _save_preset() -> void:
 func _load_preset() -> void:
 	config_editor.load_dialog()
 
+func _switch_control(index: int) -> void:
+	session.set_local_control(["human", "lightless", "both"][index])
+	selected.clear()
+	_target_mode = ""
+	target_hint.text = ""
+	placement_preview.hide()
+	_catalog = ""; _build_catalog = ""
+	_sync_meshes()
+	_refresh_hud()
+
+func _control_owner() -> int:
+	if session.networked or session.rollback == null: return session.own_id
+	for id in selected:
+		var actor = session.rollback.simulation.entity(int(id))
+		if actor != null and session.controls(int(actor.owner)): return int(actor.owner)
+	for player in session.rollback.simulation.state.players:
+		if session.controls(int(player.id)): return int(player.id)
+	return session.own_id
+
+func _visible_to(actor: Dictionary) -> int:
+	return _visibility_at(actor.position, actor)
+
+func _visibility_at(point: Array, actor = null) -> int:
+	var simulation = session.rollback.simulation
+	var value := 0
+	for player in simulation.state.players:
+		if session.controls(int(player.id)):
+			value = maxi(value, simulation.visible_to(int(player.id), actor) if actor != null else simulation.visibility_at(int(player.id), point))
+	return value
+
+func _known_field(field: Dictionary) -> bool:
+	for owner in field.known_by:
+		if session.controls(int(owner)): return true
+	return false
+
 func _faction() -> String:
+	if session.running:
+		for player in session.rollback.simulation.state.players:
+			if int(player.id) == _control_owner(): return player.faction
 	return "human" if faction.selected == 0 else "lightless"
 
 func _sync_meshes() -> void:
@@ -361,12 +407,12 @@ func _sync_meshes() -> void:
 			actor_nodes.erase(id)
 		if not actor_nodes.has(id): actor_nodes[id] = _actor_node(actor, simulation.content.units[actor.definition])
 		var node: Node3D = actor_nodes[id]
-		node.visible = simulation.visible_to(session.own_id, actor) == 2
+		node.visible = _visible_to(actor) == 2
 		node.position = _world(actor.position)
 		var facing := _world(actor.facing)
 		node.get_node("Body").rotation.y = atan2(-facing.x, -facing.z)
 		node.get_node("Selection").visible = selected.has(id)
-		if node.has_node("WeaponRange"): node.get_node("WeaponRange").visible = selected.has(id) and int(actor.owner) == session.own_id
+		if node.has_node("WeaponRange"): node.get_node("WeaponRange").visible = selected.has(id) and session.controls(int(actor.owner))
 		var definition: Dictionary = simulation.content.units[actor.definition]
 		var label: Label3D = node.get_node("Label")
 		label.visible = selected.has(id) or definition.capabilities.has("factory") or int(actor.hp) < int(definition.hp)
@@ -380,7 +426,7 @@ func _sync_meshes() -> void:
 		if not alive.has(id): actor_nodes[id].queue_free(); actor_nodes.erase(id); selected.erase(id)
 	_sync_orders(simulation)
 	_sync_fields(simulation)
-	veil_overlay.refresh(simulation, session.own_id, selected)
+	veil_overlay.refresh(simulation, _control_owner(), selected)
 
 func _sync_fields(simulation) -> void:
 	for key in simulation.state.mission.fields:
@@ -398,8 +444,8 @@ func _sync_fields(simulation) -> void:
 			label.no_depth_test = true
 			node.add_child(label); actors_root.add_child(node); field_nodes[key] = node
 		var node: Node3D = field_nodes[key]
-		var visible_now: bool = simulation.visibility_at(session.own_id, field.position) == 2
-		node.visible = session.own_id in field.known_by and (not visible_now or int(field.remaining) > 0)
+		var visible_now: bool = _visibility_at(field.position) == 2
+		node.visible = _known_field(field) and (not visible_now or int(field.remaining) > 0)
 		node.position = _world(field.position)
 		node.get_node("Label").text = "Nacre · %d" % field.remaining if visible_now else "Nest remains"
 	for key in field_nodes.keys():
@@ -410,24 +456,26 @@ func _sync_fields(simulation) -> void:
 func _confirmed_events(events: Array) -> void:
 	for event in events:
 		if event.type == "veil_alert":
-			if int(event.owner) != session.own_id: continue
+			if not session.controls(int(event.owner)): continue
 			var cell := Hex.from_point(event.point)
 			event_log.text = "Veil N%d: %s at %d,%d\n%d connected recipients" % [event.network, event.reason, cell[0], cell[1], event.recipients.size()]
 		elif event.type == "attack":
 			var simulation = session.rollback.simulation
 			var source = simulation.entity(int(event.source))
 			var target = simulation.entity(int(event.target))
-			if (source != null and simulation.visible_to(session.own_id, source) == 2) or (target != null and simulation.visible_to(session.own_id, target) == 2):
+			if (source != null and _visible_to(source) == 2) or (target != null and _visible_to(target) == 2):
 				event_log.text = "Confirmed: %s dealt %s damage" % [event.source, event.amount]
-		elif event.type in ["chyme_collected", "chyme_delivered"] and int(event.owner) == session.own_id:
+		elif event.type in ["chyme_collected", "chyme_delivered"] and session.controls(int(event.owner)):
 			event_log.text = "Confirmed: %d chyme %s" % [event.amount, "delivered" if event.type == "chyme_delivered" else "collected"]
-		elif event.type in ["construction_started", "construction_completed", "construction_cancelled"] and int(event.owner) == session.own_id:
+		elif event.type in ["construction_started", "construction_completed", "construction_cancelled"] and session.controls(int(event.owner)):
 			event_log.text = "Confirmed: %s · %s" % [event.type.trim_prefix("construction_"), session.rollback.simulation.content.units[event.definition].name]
-		elif event.type == "nest_destroyed" and int(event.owner) == session.own_id:
+		elif event.type == "nest_destroyed" and session.controls(int(event.owner)):
 			event_log.text = "Nest lost: +%d chyme\nProduction x%d · construction x%d" % [event.amount, event.production_rate, event.construction_rate]
+		elif event.type == "passive_spawn" and session.controls(int(event.owner)):
+			event_log.text = "Confirmed: %s spawned" % session.rollback.simulation.content.units[event.definition].name
 		elif event.type == "match_won": event_log.text = "P%d wins · %s · %d nacre extracted" % [event.owner, event.faction, event.amount]
 		elif event.type == "participant_defeated": event_log.text = "P%d defeated" % event.owner
-		elif event.type in ["extraction_repaired", "nacre_mined", "nacre_deposited", "extraction_started"] and int(event.owner) == session.own_id:
+		elif event.type in ["extraction_repaired", "nacre_mined", "nacre_deposited", "extraction_started"] and session.controls(int(event.owner)):
 			event_log.text = "%s · %d" % [event.type.replace("_", " "), event.amount]
 
 func _sync_orders(simulation) -> void:
@@ -437,14 +485,14 @@ func _sync_orders(simulation) -> void:
 	var lines: Array = []
 	for id in selected:
 		var actor = simulation.entity(int(id))
-		if actor == null or int(actor.owner) != session.own_id: continue
+		if actor == null or not session.controls(int(actor.owner)): continue
 		if actor.order.get("kind") in ["move", "attack_veil", "build"]: lines.append([actor.position, actor.order.point])
 		elif actor.order.get("kind") == "mine_nacre":
 			var field: Dictionary = simulation.state.mission.fields.get(str(actor.order.target), {})
 			if not field.is_empty(): lines.append([actor.position, field.position])
 		elif actor.order.get("kind") in ["attack", "deliver_chyme", "repair_point", "deliver_nacre"]:
 			var target = simulation.entity(int(actor.order.target))
-			if target != null and simulation.visible_to(session.own_id, target) == 2: lines.append([actor.position, target.position])
+			if target != null and _visible_to(target) == 2: lines.append([actor.position, target.position])
 	if lines.is_empty(): return
 	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	for line in lines:
@@ -459,7 +507,7 @@ func _actor_node(actor: Dictionary, definition: Dictionary) -> Node3D:
 	node.set_meta("definition", actor.definition)
 	var instance := MeshInstance3D.new()
 	instance.name = "Body"
-	var radius := float(definition.visual.radius) * sqrt(3.0) * 0.5
+	var radius := float(definition.visual.radius) * sqrt(3.0)
 	node.set_meta("radius", radius)
 	var height := radius * (3.0 if definition.visual.shape == "capsule" else 2.0)
 	match definition.visual.shape:
@@ -500,11 +548,12 @@ func _actor_node(actor: Dictionary, definition: Dictionary) -> Node3D:
 func _refresh_hud() -> void:
 	var rollback = session.rollback
 	var simulation = rollback.simulation
-	stats.text = "P%d · %s\nTick %d · confirmed %d\nRollbacks %d · replayed ticks %d\n%s %d · hash %s" % [session.own_id, _faction(), simulation.state.tick,
-		rollback.confirmed_tick, rollback.rollbacks, rollback.replayed_ticks, "Chyme reserve" if _faction() == "lightless" else "Sandbox credits", simulation.state.banks.get(str(session.own_id), 0), simulation.state_hash().left(12)]
+	stats.text = "P%d · %s\nTick %d · confirmed %d\nRollbacks %d · replayed ticks %d\n%s %d · hash %s" % [_control_owner(), _faction(), simulation.state.tick,
+		rollback.confirmed_tick, rollback.rollbacks, rollback.replayed_ticks, "Chyme reserve" if _faction() == "lightless" else "Sandbox credits", simulation.state.banks.get(str(_control_owner()), 0), simulation.state_hash().left(12)]
+	if not session.networked and session.local_control == "both": stats.text += "\nControlling both factions; HUD / overlays follow selection"
 	if _faction() == "lightless" and simulation.content.settings.has("nest_loss"):
 		var loss: Dictionary = simulation.content.settings.nest_loss
-		if simulation.state.escalations.has(str(session.own_id)):
+		if simulation.state.escalations.has(str(_control_owner())):
 			stats.text += "\nNest lost · production x%d / growth x%d" % [loss.production_rate, loss.construction_rate]
 		else: stats.text += "\nNest intact · destruction grants %d chyme" % loss.chyme_grant
 	if not session.error.is_empty(): stats.text += "\nSTOPPED: " + session.error
@@ -519,7 +568,14 @@ func _refresh_hud() -> void:
 		return
 	var definition: Dictionary = simulation.content.units[actor.definition]
 	inspector.text = "%s · owner %d\nHP %d/%d · armor %d\nOrder: %s\nProduction queue: %d" % [definition.name, actor.owner, actor.hp, definition.hp, definition.armor, actor.order.get("kind", "idle"), actor.production.size()]
-	if int(actor.owner) == session.own_id:
+	if session.controls(int(actor.owner)):
+		if definition.capabilities.has("passive_spawner"):
+			var spawn: Dictionary = definition.capabilities.passive_spawner
+			var alive := Spawning.alive_count(simulation, int(actor.id))
+			inspector.text += "\nPassive %s: %d/%d alive\nNext birth: %d work · rate x%d" % [simulation.content.units[spawn.definition].name, alive, spawn.max_alive, actor.passive_remaining, Escalation.rate(simulation, actor, "production")]
+			if alive >= int(spawn.max_alive): inspector.text += "\nPassive spawning paused at cap"
+			elif int(actor.passive_remaining) == 0: inspector.text += "\nWaiting for an empty spawn tile"
+		if int(actor.spawn_source) > 0: inspector.text += "\nPassive origin: actor %d" % actor.spawn_source
 		if definition.capabilities.has("mission_worker"):
 			inspector.text += "\nNacre cargo %d/%d" % [actor.nacre, definition.capabilities.mission_worker.capacity]
 		if not actor.construction.is_empty():
@@ -546,7 +602,7 @@ func _refresh_hud() -> void:
 			inspector.text += "\nGlobal Veil: %s · %d tiles" % [network.stance, network.cells.size()]
 	if definition.capabilities.has("weapon"):
 		inspector.text += "\nDamage %d · range %s" % [definition.capabilities.weapon.damage, definition.capabilities.weapon.range]
-	if int(actor.owner) == session.own_id and definition.capabilities.has("factory"):
+	if session.controls(int(actor.owner)) and definition.capabilities.has("factory"):
 		inspector.text += "\nProduction rate x%d" % Escalation.rate(simulation, actor, "production")
 		if not actor.production.is_empty():
 			inspector.text += "\nNext: %s · %d work left" % [simulation.content.units[actor.production[0].definition].name, actor.production[0].remaining]
@@ -595,10 +651,10 @@ func _unhandled_input(event: InputEvent) -> void:
 func _context_order(id: int, point: Array) -> void:
 	var simulation = session.rollback.simulation
 	var actor = simulation.entity(id)
-	if actor != null and int(actor.owner) != session.own_id:
+	if actor != null and int(actor.owner) != _control_owner():
 		_order({"kind": "attack", "target": id})
 	elif actor != null and simulation.content.units[actor.definition].capabilities.has("extraction_point"):
-		var progress: Dictionary = simulation.state.mission.humans.get(str(session.own_id), {})
+		var progress: Dictionary = simulation.state.mission.humans.get(str(_control_owner()), {})
 		_order({"kind": "repair_point" if int(progress.get("repair_remaining", 0)) > 0 else "deliver_nacre", "target": id})
 	elif _nacre_at(point) > 0:
 		_order({"kind": "mine_nacre", "target": _nacre_at(point)})
@@ -613,16 +669,16 @@ func _nacre_at(point: Array) -> int:
 	var worker := false
 	for id in selected:
 		var actor = simulation.entity(int(id))
-		if actor != null and int(actor.owner) == session.own_id and simulation.content.units[actor.definition].capabilities.has("mission_worker"): worker = true
+		if actor != null and session.controls(int(actor.owner)) and simulation.content.units[actor.definition].capabilities.has("mission_worker"): worker = true
 	if not worker: return 0
 	for key in simulation.state.mission.fields:
 		var field: Dictionary = simulation.state.mission.fields[key]
-		if session.own_id in field.known_by and Hex.from_point(point) == Hex.from_point(field.position): return int(key)
+		if _known_field(field) and Hex.from_point(point) == Hex.from_point(field.position): return int(key)
 	return 0
 
 func _start_extraction() -> void:
-	var progress: Dictionary = session.rollback.simulation.state.mission.humans.get(str(session.own_id), {})
-	if not progress.is_empty(): session.rollback.queue({"kind": "start_extraction", "actors": [int(progress.extraction)]})
+	var progress: Dictionary = session.rollback.simulation.state.mission.humans.get(str(_control_owner()), {})
+	if not progress.is_empty(): session.queue({"kind": "start_extraction", "actors": [int(progress.extraction)]}, _control_owner())
 
 func _refresh_mission_hud(simulation, rollback) -> void:
 	extract_button.disabled = true
@@ -631,7 +687,7 @@ func _refresh_mission_hud(simulation, rollback) -> void:
 	if not outcome.is_empty():
 		mission_status.text = "P%d wins · %d nacre extracted" % [outcome.winner, outcome.nacre] if rollback.confirmed_tick >= int(outcome.tick) else "Confirming match result…"
 		return
-	var progress: Dictionary = simulation.state.mission.humans.get(str(session.own_id), {})
+	var progress: Dictionary = simulation.state.mission.humans.get(str(_control_owner()), {})
 	if progress.is_empty():
 		var living := 0
 		for human in simulation.state.mission.humans.values():
@@ -658,7 +714,7 @@ func _selected_mother():
 	var simulation = session.rollback.simulation
 	for id in selected:
 		var actor = simulation.entity(int(id))
-		if actor != null and int(actor.owner) == session.own_id and simulation.content.units[actor.definition].capabilities.has("metamorphosis"): return actor
+		if actor != null and session.controls(int(actor.owner)) and simulation.content.units[actor.definition].capabilities.has("metamorphosis"): return actor
 	return null
 
 func _begin_build() -> void:
@@ -674,7 +730,7 @@ func _build_error(point: Array) -> String:
 	var type: String = structures.get_item_metadata(structures.selected)
 	var error := Construction.site_error(simulation, mother, type, Hex.point(Hex.from_point(point)), true)
 	if not error.is_empty(): return error
-	if int(simulation.state.banks[str(session.own_id)]) < int(simulation.content.units[type].cost): return "Not enough chyme."
+	if int(simulation.state.banks[str(mother.owner)]) < int(simulation.content.units[type].cost): return "Not enough chyme."
 	return ""
 
 func _preview_build(point: Array) -> void:
@@ -700,7 +756,7 @@ func _set_veil_stance() -> void:
 	var connected := false
 	for id in selected:
 		var actor = session.rollback.simulation.entity(int(id))
-		if actor != null and int(actor.owner) == session.own_id and not actor.veil_networks.is_empty(): connected = true
+		if actor != null and session.controls(int(actor.owner)) and not actor.veil_networks.is_empty(): connected = true
 	if not connected:
 		target_hint.text = "Select your connected Lightless unit or structure."
 		return
@@ -712,8 +768,17 @@ func _set_veil_stance() -> void:
 		target_hint.text = "Queued network stance: " + mode
 
 func _order(command: Dictionary) -> void:
-	command.actors = selected.duplicate()
-	session.rollback.queue(command)
+	var groups: Dictionary = {}
+	for id in selected:
+		var actor = session.rollback.simulation.entity(int(id))
+		if actor == null or not session.controls(int(actor.owner)): continue
+		var owner := int(actor.owner)
+		if not groups.has(owner): groups[owner] = []
+		groups[owner].append(int(id))
+	for owner in groups:
+		var entry := command.duplicate(true)
+		entry.actors = groups[owner]
+		session.queue(entry, int(owner))
 
 func _train() -> void:
 	if products.disabled or products.selected < 0: return

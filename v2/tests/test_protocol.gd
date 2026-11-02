@@ -29,6 +29,18 @@ func _initialize() -> void:
 	session._message(1, {"type": "prepare", "descriptor": {"protocol": -1}})
 	_check(not session.error.is_empty() and session.rollback == null, "invalid handshake rejected before simulation")
 	session.close()
+	session = Session.new()
+	session.transport.hosting = true
+	session.roster = {1: {"id": 1, "faction": "human", "controller": "human"}}
+	_check(not session.start_network(content.data, 42) and session.rollback == null, "network lobby cannot start without a Lightless player")
+	session.roster[1].faction = "lightless"
+	_check(not session.start_network(content.data, 42) and session.rollback == null, "network lobby cannot start without a Human player")
+	session.close()
+	session.start_local(content.data, 42, "human")
+	session.networked = true
+	session.set_local_control("both")
+	_check(session.controls(1) and not session.controls(2) and not session.queue({"kind": "stop", "actors": [5]}, 2), "network ownership cannot use sandbox controls")
+	session.close()
 	print("ATD_PROTOCOL " + JSON.stringify({"ok": failures.is_empty(), "failures": failures}))
 	quit(0 if failures.is_empty() else 1)
 

@@ -9,10 +9,16 @@
       "production_ticks": 100,
       "visual": {
         "shape": "cylinder",
-        "radius": 2,
+        "radius": 1,
         "color": "a96edb"
       },
       "capabilities": {
+        "passive_spawner": {
+          "definition": "scavenger",
+          "interval_ticks": 200,
+          "max_alive": 6,
+          "spawn_radius": 2
+        },
         "chyme_receiver": {
           "radius": 1.5
         },

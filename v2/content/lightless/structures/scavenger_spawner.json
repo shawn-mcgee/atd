@@ -10,10 +10,16 @@
       "construction_ticks": 100,
       "visual": {
         "shape": "cylinder",
-        "radius": 0.4,
+        "radius": 0.5,
         "color": "916dbe"
       },
       "capabilities": {
+        "passive_spawner": {
+          "definition": "scavenger",
+          "interval_ticks": 100,
+          "max_alive": 4,
+          "spawn_radius": 2
+        },
         "perception": {
           "radius": 5
         },

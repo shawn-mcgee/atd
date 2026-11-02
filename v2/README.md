@@ -6,17 +6,26 @@ The master design is [atd.md](../atd.md). Existing `game.gd`, `world.tscn`, and
 
 This prototype has primitive meshes, a locked top-down orthographic
 camera, movement, targeted combat, queued production, Mother/Womb construction,
-a Lightless chyme loop, Nest-loss escalation, Veil with global stances, and the first
+a Lightless chyme loop, passive Scavenger spawning, Nest-loss escalation,
+Veil with global stances, and the first
 nacre mission loop. Briar mechanics, Human construction, full faction AI, ore/gas
 logistics and persistent progression remain pending. Initial reserves, costs, rates,
 carrying limits, free mission repair and mission timers are prototype fixtures.
 
 ## Author and play
 
-The configurator provides JSON validation, a seed, and faction selection. Starting
-locally adds an AI participant of the missing faction. This initial AI acquires and
-attacks enemies in sight, returns full chyme cargo, and assigns Human workers to
-repair and known nacre deposits. Strategic exploration and full species behavior follow later.
+The demo is multiplayer only; there are no AI participants or AI fallbacks.
+AI behavior is deferred until both factions have established player control interfaces.
+Network matches require at least one Human player and exactly one Lightless player.
+The configurator provides JSON validation, a seed, and faction selection.
+**Start local sandbox** creates both factions without AI. During play, use the HUD
+selector to control Humans, Lightless, or both without restarting. Orders already
+issued continue after switching. In both mode, selection and commands work across
+both factions, vision is combined, and the HUD/Veil overlays follow the first
+selected controlled actor (or the starting faction when nothing is selected).
+Ownership, resources and hostility stay separate; controlling both does not ally them.
+Idle factions wait for player orders; passive production and player-issued Veil stances
+still run normally.
 
 - Left-click selects; Shift adds. Right-click moves or attacks.
 - Select HQ/Nest, choose a product, and press **Produce selected type**.
@@ -46,11 +55,11 @@ repair and known nacre deposits. Strategic exploration and full species behavior
 `content/default.json` is the main preset, importing `settings.json` and one JSON
 file per actor under `content/{human,lightless}/{units,structures}/`. Select a file
 in the configurator's searchable tree to edit it. Add a definition under `units`,
-choose `capsule` or `cylinder`, set `visual.radius` (0.05–4 tile inner radii), compose
+choose `capsule` or `cylinder`, set `visual.radius` (0.05–4 tile inner diameters), compose
 capabilities, and add its ID to a factory's `produces` list. Implemented capabilities
 are `move`, `weapon`, `perception`, `illumination`, `detection`, `factory`, `veil_source`,
 `chyme_collector`, `chyme_receiver`, `chyme_source`, `metamorphosis`,
-`mission_worker`, and `extraction_point`.
+`mission_worker`, `extraction_point`, and `passive_spawner`.
 Unsupported capabilities produce validation errors with a filename and field path.
 
 ### Configuration files
@@ -91,14 +100,14 @@ Only merged, validated definitions enter simulation checkpoints and network matc
 descriptors. Equivalent split and flat presets have the same content fingerprint;
 peers do not read one another's local files. Source editing is pre-match only.
 
-Actor meshes only support capsules and cylinders. `visual.radius` is measured in
-tile inner radii: the distance from a hex center to the midpoint of an edge (the
-apothem), not to a vertex. A radius of 1 gives the tile's inscribed circle, touching
-all six edges without overflowing; 0.5 is half that radius. The grid has a unit
-center-to-vertex distance, so the world-space radius is `visual.radius * sqrt(3) / 2`.
-Movement and weapon ranges continue to use tile inner diameters. Radius controls
-the visible body, selection outline and picking, without changing collision, occupancy
-or combat range. Capsule height is three radii; cylinder height is two radii.
+Actor meshes only support capsules and cylinders. Sizes, movement and ranges use
+one shared distance unit: a tile's inner diameter (edge to opposite edge, also
+the spacing between adjacent tile centers). `visual.radius: 0.5` gives the tile's
+inscribed circle; `visual.radius: 1` gives a shape two tiles wide. The grid has a
+unit center-to-vertex distance, so the world-space radius is `visual.radius * sqrt(3)`.
+Radius controls the visible body, selection outline and picking, without changing
+collision, occupancy or combat range. Capsule height is three radii; cylinder height
+is two radii.
 A white line starts at each body mesh's local origin and extends forward beyond
 its radius. Actors initially face northwest (negative r), turn toward movement/combat/work targets,
 and retain their facing when idle or stopped. Facing is an integer axial direction
@@ -133,8 +142,8 @@ Delivering `threshold` (20 by default) enables **Start extraction** without star
 it automatically. The countdown lasts `countdown_ticks` (200) after the start tick.
 Additional deposited nacre counts in the winning outcome. Destroying a Human's HQ
 or extraction point defeats that Human, disables its remaining actors and clears
-orders/production. Its survivors remain attackable. Lightless AI prioritizes active
-opponents. The Lightless win after every Human, including AI Humans, is defeated;
+orders/production. Its survivors remain attackable.
+The Lightless win after every Human participant is defeated;
 the first Human to finish extraction wins for everyone. Defeat resolves before
 countdown completion, so losing a point on the last tick prevents extraction.
 Simultaneous successful extractions use deterministic roster order as a prototype tie rule.
@@ -145,8 +154,7 @@ while input confirmation continues; late input can overturn an unconfirmed resul
 The HUD announces the winner only after confirmation. The outcome records raw
 extracted nacre; persistent progression and reward formulas remain unimplemented.
 Older presets can omit `mission`, or set `enabled: false`, for the prior sandbox.
-AI workers repair, mine known deposits and start a ready countdown; AI does not yet
-strategically explore, escort or develop its faction.
+Workers require player orders to begin repair or mining; extraction requires an explicit start command.
 
 ## Chyme slice
 
@@ -166,13 +174,40 @@ when queued; undelivered cargo cannot pay. Reserve storage is currently unbounde
 `deliver_chyme` accepts a receiver actor ID or selects the nearest owned receiver
 (lowest actor ID breaks ties). It moves the collector into delivery range, transfers
 all cargo once and completes. A destroyed receiver cancels the order and preserves
-the cargo. Move/stop/attack commands can interrupt delivery. AI collectors return
-when full unless following an explicit order; broader harvesting tactics remain pending.
+the cargo. Move/stop/attack commands can interrupt delivery. Full collectors wait
+for a player delivery order.
 Cargo, source schedules and delivery orders are checkpoint state; economic notices
 are emitted through confirmed events. Older presets can omit all chyme capabilities.
-State and network protocol are version 7; older peers must update before joining.
+State version is 9 and network protocol is 10; older peers must update before joining.
 
 These values and policies are prototype choices, not settled balance.
+
+## Passive spawning
+
+Stationary Lightless definitions can have `passive_spawner` with a mobile Lightless
+`definition`, integer `interval_ticks`, source-local `max_alive`, and `spawn_radius`
+(1–4 hex steps). The preset Nest generates a Scavenger every 200 work ticks, capped
+at six living offspring; Scavenger Spawners use 100 work ticks and a cap of four.
+Both search within two hex steps. These are configurable prototype rates and limits.
+
+The first birth waits a full interval after the source appears or finishes Womb
+construction. Passive births spend no chyme and do not enter the paid queue.
+Paid units and starting units do not count toward a passive cap. Moving offspring
+away does not free slots; death does. Timers pause at cap, then resume when a slot
+opens. Dead sources stop producing; their surviving offspring remain in play.
+
+Births prefer empty outer-ring tile centers and fall back inward when necessary.
+Living actors and reserved Mother construction sites block a spawn tile. If all
+sites are blocked, the timer stays ready and retries without spending RNG or
+resources. Spawns stay inside the arena, use seeded RNG, face outward, and join
+player-issued Veil stances. Nest-loss production bonuses accelerate the timer;
+spare work can produce multiple children within a tick, up to the source's cap.
+
+Source timers, start ticks, offspring origin IDs and RNG are checkpoint state.
+The inspector shows living offspring, remaining work, rate and cap/blocked status;
+birth notices use confirmed events. The cap follows living offspring actor IDs,
+including any authored transformations. Full faction strategy and species-specific
+retreat/harassment behavior remain pending.
 
 ## Nest-loss escalation
 
@@ -250,6 +285,15 @@ damages existing membrane; perception does neither. Existing damaged Veil does n
 passively heal. Destroying a source removes its support. Shared areas maintained
 by surviving sources remain; only unsupported tissue decays.
 
+Every living Veil tile provides full perception to its owning Lightless participant,
+in addition to unit/structure senses. This applies across disconnected patches and
+without nearby units or network connections. The whole covered hex is perceived;
+adjacent uncovered hexes receive no extra vision. Enemies on it are fully visible
+and eligible for ordinary weapon targeting, subject to range. Veil perception also
+reveals ground and discovers nacre remains. It never illuminates or damages Veil.
+Unsupported tissue keeps perceiving until removed; revealed ground stays remembered
+after current vision ends. The perception overlay includes owned Veil tile outlines.
+
 All patches owned by the Lightless participant communicate globally. There is no
 gap, splitting or merging logic. Units connect on Veil or one adjacent hex away.
 Friendly and hostile entry are both detected. Alerts reach connected recipients
@@ -308,13 +352,14 @@ a new match.
 | Content schema and validation | `core/content.gd`, `content/default.json` |
 | Import graph, source buffers, merge and project persistence | `authoring/config_files.gd` |
 | Configurator file navigation and editing | `view/config_editor.gd` |
-| Roster and AI fallbacks | `core/match_rules.gd` |
+| Player roster and faction limits | `core/match_rules.gd` |
 | Ticks, state, commands, restore | `core/simulation.gd` |
 | Veil growth, support, alerts and global stance | `core/veil.gd`, `core/hex_cells.gd` |
 | Chyme collection, delivery and passive generation | `core/chyme.gd` |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
 | Nest death grant and permanent development rates | `core/nest_escalation.gd` |
+| Passive birth timers, source caps and spawn sites | `core/spawning.gd` |
 | Nacre, extraction, Human defeat and match outcomes | `core/mission.gd` |
 | Canonical hashing | `core/canonical.gd` |
 | Input history, rollback, confirmation | `net/rollback_session.gd` |
@@ -326,7 +371,8 @@ a new match.
 Keep core state integer-based and free of nodes, rendering, wall time, native
 physics, and unseeded randomness. Definitions are copied at initialization. Every
 mutable gameplay value belongs in checkpoints; derived caches must be rebuilt
-consistently. AI runs inside the core. Camera and selection remain view-only.
+consistently. AI is deferred until both faction control interfaces are established.
+Camera, sandbox control selection and actor selection remain outside the core.
 
 ## Validate and export
 
@@ -351,7 +397,7 @@ targeting, late input, confirmed events, and bounded history. Its shared
 hostile entry, stance adoption/response, overlap support, source decay, weapon
 clearing, and rollback after a late intrusion. View tests check overlay isolation.
 `tests/chyme_suite.gd` covers armor/overkill/capacity, delivery ownership and loss of
-receivers, passive schedules, AI cargo return, production spending, JSON restore,
+receivers, passive schedules, idle cargo retention, production spending, JSON restore,
 late collection input and exactly-once confirmed economic events. View tests also
 check cargo/reserve inspection and delivery through the command queue.
 `tests/construction_suite.gd` covers revealed ground, placement reservations,
@@ -367,6 +413,11 @@ controls and read-only HUD inspection.
 `tests/config_files_suite.gd` checks import resolution, precedence, source errors,
 cycles, portable project roundtrips and native save conflicts. View tests check
 navigation, search and preserving invalid/unsaved edits across file switches.
+`tests/spawning_suite.gd` covers source caps, casualty replacement, blocked/reserved
+tiles, arena edges, paid queues, Womb timers, Nest-loss speed and rollback after
+a delayed casualty. Passive spawn inspection remains read-only.
+`tests/veil_perception_suite.gd` checks whole-tile perception, ownership, additive
+senses, ordinary targeting, decay, immediate discovery and late-input replay.
 
 For rendered construction review, run `res://tests/preview.gd` with `-- --construction`
 (add `--womb` for growth progress). It drives production and placement through the
@@ -374,6 +425,7 @@ session, saving `test-results/construction.png` or `test-results/womb.png`.
 Add `--nest-loss` with `--womb` for `test-results/nest-loss.png`.
 Use `-- --mission` to capture an authored fast mission through the command/session
 path, saving `test-results/mission.png`.
+Use `-- --spawning` for a fast source-at-cap preview in `test-results/spawning.png`.
 
 With matching Web export templates installed:
 

@@ -10,6 +10,17 @@ func _initialize() -> void:
 func _process(_dt: float) -> bool:
 	frames += 1
 	if frames == 8 and "--arena" in OS.get_cmdline_user_args(): view._local()
+	if frames == 8 and "--spawning" in OS.get_cmdline_user_args():
+		view.faction.select(1)
+		var content = view._content()
+		content.data.units.nest.capabilities.passive_spawner.interval_ticks = 2
+		content.data.units.nest.capabilities.passive_spawner.max_alive = 3
+		view.session.start_local(content.data, 42, "lightless")
+		view.set_process(false)
+		_advance(7)
+		view.selected.assign([1])
+		view._sync_meshes()
+		view._refresh_hud()
 	if frames == 8 and "--mission" in OS.get_cmdline_user_args():
 		var content = view._content()
 		content.data.settings.mission.threshold = 10
@@ -80,6 +91,7 @@ func _capture() -> void:
 	DirAccess.make_dir_recursive_absolute("res://test-results")
 	var path := "res://test-results/arena.png" if "--arena" in OS.get_cmdline_user_args() else "res://test-results/configurator.png"
 	if "--mission" in OS.get_cmdline_user_args(): path = "res://test-results/mission.png"
+	if "--spawning" in OS.get_cmdline_user_args(): path = "res://test-results/spawning.png"
 	if "--construction" in OS.get_cmdline_user_args():
 		path = "res://test-results/womb.png" if "--womb" in OS.get_cmdline_user_args() else "res://test-results/construction.png"
 		if "--nest-loss" in OS.get_cmdline_user_args(): path = "res://test-results/nest-loss.png"

@@ -8,7 +8,7 @@ const Rules = preload("res://core/match_rules.gd")
 const Canonical = preload("res://core/canonical.gd")
 const Rollback = preload("res://net/rollback_session.gd")
 const Transport = preload("res://net/coordinator_transport.gd")
-const PROTOCOL := 7
+const PROTOCOL := 10
 var transport = Transport.new()
 var rollback
 var roster: Dictionary = {}
@@ -16,6 +16,7 @@ var running := false
 var networked := false
 var own_id := 1
 var faction := "human"
+var local_control := "human"
 var error := ""
 var descriptor: Dictionary = {}
 var ready_peers: Dictionary = {}
@@ -32,9 +33,27 @@ func start_local(content: Dictionary, seed_value: int, player_faction: String) -
 	close()
 	own_id = 1
 	faction = player_faction
-	var players := Rules.participants([{"id": own_id, "faction": faction, "controller": "human"}])
+	var other := "lightless" if faction == "human" else "human"
+	var players := Rules.participants([{ "id": 1, "faction": faction, "controller": "human"}, {"id": 2, "faction": other, "controller": "human"}])
 	_prepare(content, players, seed_value)
+	rollback.local_ids.assign([1, 2])
+	local_control = faction
 	_begin()
+
+func controls(player: int) -> bool:
+	if networked: return player == own_id
+	if rollback == null: return false
+	for participant in rollback.simulation.state.players:
+		if int(participant.id) == player: return local_control == "both" or participant.faction == local_control
+	return false
+
+func set_local_control(mode: String) -> void:
+	if networked or rollback == null or not mode in ["human", "lightless", "both"]: return
+	local_control = mode
+
+func queue(command: Dictionary, player: int = -1) -> bool:
+	if player == -1: player = own_id
+	return rollback != null and controls(player) and rollback.queue(command, player)
 
 func connect_room(url: String, host: bool, room: String, player_faction: String, ice: Array) -> Error:
 	close()
@@ -55,7 +74,7 @@ func start_network(content: Dictionary, seed_value: int) -> bool:
 			return false
 	var players := Rules.participants(roster.values())
 	if players.is_empty():
-		status_changed.emit("Only one Lightless participant is allowed; choose factions before connecting")
+		status_changed.emit("Requires at least one Human player and exactly one Lightless player (maximum 8 players)")
 		return false
 	var packet := {"type": "prepare", "descriptor": {"protocol": PROTOCOL, "engine": _engine(), "seed": seed_value, "content": content, "players": players}}
 	if Canonical.text(packet).to_utf8_buffer().size() > 60000:

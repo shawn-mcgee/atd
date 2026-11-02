@@ -9,7 +9,7 @@
       "production_ticks": 1,
       "visual": {
         "shape": "capsule",
-        "radius": 2,
+        "radius": 1,
         "color": "a65678"
       },
       "capabilities": {}

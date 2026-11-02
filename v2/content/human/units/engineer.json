@@ -9,7 +9,7 @@
       "production_ticks": 60,
       "visual": {
         "shape": "capsule",
-        "radius": 0.5,
+        "radius": 0.2,
         "color": "eac45e"
       },
       "capabilities": {
@@ -28,7 +28,7 @@
           "interval_ticks": 20
         },
         "perception": {
-          "radius": 5
+          "radius": 2
         }
       }
     }

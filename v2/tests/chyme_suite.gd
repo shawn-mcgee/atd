@@ -11,7 +11,7 @@ func run() -> Dictionary:
 	_validation()
 	_collection()
 	_delivery()
-	_passive_and_ai()
+	_passive()
 	var hash_value := _rollback()
 	return {"checks": checks, "failures": failures, "hash": hash_value}
 
@@ -128,7 +128,7 @@ func _delivery() -> void:
 	game.step([{"player": 9, "kind": "deliver_chyme", "actors": [5]}])
 	_check(game.entity(5).order.is_empty(), "no receiver is a safe no-op")
 
-func _passive_and_ai() -> void:
+func _passive() -> void:
 	var game = Sim.new()
 	var definitions := _definitions()
 	definitions.settings.chyme.initial_reserve = 0
@@ -154,17 +154,9 @@ func _passive_and_ai() -> void:
 	game.step([])
 	_check(int(game.state.banks["9"]) == 6, "new sources generate after their full interval")
 	game = _game()
-	game.state.players[1].controller = "ai"
 	game.entity(5).chyme = 50
-	game.step([])
-	_check(game.entity(5).order.get("kind") == "deliver_chyme", "AI returns full cargo to a friendly receiver")
-	for tick in 30: game.step([])
-	_check(int(game.state.banks["9"]) == 150, "AI completes delivery")
-	game = _game()
-	game.state.players[1].controller = "ai"
-	game.entity(5).chyme = 50
-	game.step([{"player": 9, "kind": "move", "actors": [5], "point": [-4 * Sim.SCALE, 0, 0]}])
-	_check(game.entity(5).order.get("kind") == "move", "explicit orders override automatic cargo return")
+	for tick in 31: game.step([])
+	_check(game.entity(5).order.is_empty() and int(game.entity(5).chyme) == 50 and int(game.state.banks["9"]) == 100, "full collectors wait for player delivery orders")
 
 func _rollback() -> String:
 	var definitions := _definitions()

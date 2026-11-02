@@ -25,7 +25,7 @@ func _definitions() -> Dictionary:
 
 func _players(multiple: bool = false) -> Array:
 	var players := [{"id": 1, "faction": "human", "controller": "human"}, {"id": 9, "faction": "lightless", "controller": "human"}]
-	if multiple: players.append({"id": 10, "faction": "human", "controller": "ai"})
+	if multiple: players.append({"id": 10, "faction": "human", "controller": "human"})
 	return players
 
 func _game(multiple: bool = false):
@@ -128,14 +128,14 @@ func _outcomes() -> void:
 	var game = _game(true)
 	game.entity(1).hp = 0
 	game.step([])
-	_check(Mission.defeated(game, 1) and not Mission.finished(game), "one HQ loss defeats only its owner while AI Human remains")
+	_check(Mission.defeated(game, 1) and not Mission.finished(game), "one HQ loss defeats only its owner while another Human remains")
 	var point: Array = game.entity(2).position.duplicate()
 	game.step([{"player": 1, "kind": "move", "actors": [2], "point": [0, 0, 0]}])
 	_check(game.entity(2).position == point and game.entity(2).order.is_empty(), "defeated player's remaining actors cannot receive commands or work")
 	var extraction := int(game.state.mission.humans["10"].extraction)
 	game.entity(extraction).hp = 0
 	game.step([])
-	_check(Mission.finished(game) and int(game.state.mission.outcome.winner) == 9, "Lightless wins only after defeating every Human including AI")
+	_check(Mission.finished(game) and int(game.state.mission.outcome.winner) == 9, "Lightless wins only after defeating every Human including other players")
 	game = _game()
 	game.state.mission.humans["1"].countdown = 1
 	game.state.mission.humans["1"].started_tick = -1
@@ -149,10 +149,9 @@ func _outcomes() -> void:
 	game.step([])
 	_check(int(game.state.mission.outcome.winner) == 1, "simultaneous extraction uses roster order deterministically")
 	game = _game()
-	game.state.players[0].controller = "ai"
 	game.entity(2).position = game.entity(7).position.duplicate()
 	for tick in 3: game.step([])
-	_check(int(game.state.mission.humans["1"].repair_remaining) == 0, "AI Human workers can repair their own point")
+	_check(int(game.state.mission.humans["1"].repair_remaining) == 2 and game.entity(2).order.is_empty(), "idle workers do not repair without a player order")
 
 func _rollback() -> String:
 	var definitions := _definitions()
