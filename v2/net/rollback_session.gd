@@ -20,8 +20,10 @@ var replayed_ticks := 0
 var error := ""
 var window := 120
 var input_delay := 2
+var hash_interval := 1
 
-func initialize(content: Dictionary, players: Array, seed_value: int, own_id: int) -> void:
+func initialize(content: Dictionary, players: Array, seed_value: int, own_id: int, check_interval: int = 1) -> void:
+	hash_interval = maxi(1, check_interval)
 	local_id = own_id
 	local_ids.assign([own_id])
 	pending_by_player.clear()
@@ -109,7 +111,7 @@ func _commands_at(tick: int) -> Array:
 func _save() -> void:
 	var tick := int(simulation.state.tick)
 	checkpoints[tick] = simulation.checkpoint()
-	hashes[tick] = simulation.state_hash()
+	if tick % hash_interval == 0: hashes[tick] = simulation.state_hash()
 
 func _confirm() -> void:
 	while confirmed_tick + 1 < int(simulation.state.tick):
@@ -120,13 +122,15 @@ func _confirm() -> void:
 		if not complete: return
 		confirmed_tick = next
 		events_confirmed.emit(checkpoints[next + 1].events.duplicate(true))
-		confirmed.emit(next + 1, hashes[next + 1])
+		confirmed.emit(next + 1, hashes.get(next + 1, ""))
 
 func _trim() -> void:
 	var oldest := maxi(0, int(simulation.state.tick) - window - 1)
-	for table in [frames, checkpoints, hashes]:
+	for table in [frames, checkpoints]:
 		for tick in table.keys():
 			if int(tick) < oldest: table.erase(tick)
+	for tick in hashes.keys():
+		if int(tick) < oldest - hash_interval: hashes.erase(tick)
 
 func _sanitize(commands: Array):
 	if commands.size() > 32: return null
@@ -134,7 +138,7 @@ func _sanitize(commands: Array):
 	for raw in commands:
 		if not raw is Dictionary: return null
 		var command: Dictionary = Canonical.normalize(raw)
-		if not command.get("kind") in ["move", "attack", "stop", "train", "attack_veil", "veil_stance", "deliver_chyme", "build", "cancel_build", "repair_point", "mine_nacre", "deliver_nacre", "start_extraction"] or not command.get("actors") is Array or command.actors.size() > 64: return null
+		if not command.get("kind") in ["move", "rally", "approach", "attack", "stop", "train", "attack_veil", "veil_stance", "deliver_chyme", "build", "construct", "cancel_build", "repair_point", "mine_nacre", "deliver_nacre", "start_extraction"] or not command.get("actors") is Array or command.actors.size() > 64: return null
 		var actors: Array = []
 		for id in command.actors:
 			if not id is int or id < 1 or id > 1000000: return null
@@ -142,7 +146,7 @@ func _sanitize(commands: Array):
 		actors.sort()
 		var clean := {"kind": command.kind, "actors": actors}
 		match command.kind:
-			"move", "attack_veil":
+			"move", "attack_veil", "rally":
 				if not simulation.valid_point(command.get("point")): return null
 				clean.point = command.point.duplicate()
 			"veil_stance":
@@ -151,7 +155,7 @@ func _sanitize(commands: Array):
 				if command.stance == "offensive":
 					if not simulation.valid_point(command.get("point")): return null
 					clean.point = command.point.duplicate()
-			"attack", "mine_nacre":
+			"attack", "mine_nacre", "construct", "approach":
 				if not command.get("target") is int or command.target < 1 or command.target > 1000000: return null
 				clean.target = command.target
 			"deliver_chyme", "repair_point", "deliver_nacre":
@@ -164,5 +168,8 @@ func _sanitize(commands: Array):
 				if command.kind == "build":
 					if not simulation.valid_point(command.get("point")): return null
 					clean.point = command.point.duplicate()
+					if command.has("rotation"):
+						if not command.rotation is int or command.rotation < 0 or command.rotation > 5: return null
+						clean.rotation = command.rotation
 		result.append(clean)
 	return result

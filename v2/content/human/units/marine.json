@@ -24,7 +24,8 @@
         "perception": {
           "radius": 2
         }
-      }
+      },
+      "collision_radius": 0.2
     }
   }
 }

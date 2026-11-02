@@ -1,7 +1,7 @@
 {
   "settings": {
     "tick_hz": 20,
-    "map_radius": 14,
+    "map_radius": 32,
     "rollback_ticks": 120,
     "input_delay": 2,
     "minimum_damage": 0,

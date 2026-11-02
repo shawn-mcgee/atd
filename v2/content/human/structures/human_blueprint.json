@@ -1,0 +1,21 @@
+{
+  "units": {
+    "human_blueprint": {
+      "name": "Blueprint",
+      "faction": "human",
+      "hp": 80,
+      "armor": 0,
+      "cost": 0,
+      "production_ticks": 1,
+      "visual": {
+        "shape": "footprint",
+        "radius": 0.45,
+        "color": "8095a8",
+        "height": 0.15
+      },
+      "capabilities": {},
+      "collision_shape": "footprint",
+      "footprint": [[0, 0]]
+    }
+  }
+}

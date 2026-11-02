@@ -23,7 +23,7 @@ func _definitions() -> Dictionary:
 	definitions.settings.mission.enabled = false
 	definitions.units.nest.capabilities.erase("chyme_source")
 	definitions.units.scavenger.production_ticks = 12
-	definitions.units.chyme_pool.construction_ticks = 12
+	definitions.units.maw.construction_ticks = 12
 	return definitions
 
 func _players() -> Array:
@@ -37,7 +37,7 @@ func _game(new_structures: bool = true):
 	game._spawn("scavenger_spawner", 9, Hex.point([5, 3]))
 	game._spawn("mother", 9, Hex.point([8, 3]))
 	game._spawn("mother", 9, Hex.point([9, 3]))
-	game.step([{"player": 9, "kind": "build", "actors": [8], "definition": "chyme_pool", "point": Hex.point([8, 3])}])
+	game.step([{"player": 9, "kind": "build", "actors": [8], "definition": "maw", "point": Hex.point([8, 3])}])
 	return game
 
 func _validation() -> void:
@@ -94,7 +94,7 @@ func _grant_and_rates() -> void:
 	game.step([])
 	_check(int(game.state.banks["9"]) == reserve + 500 and not game.state.events.any(func(event): return event.type == "nest_destroyed"), "even an injected second Nest cannot repeat the grant")
 	for tick in 4: game.step([])
-	_check(game.entity(8).definition == "chyme_pool" and game.entity(7).production.is_empty(), "ongoing production and construction finish at accelerated rates")
+	_check(game.entity(8).definition == "maw" and game.entity(7).production.is_empty(), "ongoing production and construction finish at accelerated rates")
 	_check(game.state.actors.any(func(actor): return int(actor.id) > 9 and actor.definition == "scavenger"), "accelerated production creates the queued unit")
 
 func _new_structures() -> void:
@@ -102,14 +102,14 @@ func _new_structures() -> void:
 		var game = _game(inherit)
 		game.entity(4).hp = 0
 		game.step([])
-		game.step([{"player": 9, "kind": "build", "actors": [9], "definition": "chyme_pool", "point": Hex.point([9, 3])}])
+		game.step([{"player": 9, "kind": "build", "actors": [9], "definition": "maw", "point": Hex.point([9, 3])}])
 		_check(Escalation.rate(game, game.entity(8), "construction") == 2, "existing Womb remains eligible under either inheritance policy")
 		_check(Escalation.rate(game, game.entity(9), "construction") == (2 if inherit else 1), "future Womb obeys configured inheritance policy")
 		game._spawn("scavenger_spawner", 9, Hex.point([6, -3]))
 		var future = game.entity(int(game.state.next_id) - 1)
 		_check(Escalation.rate(game, future, "production") == (2 if inherit else 1), "future factory obeys configured inheritance policy")
 		for tick in 12: game.step([])
-		_check(game.entity(8).definition == "chyme_pool" and Escalation.rate(game, game.entity(8), "production") == 2, "existing Womb keeps eligibility when its actor definition changes")
+		_check(game.entity(8).definition == "maw" and Escalation.rate(game, game.entity(8), "production") == 2, "existing Womb keeps eligibility when its actor definition changes")
 		var before := int(game.state.banks["9"])
 		for tick in 40: game.step([])
 		_check(int(game.state.banks["9"]) == before + 4, "development bonus does not multiply passive resource income")
@@ -117,7 +117,7 @@ func _new_structures() -> void:
 	game.entity(4).hp = 0
 	game.step([])
 	game.step([{"player": 9, "kind": "cancel_build", "actors": [8]}])
-	game.step([{"player": 9, "kind": "build", "actors": [8], "definition": "chyme_pool", "point": Hex.point([8, 3])}])
+	game.step([{"player": 9, "kind": "build", "actors": [8], "definition": "maw", "point": Hex.point([8, 3])}])
 	_check(Escalation.rate(game, game.entity(8), "construction") == 1, "cancelled Womb cannot transfer old eligibility into a new build")
 
 func _queue_budget() -> void:

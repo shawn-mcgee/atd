@@ -10,7 +10,10 @@
     "lightless/units/mother.json",
     "lightless/structures/womb.json",
     "lightless/structures/scavenger_spawner.json",
-    "lightless/structures/chyme_pool.json",
-    "lightless/units/scavenger.json"
+    "lightless/structures/maw.json",
+    "lightless/units/scavenger.json",
+    "human/structures/human_blueprint.json",
+    "human/structures/turret.json",
+    "human/structures/wall.json"
   ]
 }

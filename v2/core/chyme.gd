@@ -25,7 +25,7 @@ static func nearest_receiver(game, actor: Dictionary):
 	var nearest := 0x7fffffffffffffff
 	for receiver in game.state.actors:
 		if not is_receiver(game, actor, receiver): continue
-		var distance: int = game.distance_squared(actor.position, receiver.position)
+		var distance: int = game.distance_to_actor(actor.position, receiver)
 		if distance < nearest:
 			nearest = distance
 			best = receiver
@@ -44,9 +44,10 @@ static func deliver(game, actor: Dictionary) -> void:
 		return
 	game._face(actor, receiver.position)
 	var radius := int(round(float(game.content.units[receiver.definition].capabilities.chyme_receiver.radius) * game.SCALE))
-	if game.distance_squared(actor.position, receiver.position) > radius * radius:
-		game._move(actor, receiver.position)
+	if game.interaction_distance(actor.position, receiver) > radius * radius:
+		if not game._move(actor, receiver.position, receiver, radius, true): actor.order = {}
 		return
+	actor.navigation = {}
 	var amount := int(actor.chyme)
 	var bank := str(actor.owner)
 	game.state.banks[bank] = int(game.state.banks[bank]) + amount

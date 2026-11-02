@@ -106,7 +106,7 @@ async function main() {
   const comparison = await until(async () => {
     const a = await state(host), b = await state(client);
     if (a.error || b.error) throw new Error(a.error || b.error);
-    const tick = Math.min(a.confirmed, b.confirmed) + 1;
+    const tick = Math.floor((Math.min(a.confirmed, b.confirmed) + 1) / 20) * 20;
     if (tick < 80) return false;
     if (!a.hashes[tick] || a.hashes[tick] !== b.hashes[tick]) {
       const snapshots = { tick, a, b, host: await state(host, 'checkpoint', String(tick)), client: await state(client, 'checkpoint', String(tick)) };
@@ -117,6 +117,14 @@ async function main() {
   });
   let nativeBrowserMatch = null;
   if (option('--godot')) {
+    await host.close();
+    await client.close();
+    // Load/run the browser foundation suite before starting the native peer's
+    // bounded live-match clock. Startup work is not part of that match deadline.
+    const cross = await open();
+    // The native companion hosts Humans; this peer must supply Lightless.
+    await state(cross, 'lightless');
+    await state(cross, 'reset');
     const hashes = [];
     let nativeRoom = '', nativeOutput = '', nativeExit = null;
     nativePeer = spawn(option('--godot'), ['--headless', '--path', path.resolve(__dirname, '../v2'), '--script', 'res://tests/browser_host.gd']);
@@ -135,10 +143,13 @@ async function main() {
     });
     nativePeer.stderr.on('data', chunk => { nativeOutput += chunk.toString(); });
     await until(async () => { if (nativeExit !== null) throw new Error(nativeOutput); return nativeRoom; });
-    const cross = await open();
     await state(cross, 'limit', '100');
     await state(cross, 'join', nativeRoom);
-    await until(async () => (await state(cross)).running);
+    await until(async () => {
+      const info = await state(cross);
+      if (info.error || nativeExit !== null) throw new Error(info.error || nativeOutput);
+      return info.running;
+    });
     await state(cross, 'move');
     nativeBrowserMatch = await until(async () => {
       const info = await state(cross);

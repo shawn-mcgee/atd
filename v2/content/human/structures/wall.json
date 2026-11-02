@@ -1,0 +1,24 @@
+{
+  "units": {
+    "wall": {
+      "name": "Wall",
+      "faction": "human",
+      "hp": 120,
+      "armor": 2,
+      "cost": 5,
+      "production_ticks": 30,
+      "construction_ticks": 30,
+      "visual": {
+        "shape": "footprint",
+        "radius": 0.5,
+        "color": "d6dde5",
+        "height": 0.6
+      },
+      "capabilities": {
+        "light_blocker": {}
+      },
+      "collision_shape": "footprint",
+      "footprint": [[0, 0]]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "units": {
+    "turret": {
+      "name": "Defense Turret",
+      "faction": "human",
+      "hp": 150,
+      "armor": 2,
+      "cost": 35,
+      "production_ticks": 100,
+      "construction_ticks": 100,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 0.45,
+        "color": "689dc9"
+      },
+      "capabilities": {
+        "weapon": {
+          "damage": 8,
+          "range": 5,
+          "interval_ticks": 20,
+          "turret": true
+        },
+        "perception": {
+          "radius": 5
+        }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 0.45,
+      "footprint": [[0, 0]]
+    }
+  }
+}

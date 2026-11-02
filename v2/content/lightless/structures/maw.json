@@ -1,7 +1,7 @@
 {
   "units": {
-    "chyme_pool": {
-      "name": "Chyme Pool",
+    "maw": {
+      "name": "Maw",
       "faction": "lightless",
       "hp": 100,
       "armor": 0,
@@ -24,7 +24,10 @@
           "amount": 2,
           "interval_ticks": 40
         }
-      }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 0.4,
+      "footprint": [[0, 0]]
     }
   }
 }

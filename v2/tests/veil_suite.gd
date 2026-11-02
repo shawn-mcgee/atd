@@ -11,6 +11,8 @@ var checks := 0
 
 func run() -> Dictionary:
 	_validation()
+	_growth_under_units()
+	_random_growth()
 	_growth_and_senses()
 	_global_communication()
 	_stances()
@@ -50,11 +52,90 @@ func _validation() -> void:
 	for cell in [[0, 0], [-5, 2], [2, -7]]:
 		_check(Hex.from_point(Hex.point(cell)) == cell, "integer axial conversion round-trips")
 
+func _growth_under_units() -> void:
+	var game = _game()
+	game.entity(3).position = Hex.point([0, -2])
+	game._spawn("wall", 1, Hex.point([1, 0]))
+	game._spawn("maw", 9, Hex.point([1, 1]))
+	game._spawn("womb", 9, Hex.point([-1, 0]))
+	game._spawn("human_blueprint", 1, Hex.point([-1, 1]))
+	game._spawn("mother", 9, Hex.point([2, -1]))
+	var hp := int(game.entity(3).hp)
+	game.step([])
+	_check(game.state.veil.cells.has("0,0"), "source can seed Veil under its own structure")
+	_check(game.state.veil.cells.has("0,2") and game.state.veil.cells.has("0,3"), "friendly stationary units do not block growth")
+	_check(game.state.veil.cells.has("0,-2") and int(game.entity(3).hp) == hp, "Veil grows under stationary hostile units without damaging them")
+	_check(game.state.veil.cells.has("2,-1"), "mobile Mother does not block growth")
+	for key in ["1,0", "1,1", "-1,0", "-1,1"]:
+		_check(not game.state.veil.cells.has(key), "structures, Wombs and blueprints block growth")
+	_check(game.visible_to(9, game.entity(3)) == 2 and str(game.entity(3).id) in game.state.veil.contacts, "new Veil immediately perceives and senses a standing hostile unit")
+	_check(game.state.events.any(func(event): return event.type == "veil_alert" and event.reason == "contact" and event.hostile and int(event.source) == 3), "growth beneath a hostile unit emits its entry alert")
+	game.step([])
+	_check(not game.state.events.any(func(event): return event.type == "veil_alert" and event.reason == "contact"), "stationary contacts do not repeatedly trigger entry alerts")
+	game.entity(7).hp = 0
+	game.step([])
+	_check(game.state.veil.cells.has("1,0"), "destroying a structure frees its tile for Veil growth")
+
+func _random_growth() -> void:
+	var patterns: Dictionary = {}
+	for seed_value in [7, 42, 123]:
+		var game = _game()
+		game.content.units.nest.capabilities.veil_source.growth_tiles = 1
+		game.state.rng = seed_value
+		game.step([])
+		_check(game.state.veil.cells.size() == 1 and game.state.veil.cells.has("0,0"), "growth seeds its source tile")
+		var saved: Dictionary = Canonical.normalize(JSON.parse_string(Canonical.text(game.checkpoint())))
+		for tick in 16:
+			var previous: Dictionary = game.state.veil.cells.duplicate(true)
+			game.step([])
+			_check(game.state.veil.cells.size() == previous.size() + 1, "one-tile growth budget adds one frontier tile")
+			for key in game.state.veil.cells:
+				if previous.has(key): continue
+				var cell: Dictionary = game.state.veil.cells[key]
+				var touches := false
+				for offset in Hex.NEIGHBORS:
+					if previous.has(Hex.key([int(cell.q) + int(offset[0]), int(cell.r) + int(offset[1])])): touches = true
+				_check(touches and Hex.distance([cell.q, cell.r], [0, 0]) <= 3, "random growth stays adjacent and within range")
+		var expected: String = game.state_hash()
+		var keys: Array = game.state.veil.cells.keys()
+		keys.sort()
+		patterns[Canonical.hash_of(keys)] = true
+		game.restore(saved)
+		_step(game, 16)
+		_check(game.state_hash() == expected, "JSON restore reproduces random growth and RNG state")
+	_check(patterns.size() > 1, "different seeds create different Veil patterns")
+	var pulse = _game()
+	pulse.content.units.nest.capabilities.veil_source.growth_tiles = 8
+	pulse.step([])
+	_check(pulse.state.veil.cells.size() == 8, "each pick extends frontier within the current growth pulse")
+	var saved: Dictionary = pulse.checkpoint()
+	var reordered = _game()
+	reordered.content = pulse.content.duplicate(true)
+	reordered.restore(saved)
+	var keys: Array = reordered.state.veil.cells.keys()
+	keys.reverse()
+	reordered.state.veil.cells = {}
+	for key in keys: reordered.state.veil.cells[key] = saved.veil.cells[key].duplicate(true)
+	reordered.state.veil.sources["4"].claimed.reverse()
+	pulse.step([])
+	reordered.step([])
+	_check(pulse.state.veil.cells == reordered.state.veil.cells and int(pulse.state.rng) == int(reordered.state.rng), "frontier choices do not depend on dictionary or claim traversal order")
+	var full = _game()
+	_step(full, 2)
+	var rng := int(full.state.rng)
+	full.step([])
+	_check(int(full.state.rng) == rng, "saturated frontier consumes no randomness")
+	var blocked = _game()
+	blocked.entity(1).position = Hex.point([0, 0])
+	rng = int(blocked.state.rng)
+	blocked.step([])
+	_check(blocked.state.veil.cells.is_empty() and int(blocked.state.rng) == rng, "illuminated source cannot seed Veil or consume growth randomness")
+
 func _growth_and_senses() -> void:
 	var game = _game()
 	_step(game, 5)
 	_check(game.state.veil.cells.size() > 20, "Veil branches over time")
-	_check(not game.state.veil.cells.has("0,2"), "growth skips occupied tiles")
+	_check(game.state.veil.cells.has("0,2"), "growth expands beneath stationary units")
 	for cell in game.state.veil.cells.values():
 		_check(Hex.distance([cell.q, cell.r], [0, 0]) <= 3, "growth stays within source radius")
 		_check(int(cell.hp) == 10, "perception does not damage Veil")

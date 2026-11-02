@@ -1,4 +1,5 @@
 extends RefCounted
+const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
 const WORK_ORDERS := ["repair_point", "mine_nacre", "deliver_nacre"]
 
@@ -65,9 +66,10 @@ static func work(game, actor: Dictionary) -> void:
 	var destination: Array = field.position if kind == "mine_nacre" else receiver.position
 	game._face(actor, destination)
 	var radius := int(round(float(cap.work_range) * Hex.SCALE))
-	if game.distance_squared(actor.position, destination) > radius * radius:
-		game._move(actor, destination)
+	if (game.distance_squared(actor.position, destination) if kind == "mine_nacre" else game.interaction_distance(actor.position, receiver)) > radius * radius:
+		if not game._move(actor, destination, null if kind == "mine_nacre" else receiver, radius, true): actor.order = {}
 		return
+	actor.navigation = {}
 	match kind:
 		"repair_point":
 			if int(progress.repair_remaining) > 0:
@@ -109,7 +111,7 @@ static func resolve(game) -> void:
 	if not enabled(game): return
 	for actor in game.state.actors:
 		if actor.definition == "nest" and int(actor.hp) <= 0 and not game.state.mission.fields.has(str(actor.id)):
-			game.state.mission.fields[str(actor.id)] = {"position": actor.position.duplicate(), "remaining": int(settings(game).nacre_amount), "known_by": []}
+			game.state.mission.fields[str(actor.id)] = {"position": Geo.center(game, actor), "remaining": int(settings(game).nacre_amount), "known_by": []}
 	var living := 0
 	for player in game.state.players:
 		if player.faction != "human": continue

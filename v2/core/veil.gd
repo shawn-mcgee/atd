@@ -1,5 +1,6 @@
 extends RefCounted
 ## Stateful membrane data lives in Simulation.state. Queries never mutate it.
+const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
 const DEFAULTS := {"tile_hp": 100, "light_damage_per_tick": 2, "decay_per_tick": 1, "alert_cooldown_ticks": 20, "memory_ticks": 200}
 const STANCES := ["neutral", "defensive", "offensive"]
@@ -19,38 +20,45 @@ static func tick(game) -> void:
 	var veil: Dictionary = game.state.veil
 	var alive: Dictionary = {}
 	var occupied: Dictionary = {}
-	var lights: Array = []
+	for cell in game.content.settings.get("terrain", []): occupied[Hex.key(cell)] = [0]
+	var lights: Dictionary = game.illumination_cells()
 	for actor in game.state.actors:
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
-		var key := Hex.key(Hex.from_point(actor.position))
-		if not occupied.has(key): occupied[key] = []
-		occupied[key].append(int(actor.id))
-		if caps.has("illumination"):
-			var radius := int(round(float(caps.illumination.radius) * Hex.SCALE))
-			lights.append({"position": actor.position, "range_squared": radius * radius})
+		# Mobile actors never obstruct the membrane, even while standing still.
+		if int(actor.hp) <= 0: continue
+		if not caps.has("move"):
+			for cell in Geo.cells(game, actor):
+				var key := Hex.key(cell)
+				if not occupied.has(key): occupied[key] = []
+				occupied[key].append(int(actor.id))
 		if caps.has("veil_source"):
 			var id: String = str(actor.id)
 			alive[id] = true
 			if not veil.sources.has(id):
-				veil.sources[id] = {"origin": Hex.from_point(actor.position), "claimed": [], "next_growth_tick": int(game.state.tick)}
+				veil.sources[id] = {"origin": Hex.from_point(Geo.center(game, actor)), "claimed": [], "next_growth_tick": int(game.state.tick)}
 	for id in veil.sources.keys():
 		if not alive.has(id): veil.sources.erase(id)
 	# A surviving source maintains only membrane it has actually grown/claimed.
-	for key in veil.cells.keys():
+	var damage_keys: Array = []
+	for key in veil.cells:
 		var cell: Dictionary = veil.cells[key]
-		var support: Array = cell.sources.filter(func(id): return alive.has(str(id)))
-		if support != cell.sources:
-			cell.sources = support
+		for id in cell.sources:
+			if alive.has(str(id)): continue
+			cell.sources = cell.sources.filter(func(source_id): return alive.has(str(source_id)))
 			veil.revision = int(veil.revision) + 1
-		var point := Hex.point([cell.q, cell.r])
-		if _lit(game, point, lights):
+			break
+		if lights.has(key) or cell.sources.is_empty(): damage_keys.append(key)
+	# Only hazardous tissue needs a canonical damage/event ordering.
+	damage_keys.sort()
+	for key in damage_keys:
+		var cell: Dictionary = veil.cells[key]
+		if lights.has(key):
 			_damage(game, key, int(settings(game).light_damage_per_tick), "illumination", 0)
-		elif support.is_empty():
+		elif cell.sources.is_empty():
 			_damage(game, key, int(settings(game).decay_per_tick), "decay", 0)
 	for actor in game.state.actors:
 		if not alive.has(str(actor.id)): continue
 		var source: Dictionary = veil.sources[str(actor.id)]
-		source.claimed = source.claimed.filter(func(key): return veil.cells.has(key) and veil.cells[key].sources.has(int(actor.id)))
 		if int(game.state.tick) >= int(source.next_growth_tick):
 			_grow(game, actor, source, occupied, lights)
 			source.next_growth_tick = int(game.state.tick) + int(game.content.units[actor.definition].capabilities.veil_source.growth_interval_ticks)
@@ -60,50 +68,52 @@ static func tick(game) -> void:
 	for key in veil.cooldowns.keys():
 		if int(veil.cooldowns[key]) <= int(game.state.tick): veil.cooldowns.erase(key)
 
-static func _grow(game, actor: Dictionary, source: Dictionary, occupied: Dictionary, lights: Array) -> void:
+static func _grow(game, actor: Dictionary, source: Dictionary, occupied: Dictionary, lights: Dictionary) -> void:
 	var veil: Dictionary = game.state.veil
 	var cap: Dictionary = game.content.units[actor.definition].capabilities.veil_source
 	var candidates: Dictionary = {}
 	if source.claimed.is_empty():
-		candidates[Hex.key(source.origin)] = source.origin
+		_offer(game, actor, source, source.origin, occupied, lights, candidates)
 	else:
 		for key in source.claimed:
 			var cell: Dictionary = veil.cells[key]
-			for offset in Hex.NEIGHBORS:
-				var next := [int(cell.q) + int(offset[0]), int(cell.r) + int(offset[1])]
-				var next_key := Hex.key(next)
-				if not source.claimed.has(next_key): candidates[next_key] = next
-	var ordered := candidates.values()
-	ordered.sort_custom(func(a, b):
-		var da := Hex.distance(a, source.origin)
-		var db := Hex.distance(b, source.origin)
-		return da < db or (da == db and Hex.compare(a, b)))
+			_offer_neighbors(game, actor, source, [cell.q, cell.r], occupied, lights, candidates)
 	var remaining := int(cap.growth_tiles)
-	for cell in ordered:
-		if remaining <= 0: break
-		if not Hex.inside(cell, int(game.content.settings.map_radius)) or Hex.distance(cell, source.origin) > int(cap.radius): continue
+	while remaining > 0 and not candidates.is_empty():
+		# Canonical order makes RNG choices independent of dictionary insertion order.
+		var ordered := candidates.values()
+		ordered.sort_custom(Hex.compare)
+		var cell: Array = ordered[game._random() % ordered.size()]
 		var key := Hex.key(cell)
-		if cell != source.origin and occupied.has(key): continue
-		if _lit(game, Hex.point(cell), lights): continue
-		if veil.cells.has(key) and int(veil.cells[key].owner) != int(actor.owner): continue
+		candidates.erase(key)
 		if not veil.cells.has(key):
 			veil.cells[key] = {"q": int(cell[0]), "r": int(cell[1]), "owner": int(actor.owner),
 				"hp": int(settings(game).tile_hp), "sources": [], "network": 0}
 			veil.network_dirty = true
-		if not veil.cells[key].sources.has(int(actor.id)):
-			veil.cells[key].sources.append(int(actor.id))
-			veil.cells[key].sources.sort()
-			source.claimed.append(key)
-			veil.revision = int(veil.revision) + 1
-			remaining -= 1
+		veil.cells[key].sources.append(int(actor.id))
+		veil.cells[key].sources.sort()
+		source.claimed.append(key)
+		veil.revision = int(veil.revision) + 1
+		remaining -= 1
+		_offer_neighbors(game, actor, source, cell, occupied, lights, candidates)
 
-static func _lit(game, point: Array, lights: Array) -> bool:
-	for light in lights:
-		if game.distance_squared(point, light.position) <= int(light.range_squared): return true
-	return false
+static func _offer_neighbors(game, actor: Dictionary, source: Dictionary, cell: Array, occupied: Dictionary, lights: Dictionary, candidates: Dictionary) -> void:
+	for offset in Hex.NEIGHBORS:
+		_offer(game, actor, source, [int(cell[0]) + int(offset[0]), int(cell[1]) + int(offset[1])], occupied, lights, candidates)
+
+static func _offer(game, actor: Dictionary, source: Dictionary, cell: Array, occupied: Dictionary, lights: Dictionary, candidates: Dictionary) -> void:
+	var key := Hex.key(cell)
+	var radius := int(game.content.units[actor.definition].capabilities.veil_source.radius)
+	if candidates.has(key) or source.claimed.has(key): return
+	if not Hex.inside(cell, int(game.content.settings.map_radius)) or Hex.distance(cell, source.origin) > radius: return
+	if not game.state.veil.cells.has(key) and occupied.has(key) and occupied[key].any(func(id): return int(id) != int(actor.id)): return
+	if lights.has(key): return
+	if game.state.veil.cells.has(key) and int(game.state.veil.cells[key].owner) != int(actor.owner): return
+	candidates[key] = cell
 
 static func networks_at(veil: Dictionary, owner: int, position: Array) -> Array:
 	var result: Array = []
+	if veil.cells.is_empty(): return result
 	var cell := Hex.from_point(position)
 	for offset in [[0, 0]] + Hex.NEIGHBORS:
 		var key := Hex.key([int(cell[0]) + int(offset[0]), int(cell[1]) + int(offset[1])])
@@ -141,6 +151,7 @@ static func _damage(game, key: String, amount: int, cause: String, source_id: in
 	veil.revision = int(veil.revision) + 1
 	if int(cell.hp) <= 0:
 		veil.cells.erase(key)
+		for source in veil.sources.values(): source.claimed.erase(key)
 		veil.network_dirty = true
 
 static func signal_at(game, owner: int, position: Array, reason: String, source_id: int) -> void:
@@ -170,6 +181,9 @@ static func _alert(game, owner: int, cell: Array, reason: String, source_id: int
 static func _contacts(game) -> void:
 	var veil: Dictionary = game.state.veil
 	var next: Dictionary = {}
+	if veil.cells.is_empty():
+		veil.contacts = next
+		return
 	for actor in game.state.actors:
 		if not game.content.units[actor.definition].capabilities.has("move"): continue
 		var cell := Hex.from_point(actor.position)

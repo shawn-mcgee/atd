@@ -2,7 +2,7 @@ extends RefCounted
 ## JSON is configuration, not executable code. All errors include a field path.
 const Canonical = preload("res://core/canonical.gd")
 const ConfigFiles = preload("res://authoring/config_files.gd")
-const CAPABILITIES := ["move", "weapon", "perception", "illumination", "detection", "factory", "veil_source", "chyme_collector", "chyme_receiver", "chyme_source", "metamorphosis", "mission_worker", "extraction_point", "passive_spawner"]
+const CAPABILITIES := ["move", "weapon", "perception", "illumination", "light_blocker", "detection", "factory", "veil_source", "chyme_collector", "chyme_receiver", "chyme_source", "metamorphosis", "builder", "mission_worker", "extraction_point", "passive_spawner"]
 var data: Dictionary = {}
 var errors: Array[String] = []
 
@@ -38,6 +38,7 @@ func load_text(source: String) -> bool:
 		return false
 	for spec in [["tick_hz", 10, 60], ["map_radius", 8, 32], ["rollback_ticks", 16, 240], ["input_delay", 0, 6], ["minimum_damage", 0, 100]]:
 		_number(settings, spec[0], spec[1], spec[2], "settings", true)
+	if settings.has("terrain"): _cells(settings.terrain, "settings.terrain", int(settings.get("map_radius", 32)), 4096, false)
 	if settings.has("mission"):
 		if not settings.mission is Dictionary:
 			errors.append("settings.mission: expected an object")
@@ -85,8 +86,8 @@ func load_text(source: String) -> bool:
 		if not visual is Dictionary:
 			errors.append(path + ".visual: expected an object")
 		else:
-			if not visual.get("shape") in ["capsule", "cylinder"]:
-				errors.append(path + ".visual.shape: expected capsule or cylinder")
+			if not visual.get("shape") in ["capsule", "cylinder", "footprint"]:
+				errors.append(path + ".visual.shape: expected capsule, cylinder or footprint")
 			if not visual.get("color") is String or not Color.html_is_valid(visual.get("color", "")):
 				errors.append(path + ".visual.color: expected a hexadecimal color")
 			_number(visual, "radius", 0.05, 4, path + ".visual")
@@ -94,6 +95,18 @@ func load_text(source: String) -> bool:
 		if not caps is Dictionary:
 			errors.append(path + ".capabilities: expected an object")
 			continue
+		if definition.has("footprint"):
+			_cells(definition.footprint, path + ".footprint", 8, 64, true)
+			if caps.has("move"): errors.append(path + ".footprint: mobile units use collision_radius")
+		if definition.has("collision_radius"): _number(definition, "collision_radius", 0.05, 4, path)
+		if definition.has("collision_shape"):
+			if not definition.collision_shape in ["circle", "footprint"]: errors.append(path + ".collision_shape: expected circle or footprint")
+			elif caps.has("move") and definition.collision_shape != "circle": errors.append(path + ".collision_shape: mobile units require circle")
+			elif definition.collision_shape == "circle" and not definition.has("collision_radius"): errors.append(path + ".collision_radius: required for circle collision")
+		if definition.has("blocks_movement") and not definition.blocks_movement is bool: errors.append(path + ".blocks_movement: expected a boolean")
+		if visual is Dictionary and visual.get("shape") == "footprint":
+			if caps.has("move"): errors.append(path + ".visual.shape: footprint shape requires a stationary structure")
+			_number(visual, "height", 0.05, 8, path + ".visual")
 		for cap in caps:
 			var cap_path := path + ".capabilities." + str(cap)
 			if not cap in CAPABILITIES or not caps[cap] is Dictionary:
@@ -115,6 +128,9 @@ func load_text(source: String) -> bool:
 					_number(caps[cap], "work_range", 0.1, 4, cap_path)
 				"extraction_point":
 					if definition.get("faction") != "human" or caps.has("move"): errors.append(cap_path + ": requires a stationary Human extraction point")
+				"builder":
+					if definition.get("faction") != "human" or not caps.has("move"): errors.append(cap_path + ": requires a mobile Human builder")
+					_builder(caps[cap], definitions, cap_path)
 				"metamorphosis":
 					if definition.get("faction") != "lightless" or not caps.has("move") or caps.has("chyme_collector") or caps.has("factory"):
 						errors.append(cap_path + ": requires a mobile Lightless builder without cargo or factory")
@@ -141,6 +157,8 @@ func load_text(source: String) -> bool:
 					_number(caps[cap], "growth_tiles", 1, 64, cap_path, true)
 					if definition.get("faction") != "lightless" or caps.has("move"):
 						errors.append(cap_path + ": requires a stationary Lightless structure")
+				"light_blocker":
+					if caps.has("move") or not caps[cap].is_empty(): errors.append(cap_path + ": requires a stationary structure and empty parameters")
 				"perception", "illumination", "detection": _number(caps[cap], "radius", 0, 24, cap_path)
 				"weapon":
 					_number(caps[cap], "damage", 0, 1000, cap_path, true)
@@ -176,6 +194,32 @@ func load_text(source: String) -> bool:
 	data = Canonical.normalize(candidate)
 	return true
 
+func _cells(value, path: String, bound: int, maximum: int, connected: bool) -> void:
+	if not value is Array or value.size() > maximum or (connected and value.is_empty()):
+		errors.append(path + ": expected an array of axial [q, r] cells")
+		return
+	var found: Dictionary = {}
+	for cell in value:
+		if not cell is Array or cell.size() != 2 or not (cell[0] is int or cell[0] is float) or not (cell[1] is int or cell[1] is float):
+			errors.append(path + ": expected integer axial [q, r] cells")
+			return
+		if not is_finite(float(cell[0])) or not is_finite(float(cell[1])) or cell[0] != floor(cell[0]) or cell[1] != floor(cell[1]) or maxi(absi(int(cell[0])), maxi(absi(int(cell[1])), absi(int(cell[0]) + int(cell[1])))) > bound:
+			errors.append(path + ": axial cell is outside bounds or is not integral")
+			return
+		var key := "%d,%d" % [cell[0], cell[1]]
+		if found.has(key): errors.append(path + ": duplicate axial cell")
+		found[key] = cell
+	if not connected: return
+	if not found.has("0,0"):
+		errors.append(path + ": footprint must include [0, 0]")
+		return
+	var visited: Dictionary = {"0,0": true}; var queue: Array = [[0, 0]]
+	for cell in queue:
+		for offset in [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]:
+			var next := [int(cell[0]) + int(offset[0]), int(cell[1]) + int(offset[1])]; var key := "%d,%d" % [next[0], next[1]]
+			if found.has(key) and not visited.has(key): visited[key] = true; queue.append(next)
+	if visited.size() != found.size(): errors.append(path + ": footprint must be connected")
+
 func _metamorphosis(cap: Dictionary, definitions: Dictionary, path: String) -> void:
 	var womb = cap.get("womb")
 	if not womb is String or not definitions.get(womb) is Dictionary:
@@ -196,6 +240,29 @@ func _metamorphosis(cap: Dictionary, definitions: Dictionary, path: String) -> v
 		var caps = definition.get("capabilities")
 		if type == "nest" or type == womb or definition.get("faction") != "lightless" or not caps is Dictionary or caps.has("move"):
 			errors.append(path + ".structures: requires stationary Lightless structures other than Nest/Womb")
+		_number(definition, "construction_ticks", 1, 10000, "units." + type, true)
+
+func _builder(cap: Dictionary, definitions: Dictionary, path: String) -> void:
+	_number(cap, "work_range", 1, 4, path)
+	var blueprint = cap.get("blueprint")
+	if not blueprint is String or not definitions.get(blueprint) is Dictionary:
+		errors.append(path + ".blueprint: expected an existing definition ID")
+	else:
+		var definition: Dictionary = definitions[blueprint]
+		if blueprint == "hq" or definition.get("faction") != "human" or not definition.get("capabilities") is Dictionary or not definition.capabilities.is_empty():
+			errors.append(path + ".blueprint: requires an inert Human definition other than HQ")
+	var structures = cap.get("structures")
+	if not structures is Array or structures.is_empty() or structures.size() > 16:
+		errors.append(path + ".structures: expected 1-16 structure IDs")
+		return
+	for type in structures:
+		if not type is String or not definitions.get(type) is Dictionary:
+			errors.append(path + ".structures: missing definition " + str(type))
+			continue
+		var definition: Dictionary = definitions[type]
+		var caps = definition.get("capabilities")
+		if type in ["hq", blueprint] or definition.get("faction") != "human" or not caps is Dictionary or caps.has("move") or caps.has("extraction_point"):
+			errors.append(path + ".structures: requires stationary Human structures other than HQ/blueprint/extraction point")
 		_number(definition, "construction_ticks", 1, 10000, "units." + type, true)
 
 func _number(object: Dictionary, key: String, low: float, high: float, path: String, integral: bool = false) -> void:

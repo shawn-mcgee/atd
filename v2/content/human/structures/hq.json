@@ -25,7 +25,10 @@
             "marine"
           ]
         }
-      }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 1,
+      "footprint": [[0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]
     }
   }
 }

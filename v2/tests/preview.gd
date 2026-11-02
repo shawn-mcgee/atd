@@ -9,7 +9,84 @@ func _initialize() -> void:
 
 func _process(_dt: float) -> bool:
 	frames += 1
+	if frames == 2 and "--small" in OS.get_cmdline_user_args():
+		root.content_scale_size = Vector2i(960, 640)
+		root.size = Vector2i(960, 640)
+	if frames == 8:
+		for entry in [["--content", view.MENU_CONTENT], ["--multiplayer", view.MENU_MULTIPLAYER], ["--setup", view.MENU_SETUP], ["--guide", view.MENU_GUIDE]]:
+			if entry[0] in OS.get_cmdline_user_args(): view.menu_tabs.current_tab = entry[1]
 	if frames == 8 and "--arena" in OS.get_cmdline_user_args(): view._local()
+	if frames == 8 and "--rally" in OS.get_cmdline_user_args():
+		view._local()
+		view.set_process(false)
+		view.selected.assign([1])
+		view._order({"kind": "rally", "point": [-4 * 1024, 0, 3 * 1024]})
+		_advance(3)
+		view._sync_meshes()
+		view._refresh_hud()
+	if frames == 8 and "--paths" in OS.get_cmdline_user_args():
+		view.faction.select(0)
+		var content = view._content()
+		content.data.settings.mission.enabled = false
+		content.data.units.hq.capabilities.perception.radius = 12
+		content.data.units.wall.footprint = []
+		for r in range(-4, 5): content.data.units.wall.footprint.append([0, r])
+		view.session.start_local(content.data, 42, "human")
+		view.set_process(false)
+		var game = view.session.rollback.simulation
+		game._spawn("wall", 1, [-5 * 1024, 0, 0])
+		game.entity(2).position = [-10 * 1024, 0, 3 * 1024]
+		view.selected.assign([2])
+		view._order({"kind": "move", "point": [1 * 1024, 0, 0]})
+		_advance(3)
+		view.camera.position.x -= 2
+		view.selected.assign([2, 7])
+		view._sync_meshes()
+		view._refresh_hud()
+	if frames == 8 and "--walls" in OS.get_cmdline_user_args():
+		view.faction.select(0)
+		view._local()
+		view.set_process(false)
+		var game = view.session.rollback.simulation
+		for cell in [[-6, 0], [-3, 0], [-1, 4]]:
+			game._spawn("wall", 1, [int(cell[0]) * 1024, 0, int(cell[1]) * 1024])
+			game.state.revealed["1"][view.Hex.key(cell)] = true
+		_advance(3)
+		view.selected.assign([1])
+		view._sync_meshes()
+		view._refresh_hud()
+	if frames == 8 and "--geometry" in OS.get_cmdline_user_args():
+		var content = view._content()
+		content.data.settings.mission.enabled = false
+		content.data.settings.terrain = [[-6, -4], [-5, -4], [-5, -3]]
+		content.data.units.wall.footprint = [[0, 0], [1, 0], [2, 0]]
+		content.data.units.demo_cylinder = content.data.units.turret.duplicate(true)
+		content.data.units.demo_cylinder.name = "Centered cylinder"
+		content.data.units.demo_cylinder.capabilities = {"perception": {"radius": 3}}
+		content.data.units.demo_cylinder.footprint = [[0, 0], [1, 0], [0, 1]]
+		view.session.start_local(content.data, 42, "human")
+		view.set_process(false)
+		var game = view.session.rollback.simulation
+		game._spawn("wall", 1, [-4 * 1024, 0, -2 * 1024])
+		game._spawn("demo_cylinder", 1, [-4 * 1024, 0, 2 * 1024])
+		view.selected.assign([2])
+		view._order({"kind": "move", "point": [-2 * 1024, 0, -4 * 1024]})
+		_advance(40)
+		view.selected.assign([7, 8, 2])
+		view._sync_meshes()
+		view._refresh_hud()
+	if frames == 8 and "--visibility" in OS.get_cmdline_user_args():
+		view.faction.select(0)
+		view._local()
+		view.set_process(false)
+		view.selected.assign([3])
+		view._order({"kind": "move", "point": [-1 * 1024, 0, 4 * 1024]})
+		_advance(140)
+		view._order({"kind": "move", "point": [-6 * 1024, 0, 2 * 1024]})
+		_advance(140)
+		view.selected.assign([1])
+		view._sync_meshes()
+		view._refresh_hud()
 	if frames == 8 and "--spawning" in OS.get_cmdline_user_args():
 		view.faction.select(1)
 		var content = view._content()
@@ -46,6 +123,33 @@ func _process(_dt: float) -> bool:
 		view._start_extraction()
 		_advance(4)
 		view.selected.assign([7])
+		view._sync_meshes()
+		view._refresh_hud()
+	if frames == 8 and "--illumination" in OS.get_cmdline_user_args():
+		var content = view._content()
+		content.data.settings.mission.enabled = false
+		content.data.units.hq.capabilities.illumination.radius = 5
+		view.session.start_local(content.data, 42, "human")
+		view.set_process(false)
+		var game = view.session.rollback.simulation
+		for r in range(-2, 3): game._spawn("wall", 1, [-6 * 1024, 0, r * 1024])
+		_advance(3)
+		view.selected.assign([9])
+		view.veil_overlay.show_illumination = true
+		view.veil_overlay.show_perception = false
+		view.veil_overlay.show_veil = false
+		view._sync_meshes()
+		view._refresh_hud()
+	if frames == 8 and "--engineering" in OS.get_cmdline_user_args():
+		view.faction.select(0)
+		view._local()
+		view.set_process(false)
+		view.selected.assign([2])
+		view._refresh_hud()
+		view._begin_build()
+		view._place_build([-6 * 1024, 0, 2 * 1024])
+		_advance(45 if "--blueprint" in OS.get_cmdline_user_args() else 150)
+		view.selected.assign([8])
 		view._sync_meshes()
 		view._refresh_hud()
 	if frames == 8 and "--construction" in OS.get_cmdline_user_args():
@@ -90,10 +194,22 @@ func _advance(count: int) -> void:
 func _capture() -> void:
 	DirAccess.make_dir_recursive_absolute("res://test-results")
 	var path := "res://test-results/arena.png" if "--arena" in OS.get_cmdline_user_args() else "res://test-results/configurator.png"
+	if "--content" in OS.get_cmdline_user_args(): path = "res://test-results/content-editor.png"
+	if "--multiplayer" in OS.get_cmdline_user_args(): path = "res://test-results/multiplayer-menu.png"
+	if "--setup" in OS.get_cmdline_user_args(): path = "res://test-results/match-setup.png"
+	if "--guide" in OS.get_cmdline_user_args(): path = "res://test-results/guide.png"
 	if "--mission" in OS.get_cmdline_user_args(): path = "res://test-results/mission.png"
+	if "--paths" in OS.get_cmdline_user_args(): path = "res://test-results/paths.png"
+	if "--rally" in OS.get_cmdline_user_args(): path = "res://test-results/rally.png"
+	if "--walls" in OS.get_cmdline_user_args(): path = "res://test-results/walls.png"
+	if "--geometry" in OS.get_cmdline_user_args(): path = "res://test-results/geometry.png"
+	if "--visibility" in OS.get_cmdline_user_args(): path = "res://test-results/visibility.png"
+	if "--illumination" in OS.get_cmdline_user_args(): path = "res://test-results/illumination.png"
+	if "--engineering" in OS.get_cmdline_user_args(): path = "res://test-results/engineering-blueprint.png" if "--blueprint" in OS.get_cmdline_user_args() else "res://test-results/engineering.png"
 	if "--spawning" in OS.get_cmdline_user_args(): path = "res://test-results/spawning.png"
 	if "--construction" in OS.get_cmdline_user_args():
 		path = "res://test-results/womb.png" if "--womb" in OS.get_cmdline_user_args() else "res://test-results/construction.png"
 		if "--nest-loss" in OS.get_cmdline_user_args(): path = "res://test-results/nest-loss.png"
+	if "--small" in OS.get_cmdline_user_args(): path = path.get_basename() + "-small.png"
 	root.get_texture().get_image().save_png(path)
 	quit()

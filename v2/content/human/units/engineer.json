@@ -17,7 +17,7 @@
           "capacity": 10,
           "mining_amount": 2,
           "mining_interval_ticks": 20,
-          "work_range": 1.5
+          "work_range": 1
         },
         "move": {
           "speed": 3
@@ -29,8 +29,17 @@
         },
         "perception": {
           "radius": 2
+        },
+        "builder": {
+          "blueprint": "human_blueprint",
+          "structures": [
+            "turret",
+            "wall"
+          ],
+          "work_range": 1
         }
-      }
+      },
+      "collision_radius": 0.2
     }
   }
 }

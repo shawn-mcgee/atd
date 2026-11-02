@@ -21,9 +21,11 @@ func _definitions() -> Dictionary:
 	content.load_file("res://content/default.json")
 	var definitions: Dictionary = content.data.duplicate(true)
 	definitions.settings.mission.enabled = false
+	definitions.units.nest.collision_radius = 0.4
+	definitions.units.nest.footprint = [[0, 0]] # Isolate Mother lifecycle fixtures.
 	definitions.units.nest.capabilities.erase("chyme_source")
 	definitions.units.scavenger_spawner.construction_ticks = 4
-	definitions.units.chyme_pool.construction_ticks = 3
+	definitions.units.maw.construction_ticks = 3
 	return definitions
 
 func _players() -> Array:
@@ -69,9 +71,9 @@ func _revelation() -> void:
 	game.entity(7).position = Hex.point([10, -12])
 	game.step([])
 	_check(game.visibility_at(9, Hex.point([8, 3])) == 0 and game.state.revealed["9"].has("8,3"), "revelation survives after senses leave")
-	_check(Construction.site_error(game, game.entity(7), "chyme_pool", Hex.point([8, 3])).is_empty(), "previously revealed darkness remains buildable")
+	_check(Construction.site_error(game, game.entity(7), "maw", Hex.point([8, 3])).is_empty(), "previously revealed darkness remains buildable")
 	game.entity(3).position = Hex.point([8, 3])
-	_check(Construction.site_error(game, game.entity(7), "chyme_pool", Hex.point([8, 3]), true).is_empty() and not Construction.site_error(game, game.entity(7), "chyme_pool", Hex.point([8, 3])).is_empty(), "placement preview does not leak unseen occupancy while core rejects it")
+	_check(Construction.site_error(game, game.entity(7), "maw", Hex.point([8, 3]), true).is_empty() and not Construction.site_error(game, game.entity(7), "maw", Hex.point([8, 3])).is_empty(), "placement preview does not leak unseen occupancy while core rejects it")
 	var definitions := _definitions()
 	for definition in definitions.units.values():
 		definition.capabilities.erase("perception")
@@ -119,9 +121,9 @@ func _build_and_cancel() -> void:
 	game.step([{"kind": "train", "player": 9, "actors": [7], "definition": "scavenger"}])
 	_check(game.entity(7).production.size() == 1 and int(game.state.banks["9"]) == 50, "completed spawner uses shared chyme for production")
 	game = _game()
-	game.step([_build([8, 3], "chyme_pool")])
+	game.step([_build([8, 3], "maw")])
 	for tick in 3: game.step([])
-	_check(game.entity(7).definition == "chyme_pool", "Mother can build a different composed structure")
+	_check(game.entity(7).definition == "maw", "Mother can build a different composed structure")
 	for tick in 40: game.step([])
 	_check(int(game.state.banks["9"]) == 72, "new passive structure waits a full generation interval")
 	game = _game()
@@ -182,7 +184,7 @@ func _rollback() -> String:
 	b.events_confirmed.connect(func(events):
 		for event in events:
 			if event.type.begins_with("construction_"): seen.append(event))
-	var delayed := [{"kind": "build", "actors": [7], "definition": "chyme_pool", "point": Hex.point([6, 2])}]
+	var delayed := [{"kind": "build", "actors": [7], "definition": "maw", "point": Hex.point([6, 2])}]
 	for tick in 90:
 		for player in [1, 9]:
 			var commands: Array = []
@@ -199,7 +201,7 @@ func _rollback() -> String:
 	for tick in 80:
 		a.advance()
 		b.advance()
-	_check(a.simulation.state_hash() == b.simulation.state_hash() and b.simulation.entity(7).definition == "chyme_pool", "rollback reproduces movement, discovery, construction and passive schedules")
+	_check(a.simulation.state_hash() == b.simulation.state_hash() and b.simulation.entity(7).definition == "maw", "rollback reproduces movement, discovery, construction and passive schedules")
 	var ids: Dictionary = {}
 	var completed := 0
 	for event in seen:
@@ -208,7 +210,7 @@ func _rollback() -> String:
 	_check(ids.size() == seen.size() and completed == 1, "construction confirmations appear exactly once after rollback")
 	var unsafe = Rollback.new()
 	unsafe.initialize(definitions, _players(), 42, 9)
-	_check(not unsafe.queue({"kind": "build", "actors": [7], "definition": "chyme_pool", "point": [0, 0]}), "malformed build point rejected")
+	_check(not unsafe.queue({"kind": "build", "actors": [7], "definition": "maw", "point": [0, 0]}), "malformed build point rejected")
 	_check(not unsafe.queue({"kind": "build", "actors": [7], "definition": "missing", "point": [0, 0, 0]}), "unknown network build definition rejected")
 	return b.simulation.state_hash()
 

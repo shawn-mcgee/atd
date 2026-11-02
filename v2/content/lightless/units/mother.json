@@ -23,10 +23,11 @@
           "womb": "womb",
           "structures": [
             "scavenger_spawner",
-            "chyme_pool"
+            "maw"
           ]
         }
-      }
+      },
+      "collision_radius": 0.5
     }
   }
 }

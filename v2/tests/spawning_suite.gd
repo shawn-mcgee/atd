@@ -22,8 +22,12 @@ func _definitions(interval: int = 3, limit: int = 2, radius: int = 1) -> Diction
 	content.load_file("res://content/default.json")
 	var definitions: Dictionary = content.data.duplicate(true)
 	definitions.settings.mission.enabled = false
+	definitions.units.nest.collision_radius = 0.4
+	definitions.units.nest.footprint = [[0, 0]] # Isolate single-tile source timing fixtures.
 	definitions.settings.nest_loss.chyme_grant = 0
-	for definition in definitions.units.values(): definition.capabilities.erase("passive_spawner")
+	# Isolate birth RNG assertions from seeded Veil growth.
+	for definition in definitions.units.values():
+		for cap in ["passive_spawner", "veil_source"]: definition.capabilities.erase(cap)
 	definitions.units.nest.capabilities.erase("chyme_source")
 	definitions.units.nest.capabilities.passive_spawner = {"definition": "scavenger", "interval_ticks": interval, "max_alive": limit, "spawn_radius": radius}
 	return definitions
@@ -93,7 +97,7 @@ func _blocking() -> void:
 	_check(Spawning.alive_count(game, 4) == 0 and int(game.entity(4).passive_remaining) == 0 and int(game.state.rng) == rng, "occupied sites leave source ready without spending RNG")
 	game.entity(12).position = Hex.point([-12, 3])
 	game._spawn("mother", 9, Hex.point([0, 0]))
-	game.entity(13).order = {"kind": "build", "definition": "chyme_pool", "point": last, "manual": true}
+	game.entity(13).order = {"kind": "build", "definition": "maw", "point": last, "manual": true}
 	game.step([])
 	_check(Spawning.alive_count(game, 4) == 0, "reserved construction sites block passive birth")
 	game.entity(13).order = {}
@@ -102,7 +106,7 @@ func _blocking() -> void:
 	game = _game(1, 1, 2)
 	game.entity(4).position = Hex.point([int(game.content.settings.map_radius), 0])
 	_step(game, 2)
-	_check(game.valid_point(game.entity(7).position) and Hex.distance(Hex.from_point(game.entity(7).position), Hex.from_point(game.entity(4).position)) == 2, "outer-ring spawning remains inside map edges")
+	_check(game.valid_point(game.entity(7).position) and Hex.distance(Hex.from_point(game.entity(7).position), Hex.from_point(game.entity(4).position)) == 1, "adjacent spawning remains inside map edges")
 
 func _paid_and_escalation() -> void:
 	var definitions := _definitions(1, 5)

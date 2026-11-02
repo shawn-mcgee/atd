@@ -40,7 +40,10 @@
           "growth_interval_ticks": 6,
           "growth_tiles": 4
         }
-      }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 1,
+      "footprint": [[0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]
     }
   }
 }

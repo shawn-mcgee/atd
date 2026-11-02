@@ -6,13 +6,17 @@ var show_veil := true
 var show_links := true
 var show_illumination := false
 var show_perception := false
-var _signature := ""
+var _signature: Array = []
 var _surfaces: Dictionary = {}
 
-func refresh(game, owner: int, selected: Array) -> void:
-	var signature := "%d:%d:%s:%s:%s:%s:%s" % [game.state.tick, owner, selected, show_veil, show_links, show_illumination, show_perception]
+func refresh(game, owner: int, selected: Array, view_owners: Array = []) -> void:
+	var observers: Array = [owner] if view_owners.is_empty() else view_owners
+	var actors: Array = []
+	for actor in game.state.actors:
+		if int(actor.hp) > 0: actors.append([int(actor.id), int(actor.owner), actor.definition, actor.position, int(actor.get("rotation", 0))])
+	var signature: Array = [int(game.state.veil.revision), observers.duplicate(), selected.duplicate(), show_veil, show_links, show_illumination, show_perception, actors]
 	if signature == _signature: return
-	_signature = signature
+	_signature = signature.duplicate(true)
 	var veil: Dictionary = game.state.veil
 	var visible: Dictionary = {}
 	var triangles: Array = []
@@ -21,7 +25,13 @@ func refresh(game, owner: int, selected: Array) -> void:
 	for key in veil.cells:
 		var cell: Dictionary = veil.cells[key]
 		var point := Hex.point([cell.q, cell.r])
-		if int(cell.owner) != owner and game.visibility_at(owner, point) != 2: continue
+		if not observers.has(int(cell.owner)):
+			var seen := false
+			for observer in observers:
+				if game.visibility_at(int(observer), point) == 2:
+					seen = true
+					break
+			if not seen: continue
 		visible[key] = true
 		if not show_veil: continue
 		var mode: String = veil.networks[str(cell.network)].stance
@@ -37,13 +47,13 @@ func refresh(game, owner: int, selected: Array) -> void:
 	if show_links:
 		for id in selected:
 			var actor = game.entity(int(id))
-			if actor == null or int(actor.owner) != owner: continue
+			if actor == null or not observers.has(int(actor.owner)): continue
 			var near := Hex.from_point(actor.position)
 			var nearest := ""
 			var distance := 0x7fffffffffffffff
 			for offset in [[0, 0]] + Hex.NEIGHBORS:
 				var key := Hex.key([int(near[0]) + int(offset[0]), int(near[1]) + int(offset[1])])
-				if not visible.has(key) or int(veil.cells[key].owner) != owner: continue
+				if not visible.has(key) or int(veil.cells[key].owner) != int(actor.owner): continue
 				var point := Hex.point([veil.cells[key].q, veil.cells[key].r])
 				var next: int = game.distance_squared(point, actor.position)
 				if next < distance: distance = next; nearest = key
@@ -56,27 +66,38 @@ func refresh(game, owner: int, selected: Array) -> void:
 	var perception: Array = []
 	if show_perception:
 		for cell in veil.cells.values():
-			if int(cell.owner) != owner or int(cell.hp) <= 0: continue
+			if not observers.has(int(cell.owner)) or int(cell.hp) <= 0: continue
 			var center := _world(Hex.point([cell.q, cell.r])) + Vector3(0, 0.025, 0)
 			for edge in 6:
 				perception.append(center + _corner(edge))
 				perception.append(center + _corner(edge + 1))
+	if show_illumination or show_perception:
+		var lit: Dictionary = {}
+		for observer in observers: lit.merge(game.illumination_cells(int(observer)))
+		for cell in lit.values():
+			var center := _world(Hex.point(cell)) + Vector3(0, 0.025, 0)
+			for edge in 6:
+				if show_illumination:
+					illumination.append(center + _corner(edge))
+					illumination.append(center + _corner(edge + 1))
+				if show_perception:
+					perception.append(center + _corner(edge))
+					perception.append(center + _corner(edge + 1))
 	for actor in game.state.actors:
-		if int(actor.owner) != owner: continue
+		if not observers.has(int(actor.owner)) or int(actor.hp) <= 0: continue
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
-		for spec in [["illumination", show_illumination, illumination], ["perception", show_perception, perception]]:
-			if not spec[1] or not caps.has(spec[0]): continue
-			var radius := float(caps[spec[0]].radius) * sqrt(3.0)
-			var center := _world(actor.position) + Vector3(0, 0.025, 0)
-			for edge in 64:
-				for index in [edge, edge + 1]:
-					var angle := float(index) * TAU / 64.0
-					spec[2].append(center + Vector3(cos(angle), 0, sin(angle)) * radius)
+		if not show_perception or not caps.has("perception"): continue
+		var radius := float(caps.perception.radius) * sqrt(3.0)
+		var center := _world(actor.position) + Vector3(0, 0.025, 0)
+		for edge in 64:
+			for index in [edge, edge + 1]:
+				var angle := float(index) * TAU / 64.0
+				perception.append(center + Vector3(cos(angle), 0, sin(angle)) * radius)
 	_surface("Illumination", Mesh.PRIMITIVE_LINES, illumination, [], Color("e6cf75"))
 	_surface("Perception", Mesh.PRIMITIVE_LINES, perception, [], Color("6ab5d9"))
 
 func clear() -> void:
-	_signature = ""
+	_signature.clear()
 	for surface in _surfaces.values(): surface.visible = false
 
 func _surface(name: String, primitive: int, vertices: Array, colors: Array, color: Color) -> void:
@@ -88,18 +109,20 @@ func _surface(name: String, primitive: int, vertices: Array, colors: Array, colo
 		material.cull_mode = BaseMaterial3D.CULL_DISABLED
 		material.vertex_color_use_as_albedo = true
 		material.albedo_color = color
+		if name == "Membrane":
+			material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			material.albedo_color.a = 0.35
 		instance.material_override = material
 		add_child(instance)
 		_surfaces[name] = instance
 	var instance: MeshInstance3D = _surfaces[name]
 	instance.visible = not vertices.is_empty()
 	if vertices.is_empty(): return
-	var mesh := ImmediateMesh.new()
-	mesh.surface_begin(primitive)
-	for index in vertices.size():
-		if not colors.is_empty(): mesh.surface_set_color(colors[index])
-		mesh.surface_add_vertex(vertices[index])
-	mesh.surface_end()
+	var mesh := ArrayMesh.new()
+	var arrays: Array = []; arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array(vertices)
+	if not colors.is_empty(): arrays[Mesh.ARRAY_COLOR] = PackedColorArray(colors)
+	mesh.add_surface_from_arrays(primitive, arrays)
 	instance.mesh = mesh
 
 func _corner(index: int) -> Vector3:

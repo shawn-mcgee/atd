@@ -8,7 +8,7 @@ const Rules = preload("res://core/match_rules.gd")
 const Canonical = preload("res://core/canonical.gd")
 const Rollback = preload("res://net/rollback_session.gd")
 const Transport = preload("res://net/coordinator_transport.gd")
-const PROTOCOL := 10
+const PROTOCOL := 22
 var transport = Transport.new()
 var rollback
 var roster: Dictionary = {}
@@ -174,7 +174,7 @@ func _lobby() -> void:
 func _prepare(content: Dictionary, players: Array, seed_value: int) -> void:
 	descriptor = {"protocol": PROTOCOL, "engine": _engine(), "seed": seed_value, "content": content.duplicate(true), "players": players.duplicate(true)}
 	rollback = Rollback.new()
-	rollback.initialize(content, players, seed_value, own_id)
+	rollback.initialize(content, players, seed_value, own_id, 20)
 	rollback.frame_ready.connect(_send_frame)
 	rollback.confirmed.connect(_confirmed)
 	status_changed.emit("Content %s · waiting for matching peers" % Canonical.hash_of(descriptor).left(12))
@@ -209,6 +209,9 @@ func _compare_hashes() -> void:
 		var message: Dictionary = remote_hashes[key]
 		var tick := int(message.tick)
 		if tick > rollback.confirmed_tick + 1: continue
+		# Debug/diagnostic peers may request a retained non-periodic boundary.
+		if not rollback.hashes.has(tick) and rollback.checkpoints.has(tick):
+			rollback.hashes[tick] = JSON.stringify(rollback.checkpoints[tick], "", true, true).sha256_text()
 		if rollback.hashes.has(tick) and rollback.hashes[tick] != message.hash:
 			_fail("DESYNC at confirmed tick %d" % tick)
 		remote_hashes.erase(key)

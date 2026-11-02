@@ -34,7 +34,7 @@ func _ready() -> void:
 	navigation.add_child(file_tree)
 	editor = CodeEdit.new()
 	editor.gutters_draw_line_numbers = true
-	editor.custom_minimum_size = Vector2(520, 590)
+	editor.custom_minimum_size = Vector2(300, 240)
 	editor.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	editor.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var highlighter := CodeHighlighter.new()
