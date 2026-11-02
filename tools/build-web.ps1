@@ -1,16 +1,18 @@
-param([string]$GodotExecutable)
+param([string]$GodotExecutable, [ValidateSet('project', 'v2')][string]$ProjectDirectory = 'project')
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path $PSScriptRoot -Parent
 if (!$GodotExecutable) {
     $GodotExecutable = Join-Path $repositoryRoot 'Godot_v4.7.2-stable_win64.exe'
 }
 $GodotExecutable = (Resolve-Path -LiteralPath $GodotExecutable).Path
-$projectRoot = Join-Path $repositoryRoot 'project'
-$output = Join-Path $repositoryRoot 'build/web'
+$projectRoot = Join-Path $repositoryRoot $ProjectDirectory
+$outputDirectory = if ($ProjectDirectory -eq 'v2') { 'build/rewrite-web' } else { 'build/web' }
+$output = Join-Path $repositoryRoot $outputDirectory
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 foreach ($phase in @('import', 'export')) {
     $log = Join-Path $output "$phase.log"
     $arguments = @('--headless', '--path', $projectRoot)
+    if ($ProjectDirectory -eq 'v2') { $arguments += '--recovery-mode' }
     if ($phase -eq 'import') { $arguments += @('--editor', '--import', '--quit') }
     else { $arguments += @('--export-release', 'Web', (Join-Path $output 'index.html')) }
     & $GodotExecutable @arguments 2>&1 | Out-File -LiteralPath $log -Encoding utf8
@@ -26,4 +28,4 @@ foreach ($file in @('index.html', 'index.js', 'index.wasm', 'index.pck')) {
 }
 New-Item -ItemType File -Path (Join-Path $output '.nojekyll') -Force | Out-Null
 Write-Output "Web build ready: $output"
-Write-Output 'Preview from the repository root: python -m http.server 8000 --directory build/web'
+Write-Output "Preview from the repository root: python -m http.server 8000 --directory $outputDirectory"

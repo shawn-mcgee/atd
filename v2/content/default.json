@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "settings": {
+    "tick_hz": 20,
+    "map_radius": 14,
+    "rollback_ticks": 120,
+    "input_delay": 2,
+    "minimum_damage": 0,
+    "veil": {
+      "tile_hp": 100,
+      "light_damage_per_tick": 2,
+      "decay_per_tick": 1,
+      "alert_cooldown_ticks": 20,
+      "memory_ticks": 200
+    }
+  },
+  "units": {
+    "hq": {
+      "name": "HQ",
+      "faction": "human",
+      "hp": 300,
+      "armor": 3,
+      "cost": 0,
+      "production_ticks": 100,
+      "visual": {
+        "shape": "box",
+        "color": "589cdb"
+      },
+      "capabilities": {
+        "perception": {
+          "radius": 6
+        },
+        "illumination": {
+          "radius": 4
+        },
+        "factory": {
+          "produces": [
+            "engineer",
+            "marine"
+          ]
+        }
+      }
+    },
+    "nest": {
+      "name": "Nest",
+      "faction": "lightless",
+      "hp": 500,
+      "armor": 5,
+      "cost": 0,
+      "production_ticks": 100,
+      "visual": {
+        "shape": "prism",
+        "color": "a96edb"
+      },
+      "capabilities": {
+        "perception": {
+          "radius": 7
+        },
+        "factory": {
+          "produces": [
+            "scavenger"
+          ]
+        },
+        "veil_source": {
+          "radius": 7,
+          "growth_interval_ticks": 6,
+          "growth_tiles": 4
+        }
+      }
+    },
+    "engineer": {
+      "name": "Engineer",
+      "faction": "human",
+      "hp": 15,
+      "armor": 0,
+      "cost": 10,
+      "production_ticks": 60,
+      "visual": {
+        "shape": "capsule",
+        "color": "eac45e"
+      },
+      "capabilities": {
+        "move": {
+          "speed": 3
+        },
+        "weapon": {
+          "damage": 1,
+          "range": 1,
+          "interval_ticks": 20
+        },
+        "perception": {
+          "radius": 5
+        }
+      }
+    },
+    "marine": {
+      "name": "Marine",
+      "faction": "human",
+      "hp": 30,
+      "armor": 4,
+      "cost": 20,
+      "production_ticks": 80,
+      "visual": {
+        "shape": "cylinder",
+        "color": "68cbd6"
+      },
+      "capabilities": {
+        "move": {
+          "speed": 3.5
+        },
+        "weapon": {
+          "damage": 10,
+          "range": 7.5,
+          "interval_ticks": 16
+        },
+        "perception": {
+          "radius": 8
+        }
+      }
+    },
+    "scavenger": {
+      "name": "Scavenger",
+      "faction": "lightless",
+      "hp": 15,
+      "armor": 0,
+      "cost": 10,
+      "production_ticks": 60,
+      "visual": {
+        "shape": "prism",
+        "color": "dc7c82"
+      },
+      "capabilities": {
+        "move": {
+          "speed": 5
+        },
+        "weapon": {
+          "damage": 5,
+          "range": 1,
+          "interval_ticks": 18
+        },
+        "perception": {
+          "radius": 7
+        }
+      }
+    }
+  }
+}

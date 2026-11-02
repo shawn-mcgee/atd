@@ -2,6 +2,8 @@
 
 This is a Godot 4.7.2 project. Open `project/project.godot`; run repository commands from the outer repository root. `res://` paths are relative to `project/`.
 
+The active rewrite lives in `v2/`; open `v2/project.godot` for that work. Its `res://` paths are relative to `v2/`. See `v2/README.md` for its code map, tests, and current scope, and `atd.md` for its design. Preserve the existing game in `project/`. The rewrite uses simple 3D meshes with a locked orthographic camera; gameplay remains headless and rendering-independent.
+
 ## Efficient working style
 
 Minimize token usage without sacrificing quality.

@@ -2,6 +2,8 @@
 
 Read `AGENTS.md` first. Open only the relevant entries below. The current game and controls are described in the root `README.md`; older prototype specs are historical. Proposed changes in `ideas.md` are not implemented requirements.
 
+The active rewrite is a separate project under root `v2/`. See [its code map and validation](../../v2/README.md); the table below covers the existing game only.
+
 | Task | Start here | Focused tests (`tools/test-game.py --name …`) |
 | --- | --- | --- |
 | Startup, loading screen, restart | `scenes/loading.tscn`, `view/loading.gd`; prepared core handoff in `view/game.gd` | `loading`, `top-down` |
