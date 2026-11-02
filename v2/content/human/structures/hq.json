@@ -1,0 +1,31 @@
+{
+  "units": {
+    "hq": {
+      "name": "HQ",
+      "faction": "human",
+      "hp": 300,
+      "armor": 3,
+      "cost": 0,
+      "production_ticks": 100,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 2,
+        "color": "589cdb"
+      },
+      "capabilities": {
+        "perception": {
+          "radius": 6
+        },
+        "illumination": {
+          "radius": 4
+        },
+        "factory": {
+          "produces": [
+            "engineer",
+            "marine"
+          ]
+        }
+      }
+    }
+  }
+}

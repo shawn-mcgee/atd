@@ -1,0 +1,18 @@
+{
+  "units": {
+    "womb": {
+      "name": "Womb",
+      "faction": "lightless",
+      "hp": 30,
+      "armor": 0,
+      "cost": 0,
+      "production_ticks": 1,
+      "visual": {
+        "shape": "capsule",
+        "radius": 2,
+        "color": "a65678"
+      },
+      "capabilities": {}
+    }
+  }
+}

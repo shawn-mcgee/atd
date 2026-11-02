@@ -1,6 +1,6 @@
 # Open ideas
 
-Concrete requests have moved to [project/todo.md](project/todo.md). These remain open questions.
+Concrete requests have moved to [v1/todo.md](v1/todo.md). These remain open questions.
 
 Maybe other competing companies trying to poach the same macguffin
 

@@ -1,14 +1,16 @@
 # Against the Darkness - Hive Recovery
 
+This README covers the original game in `v1/`. The active rewrite is in `v2/`; see [the rewrite guide](v2/README.md).
+
 A Godot 4.7.2 sci-fi horror RTS on a planet without sunlight. Command engineers, infantry, and piloted vehicles against the **Lightless**. Materials and methane enter global reserves only after physical delivery. Local generators and repeaters distribute power.
 
-Open `project/project.godot`, press **F5**, wait for the loading console, then **Begin Expedition**. Mission restarts also use the loading screen. Restart the game after code changes.
+Open `v1/project.godot`, press **F5**, wait for the loading console, then **Begin Expedition**. Mission restarts also use the loading screen. Restart the game after code changes.
 
 ## Simulation and presentation
 
-The game runs a headless deterministic gameplay core in `project/engine/` and a separate top-down 2D view in `project/view/`. The view draws the approved unit, building, terrain, resource, and effect sprites. Structure footprints remain authoritative for placement and selection. HQ retains its seven-cell hexagonal footprint, generators retain triangular three-cell footprints, and walls use full-tile hex sprites. Other single-cell structure bounds remain 80 percent tile size. Transparent building art has no filled polygon foundation. Player-built ramps and platforms are temporarily unavailable.
+The game runs a headless deterministic gameplay core in `v1/engine/` and a separate top-down 2D view in `v1/view/`. The view draws the approved unit, building, terrain, resource, and effect sprites. Structure footprints remain authoritative for placement and selection. HQ retains its seven-cell hexagonal footprint, generators retain triangular three-cell footprints, and walls use full-tile hex sprites. Other single-cell structure bounds remain 80 percent tile size. Transparent building art has no filled polygon foundation. Player-built ramps and platforms are temporarily unavailable.
 
-The model assets, Asset Forge pipeline, 3D renderer, and shaders have been removed. The [sprite integration guide](project/docs/sprite-integration.md) documents atlas preparation, orientation corrections, and layered gate sprites. A future 2D or 3D renderer can read the same core and submit the same commands. See [engine architecture](project/docs/engine.md) for the command API, replay format, and boundaries. The [asset generation brief](project/docs/asset-generation-brief.md) defines the shared art style, technical specifications, and eight batched sprite sheets.
+The model assets, Asset Forge pipeline, 3D renderer, and shaders have been removed. The [sprite integration guide](v1/docs/sprite-integration.md) documents atlas preparation, orientation corrections, and layered gate sprites. A future 2D or 3D renderer can read the same core and submit the same commands. See [engine architecture](v1/docs/engine.md) for the command API, replay format, and boundaries. The [asset generation brief](v1/docs/asset-generation-brief.md) defines the shared art style, technical specifications, and eight batched sprite sheets.
 
 ## Mission
 
@@ -16,7 +18,7 @@ The model assets, Asset Forge pipeline, 3D renderer, and shaders have been remov
 2. Send infantry to the discovered **CORE** marker at the **Lightless Hive**. Right-click the hive to take the **Hive Core**. Extraction must be repaired before the initial theft.
 3. Bring the carrier within **7m** of the beacon and hold for **60 seconds**. Boarding a vehicle keeps the core with its carrier.
 
-The Lightless gather along light boundaries, send runner probes, and build toward larger assaults over time. Stalkers flank support targets and brutes breach defenses. Damaging the hive alerts groups within 55 hex tiles. See [enemy AI](project/docs/enemy-ai.md) for pacing and behavior. Theft triggers permanent colony-wide pursuit, a 32-creature population ceiling, and faster reinforcements. If the carrier dies, the core drops; another infantry unit can retrieve it with a right-click. A Lightless reaching the dropped core loses the mission. Destroying HQ also loses the mission.
+The Lightless gather along light boundaries, send runner probes, and build toward larger assaults over time. Stalkers flank support targets and brutes breach defenses. Damaging the hive alerts groups within 55 hex tiles. See [enemy AI](v1/docs/enemy-ai.md) for pacing and behavior. Theft triggers permanent colony-wide pursuit, a 32-creature population ceiling, and faster reinforcements. If the carrier dies, the core drops; another infantry unit can retrieve it with a right-click. A Lightless reaching the dropped core loses the mission. Destroying HQ also loses the mission.
 
 Leaving the extraction radius resets the timer. A destroyed extraction beacon becomes repairable ruins and resets extraction; it can be repaired again. Delivering materials supports expansion and no longer ends the mission.
 
@@ -53,7 +55,7 @@ Selection details and contextual commands share the bottom dock. Commands displa
 
 ## Starting scenario and generation
 
-The map now has an 84-cell hex radius, 50% wider than the previous 56-cell map (2.25 times the area). Seventy-two longer, variably thick cliff ridges make the expanded world denser. Each new mission generates a seeded layout of rock ridges, passages, resource fields, extraction, and the hive. The landing zone and approaches to every resource field/objective stay clear. Restarting generates a different level. The help overlay and end screen show the seed; reproduce a map with `& .\Godot_v4.7.2-stable_win64.exe --path .\project -- --seed=42`.
+The map now has an 84-cell hex radius, 50% wider than the previous 56-cell map (2.25 times the area). Seventy-two longer, variably thick cliff ridges make the expanded world denser. Each new mission generates a seeded layout of rock ridges, passages, resource fields, extraction, and the hive. The landing zone and approaches to every resource field/objective stay clear. Restarting generates a different level. The help overlay and end screen show the seed; reproduce a map with `& .\Godot_v4.7.2-stable_win64.exe --path .\v1 -- --seed=42`.
 
 Start with **HQ, one engineer, and one marine**, **100 MAT**, and **100 CH4**. There are no starting vehicles, generators, repeaters, depots, tanks, barracks, or garages. HQ holds **100 MAT / 100 CH4**, accepts both delivered resources, relays power within **7m**, and supplies **4 auxiliary power** without methane. HQ consumes none of its own output when idle, so all four units are available to connected consumers. Its dim light reaches **5.93m**, one tile step farther than before. HQ produces engineers with **1** and scout vehicles with **2** (60 MAT + 25 CH4, 10 seconds). Scouts still need a driver. Build infrastructure and recruit the rest of the expedition. The starting area has a two-minute damage grace for preparation; leaving it is dangerous immediately after initial probing begins.
 
@@ -99,7 +101,7 @@ The repository uses **Settings > Pages > Build and deployment > Source: GitHub A
 
 Game URL after the first successful deployment: **https://shawn-mcgee.github.io/atd/**.
 
-Commit the `project/` sources together with the workflow and `project/export_presets.cfg`. CI downloads the pinned Godot **4.7.2** Linux editor and matching export templates, verifies their official SHA-512 checksums, imports the project, exports `build/web/index.html`, and uploads the web directory as the Pages artifact. No personal access token or repository secret is required by the workflow.
+Commit the `v1/` sources together with the workflow and `v1/export_presets.cfg`. CI downloads the pinned Godot **4.7.2** Linux editor and matching export templates, verifies their official SHA-512 checksums, imports the project, exports `build/web/index.html`, and uploads the web directory as the Pages artifact. No personal access token or repository secret is required by the workflow.
 
 The Web preset uses Compatibility/WebGL 2, disables threads and native extensions, and disables the PWA service worker. It works on ordinary Pages hosting without cross-origin isolation headers, including the repository's `/atd/` URL prefix. Generated output and local export credentials stay ignored.
 
@@ -114,29 +116,29 @@ Open **http://localhost:8000/**. `build-web.ps1` also accepts `-GodotExecutable`
 
 ### Project files and checks
 
-- `project/engine/`: gameplay state, fixed ticks, commands, seeded map generation, replay and diagnostics.
-- `project/view/`: 2D input adapter, primitive renderer, HUD, minimap, and status bars.
-- `project/tools/`: headless regression suites and deterministic fixtures.
+- `v1/engine/`: gameplay state, fixed ticks, commands, seeded map generation, replay and diagnostics.
+- `v1/view/`: 2D input adapter, primitive renderer, HUD, minimap, and status bars.
+- `v1/tools/`: headless regression suites and deterministic fixtures.
 - `tools/`: test runner and web export helper.
-- `project/docs/engine.md`: core API and presentation boundaries.
+- `v1/docs/engine.md`: core API and presentation boundaries.
 
 Run from the outer repository root:
 
 ```powershell
-& .\Godot_v4.7.2-stable_win64.exe --editor --path .\project
+& .\Godot_v4.7.2-stable_win64.exe --editor --path .\v1
 python tools/test-game.py --jobs 3
 python tools/test-game.py --name engine --name top-down
-& .\Godot_v4.7.2-stable_win64.exe --path .\project --script res://tools/preview-prototype.gd -- --engineer --seed=42
+& .\Godot_v4.7.2-stable_win64.exe --path .\v1 --script res://tools/preview-prototype.gd -- --engineer --seed=42
 ```
 
-Use `--godot <path>` if the engine executable is elsewhere. The test runner imports first, rejects script errors regardless of exit code, and retains logs in ignored `project/art_source/.build/test-results/`. The suites cover deterministic replay, old-gameplay checkpoints, view isolation at different frame rates, footprint geometry, picking, contextual commands, logistics, construction clearance, expeditions, power, and predator behavior. Mission tests cover beacon repair, theft, carrying, timer resets, extraction, and loss conditions.
+Use `--godot <path>` if the engine executable is elsewhere. The test runner imports first, rejects script errors regardless of exit code, and retains logs in ignored `v1/art_source/.build/test-results/`. The suites cover deterministic replay, old-gameplay checkpoints, view isolation at different frame rates, footprint geometry, picking, contextual commands, logistics, construction clearance, expeditions, power, and predator behavior. Mission tests cover beacon repair, theft, carrying, timer resets, extraction, and loss conditions.
 
 The legacy GPU picking, mesh occlusion, and 3D camera tests have been replaced by 2D geometry-picking, projection, resize, and view-isolation checks. Gameplay regressions now run without loading a world scene. Render previews save to the same ignored diagnostics folder.
 
 ## Current limits
 
-First-pass balance and placeholder effects; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Illumination flood-fills the hex grid: cliffs, higher terrain and closed walls/gates block propagation; ramps can carry it uphill, and elevated sources can illuminate lower ground. Weapon sight lines and navigation retain their own geometry checks. Deterministic replay targets the same Godot version and math implementation; cross-platform network lockstep has not been established. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `project/todo.md`. Historical specifications in `project/docs/` describe earlier iterations; this README describes the current game.
+First-pass balance and placeholder effects; the longer extraction hold and minimal start need playtesting. No save/load, campaign, research tree, or full crowd collision. Illumination flood-fills the hex grid: cliffs, higher terrain and closed walls/gates block propagation; ramps can carry it uphill, and elevated sources can illuminate lower ground. Weapon sight lines and navigation retain their own geometry checks. Deterministic replay targets the same Godot version and math implementation; cross-platform network lockstep has not been established. Destroying structures gives no salvage. Drill clearing currently supports rock obstacles and natural mesa cells; constructed ramps/platforms use the normal destroy command. Mining and exploration automation persist until interrupted or complete; queued direct orders wait for the current task to finish. Tentative designs stay in `ideas.md`; grouped actionable lists and their status are linked from `v1/todo.md`. Historical specifications in `v1/docs/` describe earlier iterations; this README describes the current game.
 
 ## Gameplay configuration
 
-Edit [project/config/gameplay.json](project/config/gameplay.json) and restart to change unit/structure stats and costs, production, combat, resource yields, storage, power, healing, illumination, mission timing, AI, and map generation. See [balance configuration](project/docs/gameplay-balance.md) for sections and invariants.
+Edit [v1/config/gameplay.json](v1/config/gameplay.json) and restart to change unit/structure stats and costs, production, combat, resource yields, storage, power, healing, illumination, mission timing, AI, and map generation. See [balance configuration](v1/docs/gameplay-balance.md) for sections and invariants.

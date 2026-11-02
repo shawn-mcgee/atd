@@ -55,7 +55,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$GODOT_BIN" --headless --path project --editor --import --quit 2>&1 | tee "$RUNNER_TEMP/godot-import.log"
+          "$GODOT_BIN" --headless --path v1 --editor --import --quit 2>&1 | tee "$RUNNER_TEMP/godot-import.log"
           if grep -Eq '(^|[[:space:]])(SCRIPT ERROR:|ERROR:)' "$RUNNER_TEMP/godot-import.log"; then exit 1; fi
 
       - name: Export release build for GitHub Pages
@@ -63,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/web
-          "$GODOT_BIN" --headless --path project --export-release Web ../build/web/index.html 2>&1 | tee "$RUNNER_TEMP/godot-export.log"
+          "$GODOT_BIN" --headless --path v1 --export-release Web ../build/web/index.html 2>&1 | tee "$RUNNER_TEMP/godot-export.log"
           if grep -Eq '(^|[[:space:]])(SCRIPT ERROR:|ERROR:)' "$RUNNER_TEMP/godot-export.log"; then exit 1; fi
           for file in index.html index.js index.wasm index.pck; do test -s "build/web/$file"; done
           touch build/web/.nojekyll

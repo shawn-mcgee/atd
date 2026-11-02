@@ -20,8 +20,9 @@ func run() -> Dictionary:
 
 func _game(interval: int = 1):
 	var content = Content.new()
-	content.load_text(FileAccess.get_file_as_string("res://content/default.json"))
+	content.load_file("res://content/default.json")
 	var definitions: Dictionary = content.data.duplicate(true)
+	definitions.settings.mission.enabled = false
 	definitions.settings.veil = {"tile_hp": 10, "light_damage_per_tick": 2, "decay_per_tick": 1, "alert_cooldown_ticks": 2, "memory_ticks": 80}
 	definitions.units.nest.capabilities.veil_source = {"radius": 3, "growth_interval_ticks": interval, "growth_tiles": 64}
 	definitions.units.hq.capabilities.illumination.radius = 1

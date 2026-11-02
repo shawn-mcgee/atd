@@ -1,11 +1,11 @@
 # Godot 4+ specific ignores
 .godot/
 /build/
-/project/.godot/export_credentials.cfg
-/project/android/
+/v1/.godot/export_credentials.cfg
+/v1/android/
 
 # Local diagnostics, temporary jobs, and editor settings.
-/project/art_source/.build/
+/v1/art_source/.build/
 /.vscode/
 
 # Local Godot engine binaries stay outside the game project.

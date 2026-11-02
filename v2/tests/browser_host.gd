@@ -22,7 +22,7 @@ func _process(dt: float) -> bool:
 	if not session.error.is_empty(): _finish(false, session.error); return false
 	if session.roster.size() == 2 and not prepared:
 		var content = Content.new()
-		content.load_text(FileAccess.get_file_as_string("res://content/default.json"))
+		content.load_file("res://content/default.json")
 		prepared = session.start_network(content.data, 42)
 	if session.running:
 		accumulator = minf(accumulator + dt, 0.2)

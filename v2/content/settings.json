@@ -1,0 +1,33 @@
+{
+  "settings": {
+    "tick_hz": 20,
+    "map_radius": 14,
+    "rollback_ticks": 120,
+    "input_delay": 2,
+    "minimum_damage": 0,
+    "mission": {
+      "enabled": true,
+      "extraction_definition": "extraction_point",
+      "nacre_amount": 100,
+      "threshold": 20,
+      "repair_ticks": 60,
+      "countdown_ticks": 200
+    },
+    "nest_loss": {
+      "chyme_grant": 500,
+      "production_rate": 2,
+      "construction_rate": 2,
+      "affect_new_structures": true
+    },
+    "chyme": {
+      "initial_reserve": 100
+    },
+    "veil": {
+      "tile_hp": 100,
+      "light_damage_per_tick": 2,
+      "decay_per_tick": 1,
+      "alert_cooldown_ticks": 20,
+      "memory_ticks": 200
+    }
+  }
+}

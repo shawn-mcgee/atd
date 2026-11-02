@@ -41,7 +41,7 @@ func _process(_dt: float) -> bool:
 		return false
 	if host.roster.size() == 2 and not started:
 		var content = Content.new()
-		if not content.load_text(FileAccess.get_file_as_string("res://content/default.json")):
+		if not content.load_file("res://content/default.json"):
 			_finish(false, "Content invalid"); return false
 		started = host.start_network(content.data, 42)
 	if host.running and client.running:

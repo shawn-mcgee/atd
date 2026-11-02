@@ -1,4 +1,4 @@
-param([string]$GodotExecutable, [ValidateSet('project', 'v2')][string]$ProjectDirectory = 'project')
+param([string]$GodotExecutable, [ValidateSet('v1', 'v2')][string]$ProjectDirectory = 'v1')
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path $PSScriptRoot -Parent
 if (!$GodotExecutable) {

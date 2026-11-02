@@ -5,7 +5,7 @@ var failures: Array[String] = []
 
 func _initialize() -> void:
 	var content = Content.new()
-	content.load_text(FileAccess.get_file_as_string("res://content/default.json"))
+	content.load_file("res://content/default.json")
 	var session = Session.new()
 	session.start_local(content.data, 42, "human")
 	session.advance()

@@ -5,12 +5,19 @@ const Sim = preload("res://core/simulation.gd")
 const Rollback = preload("res://net/rollback_session.gd")
 const Canonical = preload("res://core/canonical.gd")
 const VeilSuite = preload("res://tests/veil_suite.gd")
+const ChymeSuite = preload("res://tests/chyme_suite.gd")
+const ConstructionSuite = preload("res://tests/construction_suite.gd")
+const EscalationSuite = preload("res://tests/escalation_suite.gd")
+const MissionSuite = preload("res://tests/mission_suite.gd")
+const OrientationSuite = preload("res://tests/orientation_suite.gd")
+const ConfigFilesSuite = preload("res://tests/config_files_suite.gd")
 var failures: Array[String] = []
 var checks := 0
 
 func run() -> Dictionary:
 	var content = Content.new()
-	_check(content.load_text(FileAccess.get_file_as_string("res://content/default.json")), "default content validates")
+	_check(content.load_file("res://content/default.json"), "default content validates")
+	content.data.settings.mission.enabled = false # Isolate sandbox mechanics; MissionSuite covers objectives.
 	var invalid: Dictionary = content.data.duplicate(true)
 	invalid.units.marine.capabilities.weapon.range = -1
 	var bad = Content.new()
@@ -111,7 +118,25 @@ func run() -> Dictionary:
 	var veil: Dictionary = VeilSuite.new().run()
 	checks += int(veil.checks)
 	for failure in veil.failures: failures.append("Veil: " + str(failure))
-	return {"ok": failures.is_empty(), "checks": checks, "failures": failures, "deterministic_hash": Canonical.hash_of([a.simulation.state_hash(), veil.hash])}
+	var chyme: Dictionary = ChymeSuite.new().run()
+	checks += int(chyme.checks)
+	for failure in chyme.failures: failures.append("Chyme: " + str(failure))
+	var construction: Dictionary = ConstructionSuite.new().run()
+	checks += int(construction.checks)
+	for failure in construction.failures: failures.append("Construction: " + str(failure))
+	var escalation: Dictionary = EscalationSuite.new().run()
+	checks += int(escalation.checks)
+	for failure in escalation.failures: failures.append("Escalation: " + str(failure))
+	var mission: Dictionary = MissionSuite.new().run()
+	checks += int(mission.checks)
+	for failure in mission.failures: failures.append("Mission: " + str(failure))
+	var orientation: Dictionary = OrientationSuite.new().run()
+	checks += int(orientation.checks)
+	for failure in orientation.failures: failures.append("Orientation: " + str(failure))
+	var config_files: Dictionary = ConfigFilesSuite.new().run()
+	checks += int(config_files.checks)
+	for failure in config_files.failures: failures.append("Config files: " + str(failure))
+	return {"ok": failures.is_empty(), "checks": checks, "failures": failures, "deterministic_hash": Canonical.hash_of([a.simulation.state_hash(), veil.hash, chyme.hash, construction.hash, escalation.hash, mission.hash, orientation.hash, config_files.hash])}
 
 func _check(condition: bool, message: String) -> void:
 	checks += 1

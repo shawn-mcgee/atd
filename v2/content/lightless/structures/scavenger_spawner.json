@@ -1,0 +1,36 @@
+{
+  "units": {
+    "scavenger_spawner": {
+      "name": "Scavenger Spawner",
+      "faction": "lightless",
+      "hp": 180,
+      "armor": 2,
+      "cost": 40,
+      "production_ticks": 100,
+      "construction_ticks": 100,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 0.4,
+        "color": "916dbe"
+      },
+      "capabilities": {
+        "perception": {
+          "radius": 5
+        },
+        "factory": {
+          "produces": [
+            "scavenger"
+          ]
+        },
+        "chyme_receiver": {
+          "radius": 1.5
+        },
+        "veil_source": {
+          "radius": 4,
+          "growth_interval_ticks": 8,
+          "growth_tiles": 2
+        }
+      }
+    }
+  }
+}

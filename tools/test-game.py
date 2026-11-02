@@ -18,17 +18,17 @@ def main():
     godot = args.godot or (engines[0] if engines else None)
     if godot is None:
         parser.error("Provide --godot or place the Godot executable at the repository root")
-    tests = sorted((root / "project/tools").glob("test-*.gd"))
+    tests = sorted((root / "v1/tools").glob("test-*.gd"))
     if args.name:
         wanted = {"test-" + name.removeprefix("test-").removesuffix(".gd") for name in args.name}
         missing = wanted - {test.stem for test in tests}
         if missing:
             parser.error("Unknown headless tests: " + ", ".join(sorted(missing)))
         tests = [test for test in tests if test.stem in wanted]
-    logs = root / "project/art_source/.build/test-results"
+    logs = root / "v1/art_source/.build/test-results"
     logs.mkdir(parents=True, exist_ok=True)
     imported = subprocess.run(
-        [str(godot.resolve()), "--headless", "--editor", "--path", str(root / "project"), "--import", "--quit"],
+        [str(godot.resolve()), "--headless", "--editor", "--path", str(root / "v1"), "--import", "--quit"],
         cwd=root, capture_output=True, text=True, timeout=args.timeout,
     )
     import_output = imported.stdout + imported.stderr
@@ -38,7 +38,7 @@ def main():
         return 1
 
     def run(test):
-        command = [str(godot.resolve()), "--headless", "--path", str(root / "project"), "--script", "res://tools/" + test.name]
+        command = [str(godot.resolve()), "--headless", "--path", str(root / "v1"), "--script", "res://tools/" + test.name]
         try:
             result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=args.timeout)
             output = result.stdout + result.stderr

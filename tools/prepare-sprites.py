@@ -48,8 +48,8 @@ def morph_hex(sprite, height):
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = ROOT / "project/art_source/sprites"
-OUTPUT = ROOT / "project/assets/sprites"
+SOURCE = ROOT / "v1/art_source/sprites"
+OUTPUT = ROOT / "v1/assets/sprites"
 SHEETS = [
     ("batch_01_characters", 3, 2, "engineer marine flamer runner stalker brute"),
     ("batch_02_vehicles", 3, 2, "scout jeep drill scout_wreck jeep_wreck drill_wreck"),

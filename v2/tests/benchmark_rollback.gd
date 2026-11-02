@@ -5,7 +5,7 @@ const Rollback = preload("res://net/rollback_session.gd")
 
 func _initialize() -> void:
 	var content = Content.new()
-	if not content.load_text(FileAccess.get_file_as_string("res://content/default.json")): quit(1); return
+	if not content.load_file("res://content/default.json"): quit(1); return
 	var players := Rules.participants([{"id": 1, "faction": "human", "controller": "human"}, {"id": 9, "faction": "lightless", "controller": "human"}])
 	var session = Rollback.new()
 	session.initialize(content.data, players, 42, 0)

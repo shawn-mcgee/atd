@@ -1,0 +1,34 @@
+{
+  "units": {
+    "scavenger": {
+      "name": "Scavenger",
+      "faction": "lightless",
+      "hp": 15,
+      "armor": 0,
+      "cost": 10,
+      "production_ticks": 60,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 0.2,
+        "color": "dc7c82"
+      },
+      "capabilities": {
+        "chyme_collector": {
+          "capacity": 50,
+          "yield_per_damage": 1
+        },
+        "move": {
+          "speed": 5
+        },
+        "weapon": {
+          "damage": 5,
+          "range": 1,
+          "interval_ticks": 18
+        },
+        "perception": {
+          "radius": 7
+        }
+      }
+    }
+  }
+}

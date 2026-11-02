@@ -3,7 +3,7 @@ The core fantasy of AtD is defending your base against an oppressive and hostile
 
 This document is the master design reference for the next core rewrite. It collects the intended design and concepts already present in the game. Existing prototype behavior is identified as **Current game**; additions from open ideas are identified as **Proposed**. Unresolved rules are collected at the end. A current-game rule is a reference for the rewrite, not an automatic decision to keep it.
 
-The unit descriptions and values below remain the intended design draft. They do not necessarily match the current game's roster or balance. Implementation details and current tuning remain in [gameplay balance](project/docs/gameplay-balance.md) and [gameplay.json](project/config/gameplay.json).
+The unit descriptions and values below remain the intended design draft. They do not necessarily match the current game's roster or balance. Implementation details and current tuning remain in [gameplay balance](v1/docs/gameplay-balance.md) and [gameplay.json](v1/config/gameplay.json).
 
 ### Narrative
 The work-in-progress narrative puts you in control of a company of mercenaries and engineers sent to a hostile alien planet to recover its most valuable resources while the planet fights tooth and nail to keep you from doing so.
@@ -269,7 +269,7 @@ Lightless packs lurk at the fringe of illumination, gather, probe defenses, assa
 
 Packs share local sightings and remember last-known positions for a limited time. Outside the core-theft alarm, they do not continuously track unseen units. Darkness makes exposed workers and infrastructure vulnerable; protective light discourages ordinary approaches but does not prevent a committed assault. Personal emergency lamps do not provide the same protection as defensive illumination.
 
-Normal pressure increases over time through larger populations, faster replacements, and more frequent assaults. Damaging the hive alerts nearby packs. Core theft overrides normal probing and retreat with permanent pursuit. See [enemy behavior](project/docs/enemy-ai.md) for the current pacing rules.
+Normal pressure increases over time through larger populations, faster replacements, and more frequent assaults. Damaging the hive alerts nearby packs. Core theft overrides normal probing and retreat with permanent pursuit. See [enemy behavior](v1/docs/enemy-ai.md) for the current pacing rules.
 
 **Naming**
 The current implementation uses Runner, Stalker, and Brute. The draft uses Scavenger, Stalker, and Ravager for the corresponding broad roles. Earlier ideas also use Probe, Hunter, Sniper, Tick, Burrower, and Darkmind for concepts now described as Scavenger, Stalker, Shade, Mother, Thresher, and Father. These are design-name correspondences, not evidence that the full roster is implemented. The Stalker description still uses Darkmind; Father is the coordinating unit described here.
@@ -520,8 +520,8 @@ These are unresolved design choices, not additional mechanics already approved f
 #### Source references
 
 - [README](README.md): current playable mission, controls, starting scenario, economy, and power.
-- [Gameplay balance](project/docs/gameplay-balance.md) and [configuration](project/config/gameplay.json): current rules and tunable values. Existing configuration distances are world metres; this draft's unit values use tiles and need explicit conversion during the rewrite.
-- [Enemy behavior](project/docs/enemy-ai.md): current pack behavior, information limits, escalation, and hive alarms.
+- [Gameplay balance](v1/docs/gameplay-balance.md) and [configuration](v1/config/gameplay.json): current rules and tunable values. Existing configuration distances are world metres; this draft's unit values use tiles and need explicit conversion during the rewrite.
+- [Enemy behavior](v1/docs/enemy-ai.md): current pack behavior, information limits, escalation, and hive alarms.
 - [Open ideas](ideas.md) and [pending requests](todo.md): proposed mechanics, alternate names, and unfinished decisions.
-- [Completed feature records](project/todo.md): links to implemented feature details.
-- [Engine architecture](project/docs/engine.md): current deterministic simulation and presentation boundary; technical reference rather than gameplay design.
+- [Completed feature records](v1/todo.md): links to implemented feature details.
+- [Engine architecture](v1/docs/engine.md): current deterministic simulation and presentation boundary; technical reference rather than gameplay design.

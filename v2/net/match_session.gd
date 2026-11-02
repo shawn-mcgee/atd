@@ -8,7 +8,7 @@ const Rules = preload("res://core/match_rules.gd")
 const Canonical = preload("res://core/canonical.gd")
 const Rollback = preload("res://net/rollback_session.gd")
 const Transport = preload("res://net/coordinator_transport.gd")
-const PROTOCOL := 2
+const PROTOCOL := 7
 var transport = Transport.new()
 var rollback
 var roster: Dictionary = {}

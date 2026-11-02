@@ -58,6 +58,28 @@ async function main() {
   const native = JSON.parse(fs.readFileSync(nativeLog, 'utf8').split('\n').find(line => line.startsWith('ATD_RESULT ')).slice(11));
   if (foundation.deterministic_hash !== native.deterministic_hash) throw new Error('Native/browser deterministic hashes differ');
   await host.screenshot({ path: path.join(results, 'configurator.png') });
+  // Exercise actual browser downloads/upload, preserving editable project files.
+  const projectDownload = host.waitForEvent('download');
+  await state(host, 'config_export_project');
+  const projectPath = path.join(results, 'config-project.json');
+  await (await projectDownload).saveAs(projectPath);
+  const project = JSON.parse(fs.readFileSync(projectPath, 'utf8'));
+  if (project.format !== 'atd-config-project' || Object.keys(project.files).length < 3) throw new Error('Project export lost source files');
+  const engineerPath = 'human/units/engineer.json';
+  const engineer = JSON.parse(project.files[engineerPath]);
+  engineer.units.engineer.hp = 26;
+  project.files[engineerPath] = JSON.stringify(engineer);
+  const chooser = host.waitForEvent('filechooser');
+  await state(host, 'config_load');
+  await (await chooser).setFiles({ name: 'test-project.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(project)) });
+  await until(async () => (await state(host, 'config_status')).engineer_hp === 26);
+  const mergedDownload = host.waitForEvent('download');
+  await state(host, 'config_export_merged');
+  const mergedPath = path.join(results, 'config-merged.json');
+  await (await mergedDownload).saveAs(mergedPath);
+  const merged = JSON.parse(fs.readFileSync(mergedPath, 'utf8'));
+  if (merged.imports || merged.units.engineer.hp !== 26) throw new Error('Merged export did not retain edited imported unit');
+  await state(host, 'config_defaults');
   await state(host, 'local');
   await until(async () => (await state(host)).tick > 10);
   await state(host, 'move');
@@ -70,9 +92,12 @@ async function main() {
   await until(async () => (await state(host)).tick > 60);
   await host.screenshot({ path: path.join(results, 'veil.png') });
   await state(host, 'reset');
+  // Bound test matches so a faster renderer cannot trim the slower peer's comparison checkpoint.
+  await state(host, 'limit', '100');
   await state(host, 'host');
   const room = (await until(async () => { const info = await state(host); return info.room && info; })).room;
   const client = await open();
+  await state(client, 'limit', '100');
   await state(client, 'join', room);
   await until(async () => (await state(host)).players === 2);
   await state(host, 'start');
@@ -83,7 +108,11 @@ async function main() {
     if (a.error || b.error) throw new Error(a.error || b.error);
     const tick = Math.min(a.confirmed, b.confirmed) + 1;
     if (tick < 80) return false;
-    if (!a.hashes[tick] || a.hashes[tick] !== b.hashes[tick]) throw new Error(`Browser peers differ at ${tick}`);
+    if (!a.hashes[tick] || a.hashes[tick] !== b.hashes[tick]) {
+      const snapshots = { tick, a, b, host: await state(host, 'checkpoint', String(tick)), client: await state(client, 'checkpoint', String(tick)) };
+      fs.writeFileSync(path.join(results, 'browser-desync.json'), JSON.stringify(snapshots, null, 2));
+      throw new Error(`Browser peers differ at ${tick}; see browser-desync.json`);
+    }
     return { tick, hash: a.hashes[tick] };
   });
   let nativeBrowserMatch = null;
@@ -107,6 +136,7 @@ async function main() {
     nativePeer.stderr.on('data', chunk => { nativeOutput += chunk.toString(); });
     await until(async () => { if (nativeExit !== null) throw new Error(nativeOutput); return nativeRoom; });
     const cross = await open();
+    await state(cross, 'limit', '100');
     await state(cross, 'join', nativeRoom);
     await until(async () => (await state(cross)).running);
     await state(cross, 'move');

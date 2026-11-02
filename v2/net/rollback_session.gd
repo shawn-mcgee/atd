@@ -125,7 +125,7 @@ func _sanitize(commands: Array):
 	for raw in commands:
 		if not raw is Dictionary: return null
 		var command: Dictionary = Canonical.normalize(raw)
-		if not command.get("kind") in ["move", "attack", "stop", "train", "attack_veil", "veil_stance"] or not command.get("actors") is Array or command.actors.size() > 64: return null
+		if not command.get("kind") in ["move", "attack", "stop", "train", "attack_veil", "veil_stance", "deliver_chyme", "build", "cancel_build", "repair_point", "mine_nacre", "deliver_nacre", "start_extraction"] or not command.get("actors") is Array or command.actors.size() > 64: return null
 		var actors: Array = []
 		for id in command.actors:
 			if not id is int or id < 1 or id > 1000000: return null
@@ -142,11 +142,18 @@ func _sanitize(commands: Array):
 				if command.stance == "offensive":
 					if not simulation.valid_point(command.get("point")): return null
 					clean.point = command.point.duplicate()
-			"attack":
+			"attack", "mine_nacre":
 				if not command.get("target") is int or command.target < 1 or command.target > 1000000: return null
 				clean.target = command.target
-			"train":
+			"deliver_chyme", "repair_point", "deliver_nacre":
+				if command.has("target"):
+					if not command.target is int or command.target < 1 or command.target > 1000000: return null
+					clean.target = command.target
+			"train", "build":
 				if not command.get("definition") is String or not simulation.content.units.has(command.definition): return null
 				clean.definition = command.definition
+				if command.kind == "build":
+					if not simulation.valid_point(command.get("point")): return null
+					clean.point = command.point.duplicate()
 		result.append(clean)
 	return result

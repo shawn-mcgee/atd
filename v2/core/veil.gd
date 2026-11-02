@@ -115,6 +115,7 @@ static func attack(game, actor: Dictionary, point: Array) -> void:
 		actor.order = {}; return
 	var cell: Dictionary = game.state.veil.cells[key]
 	if int(cell.owner) == int(actor.owner) or game.visibility_at(int(actor.owner), point) != 2: return
+	game._face(actor, point)
 	var weapon: Dictionary = game.content.units[actor.definition].capabilities.weapon
 	var radius := int(round(float(weapon.range) * Hex.SCALE))
 	if game.distance_squared(actor.position, point) > radius * radius:

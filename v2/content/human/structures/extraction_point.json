@@ -1,0 +1,23 @@
+{
+  "units": {
+    "extraction_point": {
+      "name": "Extraction Point",
+      "faction": "human",
+      "hp": 240,
+      "armor": 2,
+      "cost": 0,
+      "production_ticks": 1,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 0.4,
+        "color": "83cbb5"
+      },
+      "capabilities": {
+        "extraction_point": {},
+        "perception": {
+          "radius": 2
+        }
+      }
+    }
+  }
+}
