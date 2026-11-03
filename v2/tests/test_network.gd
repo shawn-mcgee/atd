@@ -1,4 +1,5 @@
 extends SceneTree
+const Actor = preload("res://core/actor.gd")
 const Session = preload("res://net/match_session.gd")
 const Content = preload("res://core/content.gd")
 const Transport = preload("res://net/coordinator_transport.gd")
@@ -47,7 +48,7 @@ func _process(_dt: float) -> bool:
 	if host.running and client.running:
 		if not ordered and int(client.rollback.simulation.state.tick) == 20:
 			var ids: Array = []
-			for actor in client.rollback.simulation.state.actors:
+			for actor: Actor in client.rollback.simulation.state.actors:
 				if int(actor.owner) == client.own_id and actor.definition == "scavenger": ids.append(int(actor.id))
 			client.rollback.queue({"kind": "move", "actors": ids, "point": [0, 0, 0]})
 			ordered = true

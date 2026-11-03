@@ -1,4 +1,5 @@
 extends SceneTree
+const Actor = preload("res://core/actor.gd")
 var frames := 0
 var view
 
@@ -166,7 +167,7 @@ func _process(_dt: float) -> bool:
 		view.selected.assign([1])
 		view._order({"kind": "train", "definition": "mother"})
 		_advance(83)
-		for actor in view.session.rollback.simulation.state.actors:
+		for actor: Actor in view.session.rollback.simulation.state.actors:
 			if actor.definition == "mother": view.selected.assign([int(actor.id)])
 		view._refresh_hud()
 		view._begin_build()

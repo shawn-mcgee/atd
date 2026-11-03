@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Stateful membrane data lives in Simulation.state. Queries never mutate it.
 const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
@@ -22,7 +23,7 @@ static func tick(game) -> void:
 	var occupied: Dictionary = {}
 	for cell in game.content.settings.get("terrain", []): occupied[Hex.key(cell)] = [0]
 	var lights: Dictionary = game.illumination_cells()
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
 		# Mobile actors never obstruct the membrane, even while standing still.
 		if int(actor.hp) <= 0: continue
@@ -56,7 +57,7 @@ static func tick(game) -> void:
 			_damage(game, key, int(settings(game).light_damage_per_tick), "illumination", 0)
 		elif cell.sources.is_empty():
 			_damage(game, key, int(settings(game).decay_per_tick), "decay", 0)
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if not alive.has(str(actor.id)): continue
 		var source: Dictionary = veil.sources[str(actor.id)]
 		if int(game.state.tick) >= int(source.next_growth_tick):
@@ -68,7 +69,7 @@ static func tick(game) -> void:
 	for key in veil.cooldowns.keys():
 		if int(veil.cooldowns[key]) <= int(game.state.tick): veil.cooldowns.erase(key)
 
-static func _grow(game, actor: Dictionary, source: Dictionary, occupied: Dictionary, lights: Dictionary) -> void:
+static func _grow(game, actor: Actor, source: Dictionary, occupied: Dictionary, lights: Dictionary) -> void:
 	var veil: Dictionary = game.state.veil
 	var cap: Dictionary = game.content.units[actor.definition].capabilities.veil_source
 	var candidates: Dictionary = {}
@@ -97,11 +98,11 @@ static func _grow(game, actor: Dictionary, source: Dictionary, occupied: Diction
 		remaining -= 1
 		_offer_neighbors(game, actor, source, cell, occupied, lights, candidates)
 
-static func _offer_neighbors(game, actor: Dictionary, source: Dictionary, cell: Array, occupied: Dictionary, lights: Dictionary, candidates: Dictionary) -> void:
+static func _offer_neighbors(game, actor: Actor, source: Dictionary, cell: Array, occupied: Dictionary, lights: Dictionary, candidates: Dictionary) -> void:
 	for offset in Hex.NEIGHBORS:
 		_offer(game, actor, source, [int(cell[0]) + int(offset[0]), int(cell[1]) + int(offset[1])], occupied, lights, candidates)
 
-static func _offer(game, actor: Dictionary, source: Dictionary, cell: Array, occupied: Dictionary, lights: Dictionary, candidates: Dictionary) -> void:
+static func _offer(game, actor: Actor, source: Dictionary, cell: Array, occupied: Dictionary, lights: Dictionary, candidates: Dictionary) -> void:
 	var key := Hex.key(cell)
 	var radius := int(game.content.units[actor.definition].capabilities.veil_source.radius)
 	if candidates.has(key) or source.claimed.has(key): return
@@ -123,7 +124,7 @@ static func networks_at(veil: Dictionary, owner: int, position: Array) -> Array:
 	result.sort()
 	return result
 
-static func attack(game, actor: Dictionary, point: Array) -> void:
+static func attack(game, actor: Actor, point: Array) -> void:
 	var key := Hex.key(Hex.from_point(point))
 	if not game.state.veil.cells.has(key):
 		actor.order = {}; return
@@ -134,8 +135,8 @@ static func attack(game, actor: Dictionary, point: Array) -> void:
 	var radius := int(round(float(weapon.range) * Hex.SCALE))
 	if game.distance_squared(actor.position, point) > radius * radius:
 		game._move(actor, point); return
-	if int(actor.ready_tick) > int(game.state.tick): return
-	actor.ready_tick = int(game.state.tick) + int(weapon.interval_ticks)
+	if int(actor.combat.ready_tick) > int(game.state.tick): return
+	actor.combat.ready_tick = int(game.state.tick) + int(weapon.interval_ticks)
 	_damage(game, key, int(weapon.damage), "weapon", int(actor.id))
 
 static func _damage(game, key: String, amount: int, cause: String, source_id: int) -> void:
@@ -170,7 +171,7 @@ static func _alert(game, owner: int, cell: Array, reason: String, source_id: int
 		if hostile:
 			network.threat = {"point": point, "expires": int(game.state.tick) + int(settings(game).memory_ticks), "reason": reason}
 		var recipients: Array = []
-		for actor in game.state.actors:
+		for actor: Actor in game.state.actors:
 			if int(actor.hp) > 0 and int(actor.owner) == owner and networks_at(veil, owner, actor.position).has(id):
 				recipients.append(int(actor.id))
 				if game.content.units[actor.definition].capabilities.has("move"): _inherit_actor(actor, network)
@@ -184,7 +185,7 @@ static func _contacts(game) -> void:
 	if veil.cells.is_empty():
 		veil.contacts = next
 		return
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if not game.content.units[actor.definition].capabilities.has("move"): continue
 		var cell := Hex.from_point(actor.position)
 		var key := Hex.key(cell)
@@ -200,7 +201,7 @@ static func _contacts(game) -> void:
 			_alert(game, int(veil.cells[key].owner), cell, "contact", int(actor.id), int(actor.owner) != int(veil.cells[key].owner))
 	veil.contacts = next
 
-static func set_stance(game, actor: Dictionary, stance: String, point: Array) -> bool:
+static func set_stance(game, actor: Actor, stance: String, point: Array) -> bool:
 	if not stance in STANCES: return false
 	_ensure_networks(game)
 	var veil: Dictionary = game.state.veil
@@ -221,13 +222,13 @@ static func set_stance(game, actor: Dictionary, stance: String, point: Array) ->
 
 static func _adopt_stances(game) -> void:
 	var veil: Dictionary = game.state.veil
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		actor.veil_networks = networks_at(veil, int(actor.owner), actor.position)
 		if not game.content.units[actor.definition].capabilities.has("move") or actor.veil_networks.is_empty(): continue
 		var network: Dictionary = veil.networks[str(actor.veil_networks[0])]
 		_inherit_actor(actor, network)
 
-static func _inherit_actor(actor: Dictionary, network: Dictionary) -> void:
+static func _inherit_actor(actor: Actor, network: Dictionary) -> void:
 	if int(actor.veil_stance.network) != int(network.id) or int(actor.veil_stance.order) != int(network.stance_order):
 		actor.veil_stance = {"mode": network.stance, "network": int(network.id), "order": int(network.stance_order), "target": [], "expires": 0}
 		if actor.order.get("veil_order", false): actor.order = {}

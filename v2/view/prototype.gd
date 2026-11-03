@@ -1,4 +1,5 @@
 extends Node3D
+const Actor = preload("res://core/actor.gd")
 ## Presentation/input only. Meshes and labels never drive gameplay.
 const Geometry = preload("res://core/geometry.gd")
 const FootprintMesh = preload("res://view/footprint_mesh.gd")
@@ -117,17 +118,17 @@ func _web_test_action(arguments: Array) -> void:
 		"config_defaults": config_editor.reset_defaults()
 		"move":
 			selected.clear()
-			for actor in session.rollback.simulation.state.actors:
+			for actor: Actor in session.rollback.simulation.state.actors:
 				if session.controls(int(actor.owner)) and actor.definition == "marine": selected.append(int(actor.id))
 			if selected.is_empty():
-				for actor in session.rollback.simulation.state.actors:
+				for actor: Actor in session.rollback.simulation.state.actors:
 					if session.controls(int(actor.owner)) and session.rollback.simulation.content.units[actor.definition].capabilities.has("move"): selected.append(int(actor.id))
 			_order({"kind": "move", "point": [0, 0, 0]})
 		"lightless": faction.select(1); _local()
 		"defensive":
 			stance_choices.select(1)
 			selected.clear()
-			for actor in session.rollback.simulation.state.actors:
+			for actor: Actor in session.rollback.simulation.state.actors:
 				if session.controls(int(actor.owner)) and actor.definition == "nest": selected.append(int(actor.id))
 			_order({"kind": "veil_stance", "stance": "defensive"})
 	var info := {"running": session.running, "room": session.transport.room, "players": session.roster.size(), "error": session.error, "status": status.text}
@@ -591,7 +592,7 @@ func _started() -> void:
 	_refresh_hud()
 
 func _focus_base() -> void:
-	for actor in session.rollback.simulation.state.actors:
+	for actor: Actor in session.rollback.simulation.state.actors:
 		if session.controls(int(actor.owner)) and actor.definition in ["hq", "nest"]:
 			var point := _world(actor.position)
 			camera.position = Vector3(point.x + 5, 40, point.z)
@@ -650,7 +651,7 @@ func _view_owners() -> Array:
 		if session.controls(int(player.id)): owners.append(int(player.id))
 	return owners
 
-func _visible_to(actor: Dictionary) -> int:
+func _visible_to(actor: Actor) -> int:
 	return _visibility_at(actor.position, actor)
 
 func _visibility_at(point: Array, actor = null) -> int:
@@ -678,10 +679,10 @@ func _sync_meshes() -> void:
 	_light_snapshot.clear()
 	for owner in _view_owners(): _light_snapshot[str(owner)] = simulation.illumination_cells(int(owner))
 	var alive: Dictionary = {}
-	for actor in simulation.state.actors:
+	for actor: Actor in simulation.state.actors:
 		var id := int(actor.id)
 		alive[id] = true
-		if actor_nodes.has(id) and actor_nodes[id].get_meta("geometry") != [actor.definition, int(actor.get("rotation", 0)), actor.construction.get("definition", "")]:
+		if actor_nodes.has(id) and actor_nodes[id].get_meta("geometry") != [actor.definition, int(actor.rotation), actor.construction.get("definition", "")]:
 			var previous: Node3D = actor_nodes[id]
 			actors_root.remove_child(previous)
 			previous.queue_free()
@@ -784,7 +785,7 @@ func _sync_orders(simulation) -> void:
 			lines.append([Geometry.center(simulation, actor), rally])
 			lines.append([[int(rally[0]) - 150, 0, rally[2]], [int(rally[0]) + 150, 0, rally[2]]])
 			lines.append([[rally[0], 0, int(rally[2]) - 150], [rally[0], 0, int(rally[2]) + 150]])
-		if not actor.get("navigation", {}).get("path", []).is_empty():
+		if not actor.navigation.get("path", []).is_empty():
 			var start: Array = actor.position
 			for waypoint in actor.navigation.path:
 				if not simulation.state.revealed[str(actor.owner)].has(Hex.key(Hex.from_point(waypoint))): break
@@ -828,10 +829,10 @@ func _sync_orders(simulation) -> void:
 	instance.name = "Orders"; instance.mesh = mesh; instance.material_override = _material(Color("cfbc76"), true)
 	add_child(instance)
 
-func _actor_node(actor: Dictionary, definition: Dictionary) -> Node3D:
+func _actor_node(actor: Actor, definition: Dictionary) -> Node3D:
 	var node := Node3D.new()
 	node.set_meta("definition", actor.definition)
-	node.set_meta("geometry", [actor.definition, int(actor.get("rotation", 0)), actor.construction.get("definition", "")])
+	node.set_meta("geometry", [actor.definition, int(actor.rotation), actor.construction.get("definition", "")])
 	var instance := MeshInstance3D.new()
 	instance.name = "Body"
 	var radius := float(definition.visual.radius) * sqrt(3.0)
@@ -912,12 +913,12 @@ func _refresh_hud() -> void:
 	var definition: Dictionary = simulation.content.units[actor.definition]
 	var detail := "%s - owner %d\nHP %d/%d - armor %d\nOrder: %s" % [definition.name, actor.owner, actor.hp, definition.hp, definition.armor, actor.order.get("kind", "idle")]
 	if selected.size() > 1: detail = "%d selected - inspecting first\n" % selected.size() + detail
-	if Geometry.structure(simulation, actor): detail += "\nFootprint: %d tiles - rotation %d" % [Geometry.cells(simulation, actor).size(), int(actor.get("rotation", 0))]
+	if Geometry.structure(simulation, actor): detail += "\nFootprint: %d tiles - rotation %d" % [Geometry.cells(simulation, actor).size(), int(actor.rotation)]
 	else: detail += "\nCollision radius: %s tiles" % definition.get("collision_radius", 0.2)
 	if Geometry.structure(simulation, actor):
 		detail += "\nMovement collision: " + Geometry.collision_shape(simulation, actor)
 		if Geometry.collision_shape(simulation, actor) == "circle": detail += " (radius %s)" % Geometry.definition(simulation, actor).get("collision_radius", 0.2)
-	if session.controls(int(actor.owner)) and actor.get("navigation", {}).get("blocked", false): detail += "\nNo route for this body size."
+	if session.controls(int(actor.owner)) and actor.navigation.get("blocked", false): detail += "\nNo route for this body size."
 	if session.controls(int(actor.owner)):
 		if Rally.capable(simulation, actor): detail += "\nRally: [%d, %d] - right-click ground to set" % [actor.rally_point[0] / Simulation.SCALE, actor.rally_point[2] / Simulation.SCALE]
 		if definition.capabilities.has("passive_spawner"):

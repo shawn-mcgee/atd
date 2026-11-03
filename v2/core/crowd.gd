@@ -1,11 +1,12 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Derived movement data. Never serialized; rebuilt after restore and membership changes.
 const S := 1024
 const BUCKET_BITS := 11 # Two tiles; arithmetic shifts floor negative coordinates.
 
 class Body:
 	extends RefCounted
-	var actor: Dictionary
+	var actor: Actor
 	var id: int
 	var owner: int
 	var radius: int
@@ -34,13 +35,7 @@ var bodies: Dictionary[int, Body] = {}
 var groups: Dictionary[int, Group] = {}
 var owners: Array[int] = []
 var _query_offsets: Dictionary[int, Array] = {}
-var backend: RefCounted
 var _epoch := 0
-
-func _init(accelerated: bool = true) -> void:
-	if accelerated and ClassDB.class_exists("ATDMovementKernel"):
-		var candidate = ClassDB.instantiate("ATDMovementKernel") as RefCounted
-		if int(candidate.call("abi_version")) == 9: backend = candidate
 
 @warning_ignore("integer_division")
 static func coordinate(value: int) -> int:
@@ -49,10 +44,7 @@ static func coordinate(value: int) -> int:
 func rebuild(actors: Array, definitions: Dictionary, velocities: Dictionary) -> void:
 	groups.clear(); owners.clear()
 	_epoch += 1
-	var packed := PackedInt64Array()
-	var used := 0
-	if backend != null: packed.resize(actors.size() * 7)
-	for actor: Dictionary in actors:
+	for actor: Actor in actors:
 		var definition: Dictionary = definitions[actor.definition]
 		if int(actor.hp) <= 0 or not definition.capabilities.has("move"): continue
 		var id := int(actor.id)
@@ -63,37 +55,27 @@ func rebuild(actors: Array, definitions: Dictionary, velocities: Dictionary) -> 
 		body.actor = actor; body.id = int(actor.id); body.owner = int(actor.owner)
 		body.radius = int(round(float(definition.get("collision_radius", 0.2)) * S))
 		body.q = int(actor.position[0]); body.r = int(actor.position[2])
-		var velocity: Array = velocities.get(str(body.id), actor.get("velocity", [0, 0, 0]))
+		var velocity: Array = velocities.get(str(body.id), actor.motion.velocity)
 		body.vq = int(velocity[0]); body.vr = int(velocity[2])
 		body.bucket = Vector2i(coordinate(body.q), coordinate(body.r))
 		if not owners.has(body.owner): owners.append(body.owner)
-		if backend == null:
-			if not groups.has(body.owner): groups[body.owner] = Group.new()
-			var group: Group = groups[body.owner]
-			group.include(body)
-			group.max_radius = maxi(group.max_radius, body.radius)
-			if not group.buckets.has(body.bucket): group.buckets[body.bucket] = []
-			group.buckets[body.bucket].append(body)
-		if backend != null:
-			packed[used] = body.id; packed[used + 1] = body.owner; packed[used + 2] = body.radius
-			packed[used + 3] = body.q; packed[used + 4] = body.r
-			packed[used + 5] = body.vq; packed[used + 6] = body.vr
-			used += 7
+		if not groups.has(body.owner): groups[body.owner] = Group.new()
+		var group: Group = groups[body.owner]
+		group.include(body)
+		group.max_radius = maxi(group.max_radius, body.radius)
+		if not group.buckets.has(body.bucket): group.buckets[body.bucket] = []
+		group.buckets[body.bucket].append(body)
 	owners.sort()
 	for id in bodies.keys():
 		if bodies[id].seen != _epoch: bodies.erase(id)
-	if backend != null:
-		packed.resize(used)
-		backend.call("prepare", packed)
 
-func moved(actor: Dictionary) -> void:
+func body_for(id: int) -> Body:
+	return bodies.get(id)
+
+func moved(actor: Actor) -> void:
 	var body: Body = bodies.get(int(actor.id))
 	if body == null: return
 	body.q = int(actor.position[0]); body.r = int(actor.position[2])
-	if backend != null:
-		backend.call("moved", body.id, Vector2i(body.q, body.r))
-		body.bucket = Vector2i(coordinate(body.q), coordinate(body.r))
-		return
 	var group: Group = groups[body.owner]
 	# Conservative bounds expand between rebuilds, so no moving body is omitted.
 	group.include(body)
@@ -108,12 +90,6 @@ func moved(actor: Dictionary) -> void:
 @warning_ignore("integer_division")
 func query(owner: int, q: int, r: int, reach: int, scan_limit: int = 0, offset: int = 0) -> Array[Body]:
 	var result: Array[Body] = []
-	if backend != null:
-		var ids: PackedInt64Array = backend.call("query", PackedInt64Array([owner, q, r, reach, scan_limit, offset]))
-		for id in ids:
-			var body: Body = bodies.get(id)
-			if body != null and int(body.actor.hp) > 0: result.append(body)
-		return result
 	var group: Group = groups.get(owner)
 	if group == null: return result
 	var radius := reach + group.max_radius

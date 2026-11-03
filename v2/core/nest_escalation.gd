@@ -1,10 +1,11 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Resolve deaths at the tick boundary. Faster work starts on the following tick.
 
 static func resolve(game) -> void:
 	var settings: Dictionary = game.content.settings.get("nest_loss", {})
 	if settings.is_empty(): return
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if actor.definition != "nest" or int(actor.hp) > 0: continue
 		var owner := str(actor.owner)
 		if game.state.escalations.has(owner): continue
@@ -20,17 +21,17 @@ static func resolve(game) -> void:
 		event.construction_rate = int(settings.construction_rate)
 		event.affect_new_structures = bool(settings.affect_new_structures)
 
-static func rate(game, actor: Dictionary, work: String) -> int:
+static func rate(game, actor: Actor, work: String) -> int:
 	var owner := str(actor.owner)
 	if not game.state.escalations.has(owner) or not _is_structure(game, actor): return 1
 	var settings: Dictionary = game.content.settings.nest_loss
 	if not settings.affect_new_structures and not int(actor.id) in game.state.escalations[owner].structures: return 1
 	return int(settings[work + "_rate"])
 
-static func forget_structure(game, actor: Dictionary) -> void:
+static func forget_structure(game, actor: Actor) -> void:
 	var owner := str(actor.owner)
 	if game.state.escalations.has(owner): game.state.escalations[owner].structures.erase(int(actor.id))
 
-static func _is_structure(game, actor: Dictionary) -> bool:
+static func _is_structure(game, actor: Actor) -> bool:
 	var definition: Dictionary = game.content.units[actor.definition]
 	return definition.faction == "lightless" and not definition.capabilities.has("move")

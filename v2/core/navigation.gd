@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Deterministic axial A*. Paths belong to actors; obstacle caches are derived.
 const Hex = preload("res://core/hex_cells.gd")
 const Geo = preload("res://core/geometry.gd")
@@ -9,7 +10,7 @@ static func field(game, cache: Dictionary) -> Dictionary:
 	var blocked: Dictionary = {}
 	var circles: Array = []
 	for cell in game.content.settings.get("terrain", []): blocked[Hex.key(cell)] = cell
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if int(actor.hp) <= 0 or not Geo.structure(game, actor) or actor.construction.get("kind") == "blueprint": continue
 		if not game.content.units[actor.definition].get("blocks_movement", true): continue
 		if Geo.collision_shape(game, actor) == "circle":
@@ -23,18 +24,11 @@ static func field(game, cache: Dictionary) -> Dictionary:
 	if cache.get("signature", []) == signature: return cache.field
 	var keys: Array = blocked.keys(); keys.sort()
 	var result := {"blocked": {"hexes": blocked, "circles": circles}, "hash": Canonical.hash_of([keys, circles]), "clearance": {}}
-	if game._crowd.backend != null:
-		var shapes := PackedInt64Array([blocked.size()])
-		for cell in blocked.values(): shapes.append(int(cell[0])); shapes.append(int(cell[1]))
-		shapes.append(circles.size())
-		for circle in circles: shapes.append(int(circle.position[0])); shapes.append(int(circle.position[2])); shapes.append(int(circle.radius))
-		result.blocked.native_backend = game._crowd.backend
-		result.blocked.native_revision = int(game._crowd.backend.call("world", shapes, int(game.content.settings.map_radius), result.hash))
 	cache.signature = signature.duplicate(true)
 	cache.field = result
 	return result
 
-static func actor_field(game, actor: Dictionary) -> Dictionary:
+static func actor_field(game, actor: Actor) -> Dictionary:
 	var base: Dictionary = game.navigation_field()
 	var circles: Dictionary = game.enemy_circles(int(actor.owner))
 	var enemies: Array = circles.enemies
@@ -48,10 +42,6 @@ static func segment_clear(game, a: Array, b: Array, size: int, obstacles: Dictio
 	var hexes: Dictionary = obstacles.get("hexes", obstacles)
 	var map_radius := int(game.content.settings.map_radius)
 	if int(a[1]) != 0 or int(b[1]) != 0: return false
-	var backend: RefCounted = obstacles.get("native_backend")
-	if backend != null:
-		var valid := int(backend.call("static_clear", int(obstacles.native_revision), Vector2i(int(a[0]), int(a[2])), Vector2i(int(b[0]), int(b[2])), size))
-		if valid >= 0: return valid == 1 and enemy_clear(a, b, size, enemies)
 	var pad := (size + Hex.SCALE - 1) / Hex.SCALE + 1
 	var interior := true
 	var inner_limit := (map_radius - pad) * Hex.SCALE
@@ -117,42 +107,42 @@ static func center_clear(game, cell: Array, size: int, field_data: Dictionary) -
 static func static_field(data: Dictionary) -> Dictionary:
 	return {"blocked": data.blocked, "hash": data.hash, "clearance": data.clearance, "enemies": []}
 
-static func next(game, actor: Dictionary, destination: Array, target = null, reach: int = 0, interaction: bool = false, supplied_field = null) -> Array:
+static func next(game, actor: Actor, destination: Array, target = null, reach: int = 0, interaction: bool = false, supplied_field = null) -> Array:
 	# Routes depend only on terrain and immobile collision shapes. Mobile bodies
 	# belong to local steering/contact checks, never the global search graph.
 	var data := static_field(game.navigation_field() if supplied_field == null else supplied_field)
 	var size := Geo.radius(game, actor)
 	var key: Array = [destination, int(target.id) if target != null else 0, reach, data.hash, size, interaction]
-	var old: Dictionary = actor.get("navigation", {})
+	var old: Dictionary = actor.motion.navigation
 	if old.get("key", []) == key and old.get("direct", false):
 		if not old.get("deviated", false) or segment_clear(game, actor.position, destination, size + 2, data.blocked):
 			old.deviated = false
 			return destination
 	if target == null and segment_clear(game, actor.position, destination, size + 2, data.blocked):
-		actor.navigation = {"key": key.duplicate(true), "path": [], "direct": true, "blocked": false}
+		actor.motion.navigation = {"key": key.duplicate(true), "path": [], "direct": true, "blocked": false}
 		return destination
 	if old.get("key", []) != key or (old.get("deviated", false) and not _route_clear(game, actor.position, old.get("path", []).slice(0, 1), size, data)):
-		for other in game.state.actors:
+		for other: Actor in game.state.actors:
 			if int(other.id) == int(actor.id) or int(other.owner) != int(actor.owner) or int(other.hp) <= 0: continue
-			var route: Dictionary = other.get("navigation", {})
+			var route: Dictionary = other.motion.navigation
 			if route.get("key", []) == key and not route.get("path", []).is_empty() and segment_clear(game, actor.position, route.path[0], size + 2, data.blocked):
-				actor.navigation = {"key": key.duplicate(true), "path": route.path.duplicate(true), "blocked": false}
-				return actor.navigation.path[0]
+				actor.motion.navigation = {"key": key.duplicate(true), "path": route.path.duplicate(true), "blocked": false}
+				return actor.motion.navigation.path[0]
 		var goals := _goals(game, actor, destination, target, reach, data, interaction)
 		data.search_expansions = 0
 		var coarse := _path(game, actor, goals, data)
 		if game._inside_step:
 			game._navigation_searches += 1
 			game._navigation_expansions += int(data.search_expansions)
-		actor.navigation = {"key": key.duplicate(true), "path": _smooth(game, actor.position, coarse, size, data.blocked), "blocked": coarse.is_empty()}
-	actor.navigation.deviated = false
-	var path: Array = actor.navigation.path
+		actor.motion.navigation = {"key": key.duplicate(true), "path": _smooth(game, actor.position, coarse, size, data.blocked), "blocked": coarse.is_empty()}
+	actor.motion.navigation.deviated = false
+	var path: Array = actor.motion.navigation.path
 	while not path.is_empty() and actor.position == path[0]: path.pop_front()
 	if path.is_empty(): return []
 	for index in range(path.size() - 1, 0, -1):
 		if segment_clear(game, actor.position, path[index], size + 2, data.blocked):
 			path = path.slice(index)
-			actor.navigation.path = path
+			actor.motion.navigation.path = path
 			break
 	return path[0]
 
@@ -180,7 +170,7 @@ static func _smooth(game, start: Array, path: Array, size: int, obstacles: Dicti
 		first = last + 1
 	return result
 
-static func _goals(game, actor: Dictionary, destination: Array, target, reach: int, data: Dictionary, interaction: bool = false) -> Array:
+static func _goals(game, actor: Actor, destination: Array, target, reach: int, data: Dictionary, interaction: bool = false) -> Array:
 	var goals: Array = []
 	var size := Geo.radius(game, actor)
 	var center := Hex.from_point(destination)
@@ -196,7 +186,7 @@ static func _goals(game, actor: Dictionary, destination: Array, target, reach: i
 				seen[key] = true
 				if interaction and target != null and Geo.structure(game, target) and cell in occupied: continue
 				if not center_clear(game, cell, size, data): continue
-				if interaction and target != null and Geo.structure(game, target) and Geo.intersects_collision(game, {"definition": actor.definition, "position": Hex.point(cell)}, target): continue
+				if interaction and target != null and Geo.structure(game, target) and Geo.intersects_collision(game, Actor.from_dict({"definition": actor.definition, "position": Hex.point(cell)}), target): continue
 				var distance: int = (Geo.interaction_distance(game, Hex.point(cell), target) if interaction else Geo.distance_to_actor(game, Hex.point(cell), target)) if target != null else game.distance_squared(Hex.point(cell), destination)
 				if (target != null or reach > 0) and distance > reach * reach: continue
 				goals.append(cell)
@@ -267,7 +257,7 @@ static func _pop(heap: Array) -> Array:
 		index = child
 	return result
 
-static func _path(game, actor: Dictionary, goals: Array, data: Dictionary) -> Array:
+static func _path(game, actor: Actor, goals: Array, data: Dictionary) -> Array:
 	if goals.is_empty(): return []
 	var start := Hex.from_point(actor.position); var start_key := Hex.key(start)
 	var heap: Array = []; var cost: Dictionary = {start_key: 0}; var previous: Dictionary = {}; var goal_keys: Dictionary = {}

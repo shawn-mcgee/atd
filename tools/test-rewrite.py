@@ -9,7 +9,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--godot", required=True, type=Path)
     parser.add_argument("--network", action="store_true")
-    parser.add_argument("--require-native", action="store_true", help="Fail unless the compiled movement kernel is loaded")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     logs = root / "v2/test-results"
@@ -23,8 +22,6 @@ def main():
     if args.network:
         commands.append(("network", ["--script", "res://tests/test_network.gd"]))
     for name, options in commands:
-        if name == "foundation" and args.require_native:
-            options = [*options, "--", "--require-native"]
         log = logs / (name + ".log")
         try:
             with log.open("w", encoding="utf-8") as sink:

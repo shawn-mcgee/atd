@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Flat prototype arena. No nodes, wall time, native physics or floating-point movement.
 ## q/r positions are integer sub-tiles; y is reserved for elevation in ground positions.
 const Geometry = preload("res://core/geometry.gd")
@@ -21,8 +22,7 @@ const Spawning = preload("res://core/spawning.gd")
 const SCALE := 1024
 var content: Dictionary
 var state: Dictionary
-var accelerated := true # Implementation choice only; reference/native replay must agree.
-var packed_rollback := not OS.has_feature("web") # Web C-ABI traversal costs more than native deep copy.
+var packed_rollback := false # Godot deep copies are cheaper than interpreted ATD1 encoding per tick.
 var _exploration_cache: Dictionary = {}
 var _illumination_cache: Dictionary = {}
 var _navigation_cache: Dictionary = {}
@@ -31,6 +31,8 @@ var _enemy_cache: Dictionary = {}
 var _crowd := Crowd.new()
 var _crowd_dirty := true
 var _inside_step := false
+var _entity_index: Dictionary[int, Actor] = {}
+var _entity_index_ready := false
 var _navigation_searches := 0
 var _navigation_expansions := 0
 
@@ -41,9 +43,11 @@ func initialize(definitions: Dictionary, players: Array, seed_value: int) -> voi
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
 	_enemy_cache.clear()
-	_crowd = Crowd.new(accelerated)
+	_crowd = Crowd.new()
 	_crowd_dirty = true
 	_inside_step = false
+	_entity_index.clear()
+	_entity_index_ready = false
 	state = {"version": 16, "content_hash": Canonical.hash_of(content), "tick": 0, "next_id": 1,
 		"rng": seed_value & 0x7fffffff, "players": players.duplicate(true), "actors": [], "banks": {}, "revealed": {}, "escalations": {}, "events": [], "event_serial": 0, "veil": Veil.initial_state()}
 	var starts := [[-8, 0], [8, 0], [0, -8], [0, 8], [-8, 8], [8, -8], [-4, -4], [4, 4]]
@@ -63,19 +67,19 @@ func initialize(definitions: Dictionary, players: Array, seed_value: int) -> voi
 			_spawn(type, int(player.id), position)
 			slot += 1
 	# Keep starting mobile bodies clear of the authored base footprints.
-	for actor in state.actors:
+	for actor: Actor in state.actors:
 		if not Geometry.structure(self, actor): actor.position = free_spawn(actor.definition, actor.position, int(actor.owner))
 	Mission.initialize(self)
 	Exploration.record(self, _exploration_cache)
 
 func checkpoint() -> Dictionary:
-	return state.duplicate(true)
+	var saved := state.duplicate(true)
+	saved.actors = []
+	for actor: Actor in state.actors: saved.actors.append(actor.to_dict().duplicate(true))
+	return saved
 
 func packed_state(value = null) -> PackedByteArray:
 	var source: Dictionary = state if value == null else value
-	if _crowd.backend != null:
-		var packed: PackedByteArray = _crowd.backend.call("state_pack", source)
-		if not packed.is_empty(): return packed
 	return StateCodec.pack(source)
 
 func rollback_checkpoint() -> Dictionary:
@@ -96,20 +100,32 @@ func restore_rollback(saved: Dictionary) -> void:
 	var decoded = StateCodec.unpack(saved.packed)
 	assert(decoded is Dictionary and decoded.get("content_hash") == state.content_hash, "Invalid rollback checkpoint")
 	state = decoded
+	_hydrate_actors()
 	_reset_derived()
 
 func restore(saved: Dictionary) -> void:
 	assert(saved.content_hash == state.content_hash, "Checkpoint content mismatch")
 	state = Canonical.normalize(saved)
+	_hydrate_actors()
 	_reset_derived()
 
+func _hydrate_actors() -> void:
+	var actors: Array[Actor] = []
+	for data in state.actors:
+		var actor := Actor.from_dict(data)
+		actor.compose(content.units[actor.definition])
+		actors.append(actor)
+	state.actors = actors
+
 func _reset_derived() -> void:
+	_entity_index.clear()
+	_entity_index_ready = false
 	Exploration.reset(_exploration_cache)
 	_illumination_cache.clear()
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
 	_enemy_cache.clear()
-	_crowd = Crowd.new(accelerated)
+	_crowd = Crowd.new()
 	_crowd_dirty = true
 	_inside_step = false
 
@@ -132,16 +148,16 @@ func step(commands: Array) -> void:
 	_inside_step = true
 	for command in commands: _apply(command)
 	_velocity_snapshot = {}
-	for actor in state.actors:
+	for actor: Actor in state.actors:
 		# Velocities are replaced, never edited in place; retain the previous array.
-		_velocity_snapshot[str(actor.id)] = actor.get("velocity", [0, 0, 0])
-		actor.velocity = [0, 0, 0]
+		_velocity_snapshot[str(actor.id)] = actor.motion.velocity
+		actor.motion.velocity = [0, 0, 0]
 	# Defeat is resolved after actor updates, so this membership is stable through
 	# both actor loops. Avoid repeated string conversion/default dictionaries.
 	var defeated: Dictionary[int, bool] = {}
 	for owner in state.mission.humans:
 		if state.mission.humans[owner].defeated: defeated[int(owner)] = true
-	for actor in state.actors:
+	for actor: Actor in state.actors:
 		if int(actor.hp) <= 0 or defeated.has(int(actor.owner)): continue
 		if actor.order.get("kind") == "construct":
 			Engineering.work(self, actor)
@@ -159,11 +175,11 @@ func step(commands: Array) -> void:
 		var caps: Dictionary = definition.capabilities
 		# A manual move suppresses automatic targeting. Actors without production
 		# or passive schedules can go straight to movement without no-op handlers.
-		if actor.order.get("kind") == "move" and actor.order.get("manual", false) and actor.production.is_empty() and not caps.has("chyme_source") and not caps.has("passive_spawner"):
+		if actor.order.get("kind") == "move" and actor.order.get("manual", false) and actor.production_state.queue.is_empty() and not caps.has("chyme_source") and not caps.has("passive_spawner"):
 			if int(actor.order.get("start_tick", 0)) <= int(state.tick): _move(actor, actor.order.point)
 			continue
 		if caps.has("chyme_source"): Chyme.passive(self, actor)
-		if not actor.production.is_empty(): _production(actor)
+		if not actor.production_state.queue.is_empty(): _production(actor)
 		if caps.has("passive_spawner"): Spawning.tick(self, actor)
 		if actor.order.get("kind") == "attack":
 			var ordered_target = entity(int(actor.order.target))
@@ -183,8 +199,8 @@ func step(commands: Array) -> void:
 			_face(actor, Geometry.center(self, target))
 			var range_fp := int(round(float(caps.get("weapon", {}).get("range", 0)) * SCALE))
 			if caps.has("weapon") and distance_to_actor(Geometry.center(self, actor), target) <= range_fp * range_fp:
-				actor.navigation = {}
-				if int(actor.ready_tick) <= int(state.tick):
+				actor.motion.navigation = {}
+				if int(actor.combat.ready_tick) <= int(state.tick):
 					var damage := maxi(int(content.settings.minimum_damage), int(caps.weapon.damage) - int(content.units[target.definition].armor))
 					Chyme.collect(self, actor, mini(int(target.hp), damage))
 					target.hp = maxi(0, int(target.hp) - damage)
@@ -192,7 +208,7 @@ func step(commands: Array) -> void:
 						invalidate_light(target)
 						invalidate_unit_caches(int(target.owner), true)
 						if Geometry.structure(self, target): _navigation_cache.clear()
-					actor.ready_tick = int(state.tick) + int(caps.weapon.interval_ticks)
+					actor.combat.ready_tick = int(state.tick) + int(caps.weapon.interval_ticks)
 					_event("attack", int(actor.id), int(target.id), damage)
 					if target.definition == "nest": Veil.signal_at(self, int(target.owner), target.position, "nest_attacked", int(target.id))
 			elif caps.has("move"): _move(actor, target.position, target, range_fp)
@@ -201,27 +217,39 @@ func step(commands: Array) -> void:
 			if following == null or int(following.hp) <= 0 or visible_to(int(actor.owner), following) != 2: actor.order = {}
 			else:
 				var adjacent := Geometry.adjacent_radius(self, actor, following)
-				if interaction_distance(actor.position, following) <= adjacent * adjacent: actor.order = {}; actor.navigation = {}; actor.avoidance = {}
+				if interaction_distance(actor.position, following) <= adjacent * adjacent: actor.order = {}; actor.motion.navigation = {}; actor.motion.avoidance = {}
 				else: _move(actor, following.position, following, adjacent, true)
 		elif actor.order.get("kind") == "move":
 			if int(actor.order.get("start_tick", 0)) <= int(state.tick): _move(actor, actor.order.point)
-	for actor in state.actors:
+	for actor: Actor in state.actors:
 		if int(actor.hp) > 0 and not defeated.has(int(actor.owner)) and actor.order.is_empty() and not Geometry.structure(self, actor): Steering.separate_idle(self, actor)
 	Escalation.resolve(self)
 	Mission.resolve(self)
 	state.actors = state.actors.filter(func(actor): return int(actor.hp) > 0)
+	# Later tick phases must not resolve actors removed by defeat/combat.
+	_entity_index.clear()
+	_entity_index_ready = false
 	Veil.tick(self)
 	Exploration.record(self, _exploration_cache)
 	Mission.record_visibility(self)
 	state.tick = int(state.tick) + 1
 	_inside_step = false
+	_entity_index.clear()
+	_entity_index_ready = false
 
-func entity(id: int):
-	for actor in state.actors:
+func entity(id: int) -> Actor:
+	# Public state may be edited between ticks by fixtures/tools. Only index the
+	# controlled update interval; keep dead actors addressable until pruning.
+	if _inside_step:
+		if not _entity_index_ready:
+			for actor: Actor in state.actors: _entity_index[int(actor.id)] = actor
+			_entity_index_ready = true
+		return _entity_index.get(id)
+	for actor: Actor in state.actors:
 		if int(actor.id) == id: return actor
 	return null
 
-func visible_to(owner: int, target: Dictionary, light_snapshot = null) -> int:
+func visible_to(owner: int, target: Actor, light_snapshot = null) -> int:
 	if int(target.owner) == owner: return 2
 	if Geometry.structure(self, target):
 		var result := 0
@@ -235,7 +263,7 @@ func illumination_cells(owner: int = -1) -> Dictionary:
 	var field: Dictionary = _illumination_cache.field if _inside_step and _illumination_cache.has("field") else Illumination.field(self, _illumination_cache)
 	return field.all if owner == -1 else field.owners.get(str(owner), {})
 
-func invalidate_light(actor: Dictionary) -> void:
+func invalidate_light(actor: Actor) -> void:
 	var caps: Dictionary = content.units[actor.definition].capabilities
 	if caps.has("illumination") or caps.has("light_blocker"): _illumination_cache.clear()
 
@@ -266,7 +294,7 @@ func _apply(command: Dictionary) -> void:
 			continue
 		if not actor.construction.is_empty(): continue
 		var caps: Dictionary = content.units[actor.definition].capabilities
-		if command.get("kind") in ["build", "construct", "repair_point", "mine_nacre", "deliver_nacre", "deliver_chyme", "attack", "attack_veil"]: actor.avoidance = {}
+		if command.get("kind") in ["build", "construct", "repair_point", "mine_nacre", "deliver_nacre", "deliver_chyme", "attack", "attack_veil"]: actor.motion.avoidance = {}
 		match command.get("kind"):
 			"rally":
 				if Rally.capable(self, actor) and valid_point(command.get("point")): actor.rally_point = command.point.duplicate()
@@ -279,14 +307,14 @@ func _apply(command: Dictionary) -> void:
 			"approach":
 				var target = entity(int(command.get("target", 0)))
 				if caps.has("move") and target != null and int(target.id) != int(actor.id) and visible_to(int(actor.owner), target) == 2:
-					actor.navigation = {}; actor.avoidance = {}
+					actor.motion.navigation = {}; actor.motion.avoidance = {}
 					actor.order = {"kind": "approach", "target": int(target.id), "manual": true}
 			"move":
 				if caps.has("move") and valid_point(command.get("point")):
-					actor.navigation = {}
-					actor.avoidance = {}
+					actor.motion.navigation = {}
+					actor.motion.avoidance = {}
 					actor.order = {"kind": "move", "point": command.point.duplicate(), "manual": true}
-			"stop": actor.order = {}; actor.navigation = {}; actor.avoidance = {}
+			"stop": actor.order = {}; actor.motion.navigation = {}; actor.motion.avoidance = {}
 			"deliver_chyme": Chyme.order_delivery(self, actor, int(command.get("target", 0)))
 			"veil_stance": Veil.set_stance(self, actor, command.stance, command.get("point", []))
 			"attack_veil":
@@ -303,37 +331,39 @@ func _apply(command: Dictionary) -> void:
 						actor.order = {"kind": "attack", "target": int(target.id), "manual": true}
 			"train":
 				var type: String = command.get("definition", "")
-				if not caps.has("factory") or not type in caps.factory.produces or actor.production.size() >= 5: continue
+				if not caps.has("factory") or not type in caps.factory.produces or actor.production_state.queue.size() >= 5: continue
 				var bank: String = str(actor.owner)
 				var cost := int(content.units[type].cost)
 				if int(state.banks[bank]) < cost: continue
 				state.banks[bank] = int(state.banks[bank]) - cost
-				actor.production.append({"definition": type, "remaining": int(content.units[type].production_ticks)})
+				actor.production_state.queue.append({"definition": type, "remaining": int(content.units[type].production_ticks)})
 
-func _production(actor: Dictionary) -> void:
+func _production(actor: Actor) -> void:
 	var work := Escalation.rate(self, actor, "production")
-	while work > 0 and not actor.production.is_empty():
-		var remaining := int(actor.production[0].remaining)
+	while work > 0 and not actor.production_state.queue.is_empty():
+		var remaining := int(actor.production_state.queue[0].remaining)
 		if remaining > work:
-			actor.production[0].remaining = remaining - work
+			actor.production_state.queue[0].remaining = remaining - work
 			return
 		work -= remaining
-		var type: String = actor.production.pop_front().definition
+		var type: String = actor.production_state.queue.pop_front().definition
 		var position := production_spawn(actor, type)
 		if position.is_empty():
-			actor.production.push_front({"definition": type, "remaining": 0})
+			actor.production_state.queue.push_front({"definition": type, "remaining": 0})
 			return
 		_spawn(type, int(actor.owner), position)
 		Rally.dispatch(self, actor, entity(int(state.next_id) - 1))
 
 func _spawn(type: String, owner: int, position: Array) -> void:
-	state.actors.append({"id": int(state.next_id), "owner": owner, "definition": type, "position": position.duplicate(), "rotation": 0, "navigation": {}, "velocity": [0, 0, 0], "avoidance": {},
+	state.actors.append(Actor.from_dict({"id": int(state.next_id), "owner": owner, "definition": type, "position": position.duplicate(), "rotation": 0, "navigation": {}, "velocity": [0, 0, 0], "avoidance": {},
 		"hp": int(content.units[type].hp), "order": {}, "ready_tick": 0, "production": [], "construction": {}, "veil_networks": [],
 		"nacre": 0, "mining_ready_tick": 0,
 		"facing": [0, 0, -SCALE],
 		"spawn_source": 0, "passive_started_tick": int(state.tick), "passive_remaining": int(content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0)),
 		"chyme": 0, "next_chyme_tick": int(state.tick) + int(content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0)),
-		"veil_stance": {"mode": "neutral", "network": 0, "order": 0, "target": [], "expires": 0}})
+		"veil_stance": {"mode": "neutral", "network": 0, "order": 0, "target": [], "expires": 0}}))
+	state.actors.back().compose(content.units[type])
+	if _entity_index_ready: _entity_index[int(state.next_id)] = state.actors.back()
 	Rally.reset(self, state.actors.back())
 	invalidate_light(state.actors.back())
 	state.next_id = int(state.next_id) + 1
@@ -352,7 +382,7 @@ func movement_crowd() -> Crowd:
 		_crowd_dirty = false
 	return _crowd
 
-func update_friendly(actor: Dictionary) -> void:
+func update_friendly(actor: Actor) -> void:
 	# Patch foreign obstacle snapshots in place; a moving body does not require
 	# recopying and hashing every hostile unit for each interleaved actor.
 	for key in _enemy_cache:
@@ -409,7 +439,7 @@ func navigation_field() -> Dictionary:
 
 func free_spawn(type: String, preferred: Array, owner: int) -> Array:
 	var size := int(round(float(content.units[type].get("collision_radius", 0.2)) * SCALE))
-	var data := Navigation.actor_field(self, {"owner": owner})
+	var data := Navigation.actor_field(self, Actor.from_dict({"owner": owner}))
 	if Navigation.segment_clear(self, preferred, preferred, size, data.blocked, data.enemies): return preferred.duplicate()
 	var center := Hex.from_point(preferred)
 	for ring in range(1, int(content.settings.map_radius) * 2 + 1):
@@ -419,65 +449,42 @@ func free_spawn(type: String, preferred: Array, owner: int) -> Array:
 				if Hex.distance(center, cell) == ring and Navigation.center_clear(self, cell, size, data): return Hex.point(cell)
 	return []
 
-func production_spawn(source: Dictionary, type: String, preferred: Array = []) -> Array:
+func production_spawn(source: Actor, type: String, preferred: Array = []) -> Array:
 	return Rally.spawn_position(self, source, type, preferred)
 
-func distance_to_actor(point: Array, target: Dictionary) -> int:
+func distance_to_actor(point: Array, target: Actor) -> int:
 	return Geometry.distance_to_actor(self, point, target)
 
-func interaction_distance(point: Array, target: Dictionary) -> int:
+func interaction_distance(point: Array, target: Actor) -> int:
 	return Geometry.interaction_distance(self, point, target)
 
-func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0, interaction: bool = false) -> bool:
+func _move(actor: Actor, destination: Array, target = null, reach: int = 0, interaction: bool = false) -> bool:
 	var caps: Dictionary = content.units[actor.definition].capabilities
 	if not caps.has("move"): return false
 	var point_order: bool = target == null and actor.order.get("kind") == "move"
 	var speed := maxi(1, int(round(float(caps.move.speed) * SCALE / int(content.settings.tick_hz))))
-	if point_order and _crowd.backend != null:
-		var field := navigation_field()
-		movement_crowd()
-		var result := int(_crowd.backend.call("point_move", actor, Vector2i(int(destination[0]), int(destination[2])), speed, int(state.tick), int(content.settings.tick_hz), int(field.blocked.get("native_revision", 0))))
-		if result >= 0:
-			if result == 1:
-				invalidate_unit_caches(int(actor.owner))
-				invalidate_light(actor)
-			update_friendly(actor)
-			return true
 	if point_order:
 		reach = SCALE
 		if distance_squared(actor.position, destination) <= reach * reach:
-			actor.order = {}; actor.navigation = {}; actor.avoidance = {"settled_goal": destination.duplicate()}
+			actor.order = {}; actor.motion.navigation = {}; actor.motion.avoidance = {"settled_goal": destination.duplicate()}
 			return true
 	var remaining := integer_sqrt(distance_squared(actor.position, destination))
-	if actor.avoidance.get("progress_for", []) != destination:
-		actor.avoidance.progress_for = destination.duplicate()
-		actor.avoidance.progress_best = remaining
-		actor.avoidance.progress_tick = int(state.tick)
-	elif int(actor.avoidance.progress_best) - remaining >= SCALE / 16:
-		actor.avoidance.progress_best = remaining
-		actor.avoidance.progress_tick = int(state.tick)
-	elif int(state.tick) - int(actor.avoidance.progress_tick) >= maxi(2, int(content.settings.tick_hz) / 2):
-		actor.avoidance.pass_ticks = int(content.settings.tick_hz)
-		actor.avoidance.progress_tick = int(state.tick)
-		actor.avoidance.progress_best = remaining
+	if actor.motion.avoidance.get("progress_for", []) != destination:
+		actor.motion.avoidance.progress_for = destination.duplicate()
+		actor.motion.avoidance.progress_best = remaining
+		actor.motion.avoidance.progress_tick = int(state.tick)
+	elif int(actor.motion.avoidance.progress_best) - remaining >= SCALE / 16:
+		actor.motion.avoidance.progress_best = remaining
+		actor.motion.avoidance.progress_tick = int(state.tick)
+	elif int(state.tick) - int(actor.motion.avoidance.progress_tick) >= maxi(2, int(content.settings.tick_hz) / 2):
+		actor.motion.avoidance.pass_ticks = int(content.settings.tick_hz)
+		actor.motion.avoidance.progress_tick = int(state.tick)
+		actor.motion.avoidance.progress_best = remaining
 	var movement := navigation_field()
 	var waypoint := Navigation.next(self, actor, destination, target, reach, interaction, movement)
 	if waypoint.is_empty():
 		if actor.order.get("kind") == "move": actor.order = {}
 		return false
-	var crowd := movement_crowd()
-	var body: Crowd.Body = crowd.bodies[int(actor.id)]
-	# A disk enclosing every possible local step certifies static clearance.
-	# The native call then performs integration, steering and hostile contacts
-	# together; near terrain/structures the general path retains per-step checks.
-	if crowd.backend != null and Navigation.center_clear(self, Hex.from_point(actor.position), body.radius + speed + SCALE + 4, Navigation.static_field(movement)):
-		var changed := bool(crowd.backend.call("advance", actor, Vector2i(int(waypoint[0]), int(waypoint[2])), speed, reach if point_order and waypoint == destination else 0, int(content.settings.tick_hz)))
-		if changed:
-			invalidate_unit_caches(int(actor.owner))
-			invalidate_light(actor)
-		update_friendly(actor)
-		if point_order and distance_squared(actor.position, destination) <= reach * reach: actor.order = {}; actor.navigation = {}; actor.avoidance = {"settled_goal": destination.duplicate()}
-		return true
 	_face(actor, waypoint)
 	var distance := integer_sqrt(distance_squared(actor.position, waypoint))
 	var point: Array = actor.position.duplicate()
@@ -488,28 +495,28 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 			point[axis] = int(point[axis]) + (int(waypoint[axis]) - int(point[axis])) * speed / distance
 	var intended: Array = point # Steering reads the input; it returns a fresh array when deflecting.
 	point = Steering.choose(self, actor, point, speed, movement, waypoint, reach if point_order and waypoint == destination else 0)
-	actor.velocity = [int(point[0]) - int(actor.position[0]), 0, int(point[2]) - int(actor.position[2])]
+	actor.motion.velocity = [int(point[0]) - int(actor.position[0]), 0, int(point[2]) - int(actor.position[2])]
 	if point != intended and point != actor.position:
 		_face(actor, point)
-		actor.navigation.deviated = true
+		actor.motion.navigation.deviated = true
 	if point != actor.position:
 		invalidate_unit_caches(int(actor.owner))
 		invalidate_light(actor)
 	actor.position = point
 	update_friendly(actor)
-	if point_order and distance_squared(point, destination) <= reach * reach: actor.order = {}; actor.navigation = {}; actor.avoidance = {"settled_goal": destination.duplicate()}
+	if point_order and distance_squared(point, destination) <= reach * reach: actor.order = {}; actor.motion.navigation = {}; actor.motion.avoidance = {"settled_goal": destination.duplicate()}
 	return true
 
-func previous_velocity(actor: Dictionary) -> Array:
-	return _velocity_snapshot.get(str(actor.id), actor.get("velocity", [0, 0, 0]))
+func previous_velocity(actor: Actor) -> Array:
+	return _velocity_snapshot.get(str(actor.id), actor.motion.velocity)
 
-func _face(actor: Dictionary, destination: Array) -> void:
+func _face(actor: Actor, destination: Array) -> void:
 	var origin := Geometry.center(self, actor)
 	var q := int(destination[0]) - int(origin[0])
 	var r := int(destination[2]) - int(origin[2])
-	if q != 0 or r != 0: actor.facing = [q, 0, r]
+	if q != 0 or r != 0: actor.motion.facing = [q, 0, r]
 
-func _nearest_enemy(actor: Dictionary):
+func _nearest_enemy(actor: Actor):
 	var best = null
 	var nearest := 0x7fffffffffffffff
 	for target in state.actors:
@@ -520,7 +527,7 @@ func _nearest_enemy(actor: Dictionary):
 			best = target
 	return best
 
-func _automatic_order(actor: Dictionary) -> void:
+func _automatic_order(actor: Actor) -> void:
 	if actor.order.get("manual", false): return
 	if actor.order.get("kind") == "deliver_chyme": return
 	var caps: Dictionary = content.units[actor.definition].capabilities

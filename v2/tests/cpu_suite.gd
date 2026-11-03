@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 const Fixture = preload("res://tests/geometry_suite.gd")
 const Sim = preload("res://core/simulation.gd")
 const Geo = preload("res://core/geometry.gd")
@@ -13,8 +14,9 @@ var checks := 0
 var failures: Array[String] = []
 
 func run() -> Dictionary:
+	_typed_actors()
+	_entity_lookup()
 	_state_codec()
-	_native_equivalence()
 	for bits in 63:
 		for offset in [-1, 0, 1]:
 			var value: int = (1 << bits) + offset
@@ -24,7 +26,7 @@ func run() -> Dictionary:
 	_check(top == 3037000499, "integer root handles maximum signed input without overflow")
 	for root in [1, 2, 3, 15, 255, 65535, 65536, 1048575, 134217728, 2147483647, 3037000499]:
 		for offset in [-1, 0, 1]:
-			_check(Sim.integer_sqrt(root * root + offset) == root - (1 if offset == -1 else 0), "native root estimate is corrected exactly around perfect squares")
+			_check(Sim.integer_sqrt(root * root + offset) == root - (1 if offset == -1 else 0), "Godot root estimate is corrected exactly around perfect squares")
 	_crowd_windows()
 	_fringe()
 	_sweeps()
@@ -39,7 +41,7 @@ func run() -> Dictionary:
 	for tick in 220:
 		game.step([])
 		_check(game._navigation_searches <= 1, "group joins shared static route without per-unit searches")
-		if tick % 20 == 0: _check(game.state_hash() == StateCodec.hash_bytes(StateCodec.pack(game.state)), "native state hash matches reference canonical state bytes")
+		if tick % 20 == 0: _check(game.state_hash() == StateCodec.hash_bytes(StateCodec.pack(game.state)), "state hash matches reference canonical state bytes")
 	_check(game.entity(movers[0]).order.is_empty() and game.distance_squared(game.entity(movers[0]).position, Hex.point([4, 0])) <= Hex.SCALE * Hex.SCALE, "shared static group route still reaches destination around wall")
 	# Interleaved hostile movement exercises incremental obstacle updates.
 	game = Fixture.new()._game()
@@ -64,36 +66,75 @@ func run() -> Dictionary:
 	_check(game.state_hash() == expected and expected == StateCodec.hash_bytes(StateCodec.pack(game.state)), "JSON restore reproduces local forces, obstacle snapshots and exact hashes")
 	return {"checks": checks, "failures": failures}
 
+func _typed_actors() -> void:
+	var game = Fixture.new()._game()
+	var actor: Actor = game.entity(2)
+	_check(actor.motion.enabled and actor.has_capability("move") and game.entity(3).combat.enabled, "definitions compose typed actor capability state")
+	_check(not game.entity(1).motion.enabled and game.entity(1).production_state.enabled, "structure capabilities compose independently of movement")
+	actor.motion.navigation = {"path": [[100, 0, 200]]}
+	actor.combat.ready_tick = 7
+	actor.cargo.nacre = 3
+	var saved: Dictionary = game.checkpoint()
+	var expected: String = game.state_hash()
+	_check(saved.actors[1] is Dictionary and StateCodec.pack(saved) == StateCodec.pack(game.state), "typed actors flatten to the existing canonical checkpoint schema")
+	var copied := actor.duplicate(true)
+	copied.motion.navigation.path[0][0] = 900
+	_check(actor.motion.navigation.path[0][0] == 100 and copied.motion != actor.motion, "duplicated actors own independent capability objects and nested state")
+	actor.motion.navigation.path[0][0] = 500
+	actor.cargo.nacre = 99
+	_check(saved.actors[1].navigation.path[0][0] == 100 and saved.actors[1].nacre == 3, "retained checkpoints cannot observe later component mutations")
+	game.restore(saved)
+	var restored: Actor = game.entity(2)
+	_check(restored != actor and restored.motion != actor.motion and restored.motion.enabled and game.state_hash() == expected, "restore builds fresh composed actors with the exact saved hash")
+
+func _entity_lookup() -> void:
+	var game = Fixture.new()._game()
+	var actor: Actor = game.state.actors[1]
+	var id := int(actor.id)
+	game._inside_step = true
+	_check(game.entity(id) == actor and game.entity(-1) == null, "tick-local entity lookup resolves existing and missing IDs")
+	actor.hp = 0
+	_check(game.entity(id) == actor, "dead actors remain addressable before end-of-tick pruning")
+	game._spawn("engineer", 1, Hex.point([-5, 0]))
+	var born := int(game.state.next_id) - 1
+	_check(game.entity(born) == game.state.actors.back(), "spawning updates an already populated tick-local index")
+	var saved: Dictionary = game.checkpoint()
+	game.restore(saved)
+	_check(not game._inside_step and game._entity_index.is_empty(), "restore discards indexed actor references")
+	game.step([])
+	_check(game.entity(id) == null and game._entity_index.is_empty(), "tick pruning and completion discard dead/indexed actors")
+	# Direct state edits remain supported outside the simulation update interval.
+	var replacement: Actor = game.entity(born).duplicate(true)
+	replacement.hp = 7
+	game.state.actors[game.state.actors.size() - 1] = replacement
+	_check(game.entity(born).hp == 7, "outside-tick entity lookup observes replaced actor dictionaries")
+	game.state.actors.pop_back()
+	_check(game.entity(born) == null, "outside-tick entity lookup observes direct actor removal")
+
 func _state_codec() -> void:
 	_check(StateCodec.pack({}) == PackedByteArray([65, 84, 68, 1, 8]), "ATD1 empty dictionary has a fixed golden encoding")
 	_check(StateCodec.pack({"x": 0}) == PackedByteArray([65, 84, 68, 1, 6, 1, 1, 120, 80]), "ATD1 keyset and small integer have a fixed golden encoding")
 	_check(StateCodec.pack({"x": [{"a": true}, {"a": false}]}) == PackedByteArray([65, 84, 68, 1, 6, 1, 1, 120, 5, 2, 6, 1, 1, 97, 2, 7, 1, 1]), "ATD1 schema IDs follow sorted traversal and are local to each snapshot")
+	var layout_sample := {"a": [{"x": 1}, {"x": 2}]}
+	var layout_expected := StateCodec.pack(layout_sample)
+	for i in 12:
+		StateCodec.pack({"different_%d" % i: {"nested_%d" % i: i}})
+	_check(StateCodec.pack(layout_sample) == layout_expected, "keyset cache eviction and prior traversals cannot change wire schema IDs")
+	layout_sample.a[0].x = 9
+	_check(StateCodec.unpack(StateCodec.pack(layout_sample)) == layout_sample, "cached key order never retains mutable state values")
 	var game = Fixture.new()._game()
 	game.packed_rollback = true
-	var backend = game._crowd.backend
 	var samples: Array = [null, false, true, -9223372036854775807 - 1, 9223372036854775807, -65, -64, 175, 176, 1.25, 1.0, -0.0, "雪 ☃ 😀", "\"\\\n\v", &"named", [], {}, [{"a": 1}, {"a": 2}], {&"z": 2, "a": [false]}]
 	for value in samples:
 		var sample := {"value": value}
 		var packed := StateCodec.pack(sample)
 		var decoded = StateCodec.unpack(packed)
 		_check(decoded is Dictionary and Canonical.text(decoded) == Canonical.text(sample) and StateCodec.pack(decoded) == packed, "ATD1 preserves all scalar boundaries, Unicode, nulls, containers and normalized names/floats")
-		if backend != null:
-			_check(backend.call("state_pack", sample) == packed, "compiled ATD1 bytes match the independent reference encoder")
 	for size in [64, 65]:
 		var sample: Dictionary = {}
 		for i in size: sample["key_%03d" % i] = i - 70
 		var packed := StateCodec.pack(sample)
 		_check(StateCodec.unpack(packed) == sample, "ATD1 handles both sides of the small-keyset boundary")
-		if backend != null: _check(backend.call("state_pack", sample) == packed, "compiled large-map encoding matches reference")
-	if backend != null:
-		var nested: Dictionary = {}
-		for i in 65:
-			var child: Dictionary = {}
-			for j in (65 if i < 6 else 0): child["child_%d_%d" % [i, j]] = i + j
-			nested["parent_%d" % i] = child
-		for repeat in 2:
-			nested.parent_0.child_0_0 = repeat + 7
-			_check(backend.call("state_pack", nested) == StateCodec.pack(nested), "nested large-keyset eviction retains parent keys and reads live values without affecting wire bytes")
 	var valid := StateCodec.pack({"text": "雪", "array": [1, 2, 3]})
 	for length in valid.size(): _check(StateCodec.unpack(valid.slice(0, length)) == null, "truncated ATD1 snapshots are rejected")
 	for invalid in [PackedByteArray([65, 84, 68, 2, 8]), PackedByteArray([65, 84, 68, 1, 11]), PackedByteArray([65, 84, 68, 1, 7, 0]), PackedByteArray([65, 84, 68, 1, 6, 1, 1, 255, 80]), PackedByteArray([65, 84, 68, 1, 6, 1, 1, 0, 80]), valid + PackedByteArray([0])]:
@@ -101,7 +142,7 @@ func _state_codec() -> void:
 	var frame: Dictionary = game.rollback_checkpoint()
 	var original: String = game.state_hash()
 	game.step([])
-	_check(StateCodec.hash_bytes(StateCodec.pack(StateCodec.unpack(frame.packed))) == original, "retained packed snapshots are independent of subsequent native encodes and ticks")
+	_check(StateCodec.hash_bytes(StateCodec.pack(StateCodec.unpack(frame.packed))) == original, "retained packed snapshots are independent of subsequent encodes and ticks")
 	game.restore_rollback(frame)
 	_check(game.state_hash() == original, "packed rollback restores complete state and rebuilds derived caches")
 	game.packed_rollback = false
@@ -109,116 +150,15 @@ func _state_codec() -> void:
 	_check(game.rollback_hash(plain) == game.rollback_hash(frame), "dictionary and packed checkpoint representations have identical canonical hashes")
 	game.step([]); game.restore_rollback(plain)
 	_check(game.state_hash() == original, "dictionary rollback retains the same complete state as packed rollback")
-	var reference = Sim.new(); reference.accelerated = false
+	var reference = Sim.new()
 	var fixture = Fixture.new(); reference.initialize(fixture._definitions(), fixture._players(), 42)
 	reference.restore(game.checkpoint())
-	_check(reference.state_hash() == game.state_hash(), "reference and compiled sessions share the ATD1 hash format")
-
-func _native_equivalence() -> void:
-	var loaded := ClassDB.class_exists("ATDMovementKernel")
-	_check(loaded or not "--require-native" in OS.get_cmdline_user_args(), "required compiled movement kernel is loaded")
-	if not loaded: return
-	var encoder = Fixture.new()._game()._crowd.backend
-	if encoder == null:
-		_check(false, "loaded movement kernel ABI matches the current core")
-		return
-	var controls := ""
-	for code in range(1, 32): controls += String.chr(code)
-	var samples: Array = [null, false, true, 0, -1, -9223372036854775807 - 1, 9223372036854775807, "\"\\/\n\r\t\v", controls, "Café ☃ 😀", [], {}, {&"named": &"value", "a": [1, false, "text"]}]
-	for value in samples:
-		var sample := {"value": value}
-		var bytes: PackedByteArray = encoder.call("state_bytes", sample)
-		_check(bytes == JSON.stringify(sample, "", true, true).to_utf8_buffer(), "compiled serializer preserves exact sorted JSON bytes, escapes, Unicode and int64 values")
-	var unsupported: PackedByteArray = encoder.call("state_bytes", {"float": 0.5})
-	_check(unsupported.is_empty(), "unsupported scalar types retain Godot's full serializer")
-	unsupported = encoder.call("state_bytes", {"雪": 1})
-	_check(unsupported.is_empty(), "arbitrary Unicode keys retain Godot's full serializer")
-	for tick in 16:
-		var changed := {&"named": tick, "a": [tick % 2 == 0, "changed %d" % tick], "extra_%d" % (tick % 3): tick * -3}
-		var bytes: PackedByteArray = encoder.call("state_bytes", changed)
-		_check(bytes == JSON.stringify(changed, "", true, true).to_utf8_buffer(), "cached keysets validate changing layouts and read current values")
-		var normalized: Dictionary = Canonical.normalize(changed)
-		bytes = encoder.call("state_bytes", normalized)
-		_check(bytes == JSON.stringify(normalized, "", true, true).to_utf8_buffer(), "cached keysets support mixed interned and ordinary keys after normalization")
-	for i in 20:
-		var nested := {"a_%d" % (i % 7): i, "b": {"a_%d" % ((i + 1) % 7): i + 1, "b": false, "c": []}, "c": true}
-		var bytes: PackedByteArray = encoder.call("state_bytes", nested)
-		_check(bytes == JSON.stringify(nested, "", true, true).to_utf8_buffer(), "nested and changing keysets preserve exact output beyond the schema-cache cap")
-	_native_discovery()
-	_native_clearance()
-	for walls in [false, true]:
-		var game = Fixture.new()._game()
-		var humans: Array = []; var foes: Array = []
-		for i in 8:
-			game._spawn("engineer", 1, [-4096 - i / 4 * 1024, 0, i % 4 * 384 - 768]); humans.append(int(game.state.next_id) - 1)
-			game._spawn("scavenger", 9, [4096 + i / 4 * 1024, 0, i % 4 * 384 - 768]); foes.append(int(game.state.next_id) - 1)
-		game._spawn("mother", 9, [4096, 0, -3072]); foes.append(int(game.state.next_id) - 1)
-		if walls:
-			for r in range(-2, 3): game._spawn("wall", 1, Hex.point([0, r]))
-		var reference = Sim.new(); reference.accelerated = false
-		reference.initialize(game.content, game.state.players, 42); reference.restore(game.checkpoint())
-		_check(game._crowd.backend != null and reference._crowd.backend == null, "native/reference equivalence uses distinct movement implementations")
-		var saved: Dictionary
-		for tick in 140:
-			var commands: Array = []
-			if tick == 0:
-				commands = [{"kind": "move", "player": 1, "actors": humans, "point": [4096, 0, 0]}, {"kind": "move", "player": 9, "actors": foes, "point": [-4096, 0, 0]}, {"kind": "train", "player": 1, "actors": [1], "definition": "engineer"}]
-			if tick == 30: commands = [{"kind": "attack", "player": 1, "actors": [2], "target": foes[0]}]
-			game.step(commands); reference.step(commands)
-			_check(game.state_hash() == reference.state_hash(), "compiled movement matches reference tick, including hard contact, large bodies, routes, production and death")
-			if tick == 40: saved = game.checkpoint()
-		var expected: String = game.state_hash()
-		game.restore(JSON.parse_string(JSON.stringify(saved)))
-		for tick in 99: game.step([])
-		_check(game.state_hash() == expected, "compiled movement rebuilds derived bodies after JSON restore")
-
-func _native_discovery() -> void:
-	for radius in [0.0, 0.75, 9.25]:
-		var fixture = Fixture.new()
-		var data: Dictionary = fixture._definitions(); data.settings.map_radius = 4
-		for definition in data.units.values():
-			definition.capabilities.erase("perception"); definition.capabilities.erase("illumination")
-		data.units.engineer.capabilities.perception = {"radius": radius}
-		var game = Sim.new(); game.initialize(data, fixture._players(), 42)
-		var expected: Dictionary = game.state.revealed.duplicate(true)
-		var reach := int(round(radius * Hex.SCALE))
-		for tick in 40:
-			var actor = game.entity(2)
-			actor.owner = 1 if tick % 7 < 3 else 9
-			actor.position = [(tick * 359 % 8193) - 4096, 0, (tick * 733 % 8193) - 4096]
-			for q in range(-4, 5):
-				for r in range(-4, 5):
-					if absi(q + r) <= 4 and game.distance_squared(actor.position, Hex.point([q, r])) <= reach * reach: expected[str(actor.owner)][Hex.key([q, r])] = true
-			Exploration.record(game, game._exploration_cache)
-			_check(game.state.revealed == expected, "compiled discovery matches exhaustive map edges, zero/fractional/large radii and ownership changes")
-			if tick == 20: game.restore(game.checkpoint())
-
-func _native_clearance() -> void:
-	for mode in 4:
-		var fixture = Fixture.new()
-		var data: Dictionary = fixture._definitions()
-		data.settings.map_radius = 12 if mode < 3 else 3
-		data.settings.terrain = []
-		if mode == 1:
-			for q in range(-3, 4):
-				for r in range(-3, 4): data.settings.terrain.append([q, r])
-		var game = Sim.new(); game.initialize(data, fixture._players(), 42)
-		if mode == 0: game._spawn("wall", 1, [0, 0, 0])
-		var field: Dictionary = game.navigation_field()
-		var oracle := {"hexes": field.blocked.hexes, "circles": field.blocked.circles}
-		for i in 240:
-			var extent := 14336 if mode < 3 else 4096
-			var a := [i * 391 % (extent * 2) - extent, 0, i * 977 % (extent * 2) - extent]
-			var b := [int(a[0]) + i * 73 % 8192 - 4096, 0, int(a[2]) + i * 157 % 8192 - 4096]
-			if i % 5 == 0: b = a
-			var size := i * 19 % 2048
-			_check(Nav.segment_clear(game, a, b, size, field.blocked) == Nav.segment_clear(game, a, b, size, oracle), "compiled static clearance matches independent GDScript circle/hex/map-edge oracle")
-		game._spawn("wall", 1, [3072, 0, 0])
-		game.navigation_field()
-		_check(int(game._crowd.backend.call("static_clear", int(field.blocked.native_revision), Vector2i(2048, 0), Vector2i(4096, 0), 205)) == -1, "stale native world revisions decline rather than query changed geometry")
-		_check(Nav.segment_clear(game, [2048, 0, 0], [4096, 0, 0], 205, field.blocked) == Nav.segment_clear(game, [2048, 0, 0], [4096, 0, 0], 205, oracle), "retained static fields preserve their original clearance after world changes")
+	_check(reference.state_hash() == game.state_hash(), "independent Godot sessions share the ATD1 hash format")
 
 func _crowd_windows() -> void:
+	_crowd_window_case()
+
+func _crowd_window_case() -> void:
 	var game = Fixture.new()._game()
 	game._spawn("engineer", 1, [0, 0, 0]); var first = game.state.actors.back()
 	game._spawn("engineer", 1, [3072, 0, 0]); var second = game.state.actors.back()
@@ -235,6 +175,17 @@ func _crowd_windows() -> void:
 	second.hp = 0
 	found = crowd.query(1, 0, 0, Hex.SCALE)
 	_check(found.size() == 1 and found[0].id == int(first.id), "dead bodies disappear from cached windows")
+	first.position = [100, 0, -200]
+	game.content.units.engineer.collision_radius = 0.375
+	crowd.rebuild(game.state.actors, game.content.units, {str(first.id): [123, 0, -321]})
+	var refreshed := crowd.body_for(int(first.id))
+	_check(refreshed.q == 100 and refreshed.r == -200 and refreshed.radius == 384 and refreshed.vq == 123 and refreshed.vr == -321, "rebuilt bodies refresh direct state edits, definition radii and previous velocities")
+	_check(crowd.body_for(int(second.id)) == null, "rebuilding drops dead actors and their materialized wrappers")
+	first.velocity = [19, 0, -23]
+	crowd.rebuild(game.state.actors, game.content.units, {"missing_actor": [0, 0, 0]})
+	first.velocity = [99, 0, 99]
+	var newborn := crowd.body_for(int(first.id))
+	_check(newborn.vq == 19 and newborn.vr == -23, "late body wrappers retain frame-entry velocity for actors absent from previous snapshots")
 	for value in [-4097, -4096, -2049, -2048, -1, 0, 2047, 2048, 4096]:
 		_check(Crowd.coordinate(value) == floori(float(value) / 2048.0), "bucket coordinates floor both sides of zero")
 

@@ -1,4 +1,5 @@
 extends SceneTree
+const Actor = preload("res://core/actor.gd")
 var failures: Array[String] = []
 
 func _initialize() -> void:
@@ -112,7 +113,7 @@ func _run() -> void:
 	_check(simulation.state_hash() == state_hash, "drawing, selection and camera do not mutate gameplay")
 	_check(view.actor_nodes.size() == simulation.state.actors.size(), "actors have primitive mesh views")
 	_check(view.actor_nodes[3].get_node("WeaponRange").visible, "selected weapon range is inspectable")
-	for actor in simulation.state.actors:
+	for actor: Actor in simulation.state.actors:
 		var body = view.actor_nodes[int(actor.id)].get_node("Body")
 		_check(body.mesh is CapsuleMesh or body.mesh is CylinderMesh, "every actor uses an allowed round mesh")
 		_check(body.has_node("Facing") and body.get_node("Facing").visible, "every actor has an orientation indicator")
@@ -591,7 +592,7 @@ func _geometry_view(view) -> void:
 	_construction_footprint(view, game, womb, "rotated multi-tile Womb")
 	view._reset()
 
-func _construction_footprint(view, game, actor: Dictionary, description: String) -> void:
+func _construction_footprint(view, game, actor: Actor, description: String) -> void:
 	view.selected.assign([int(actor.id)])
 	var before: String = game.state_hash()
 	view._sync_meshes()

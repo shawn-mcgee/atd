@@ -1,10 +1,10 @@
 # ATD1 rollback state format
 
-`core/state_codec.gd` is the reference encoder and decoder. `state_codec.hpp`
-implements the optional compiled encoder. Both produce the same bytes from the
-same state, independently of dictionary insertion order, native cache history and
-interned versus ordinary string keys. SHA-256 of these bytes is the protocol 23
-state hash. Content hashes still use canonical JSON; JSON state remains version 16.
+`core/state_codec.gd` implements the Godot-only canonical encoder and decoder.
+Typed actors expose their explicit flat dictionary schema to the encoder; object
+identity and capability enable flags never enter the bytes. SHA-256 of these
+bytes remains the protocol 23 state hash. Content hashes use canonical JSON;
+JSON state remains version 16.
 
 Every snapshot starts with bytes `41 54 44 01` (hex). Counts and UTF-8 byte lengths
 use unsigned base-128 integers, least significant group first, with bit 7 marking
@@ -31,27 +31,24 @@ length and UTF-8 bytes; persistent native caches never assign snapshot IDs.
 The encoder uses tag 7 whenever a small keyset has already appeared. Integral
 floats within int64 range encode as integers, matching JSON restoration's scalar
 normalization. Interned names encode as strings. Gameplay scalar state is integer.
-The native encoder retains at most four large keysets, checking size and complete
-membership before reuse. Parent keysets remain owned during nested eviction.
-This skips repeated sorting of stable revelation maps without retaining values
-or changing large-dictionary wire encoding.
-
+The GDScript writer retains up to four immutable key layouts per size through 64
+keys and four large layouts total. Size and complete key membership must match
+before reusing sorted keys and encoded metadata. Values and snapshot-local schema
+IDs are never cached; eviction and earlier snapshots cannot affect output bytes.
 Limits are 16 MiB per snapshot, one million elements per container and depth 128.
-Keys are strings/names. The compiled encoder handles ASCII keys and delegates
-other keys to the reference encoder. Strings use valid UTF-8 without NUL, matching
+Keys are strings/names. Strings use valid UTF-8 without NUL, matching
 Godot's text representation. The decoder rejects truncation, invalid UTF-8,
 unknown tags/schema IDs, oversized containers, excess depth and trailing bytes.
 
-`Simulation.rollback_checkpoint()` uses packed bytes and an event copy on desktop;
-scheduled hashes reuse those bytes, avoiding another state traversal. Web uses
-Godot's faster native deep copy and encodes only at hash boundaries because its
-C-ABI traversal costs more than copying. `packed_rollback` is an implementation
-choice outside state; both representations produce identical ATD1 hashes.
+`Simulation.rollback_checkpoint()` defaults to independent dictionary snapshots
+on desktop and Web. Actors/components are flattened and deep-copied; checkpoints
+never retain live actor references. Scheduled hashes encode this retained state.
+`packed_rollback` is an optional diagnostic implementation choice outside state;
+both representations produce identical ATD1 hashes.
 Packed restoration decodes fresh containers; dictionary restoration normalizes
-scalars. Both discard derived movement/light/discovery caches. Public
-`checkpoint()`/`restore()` retain their editable JSON-compatible dictionary API.
-Diagnostic checkpoint requests return independent state dictionaries. Snapshot bytes
-are internal history; peers exchange commands and hashes, not these snapshots.
+scalars. Both compose fresh typed actors and discard derived movement/light/
+discovery caches. Public `checkpoint()`/`restore()` retain their editable
+JSON-compatible dictionary API. Peers exchange commands and hashes, not snapshots.
 
 The movement probe uses this same checkpoint-and-hash path. It also reports the
 ordinary JSON state hash so simulation behavior can be compared across the wire

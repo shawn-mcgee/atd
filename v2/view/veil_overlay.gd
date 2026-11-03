@@ -1,4 +1,5 @@
 extends Node3D
+const Actor = preload("res://core/actor.gd")
 ## Read-only presentation of membrane and selected-unit connections to its global network.
 const Hex = preload("res://core/hex_cells.gd")
 const COLORS := {"neutral": Color("76588c"), "defensive": Color("4e9caa"), "offensive": Color("be6859")}
@@ -12,8 +13,8 @@ var _surfaces: Dictionary = {}
 func refresh(game, owner: int, selected: Array, view_owners: Array = []) -> void:
 	var observers: Array = [owner] if view_owners.is_empty() else view_owners
 	var actors: Array = []
-	for actor in game.state.actors:
-		if int(actor.hp) > 0: actors.append([int(actor.id), int(actor.owner), actor.definition, actor.position, int(actor.get("rotation", 0))])
+	for actor: Actor in game.state.actors:
+		if int(actor.hp) > 0: actors.append([int(actor.id), int(actor.owner), actor.definition, actor.position, int(actor.rotation)])
 	var signature: Array = [int(game.state.veil.revision), observers.duplicate(), selected.duplicate(), show_veil, show_links, show_illumination, show_perception, actors]
 	if signature == _signature: return
 	_signature = signature.duplicate(true)
@@ -83,7 +84,7 @@ func refresh(game, owner: int, selected: Array, view_owners: Array = []) -> void
 				if show_perception:
 					perception.append(center + _corner(edge))
 					perception.append(center + _corner(edge + 1))
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if not observers.has(int(actor.owner)) or int(actor.hp) <= 0: continue
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
 		if not show_perception or not caps.has("perception"): continue

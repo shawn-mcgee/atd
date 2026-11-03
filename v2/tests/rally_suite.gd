@@ -44,7 +44,7 @@ func run() -> Dictionary:
 	source.rally_point = Hex.point([4, 0])
 	var chosen := Rally.spawn_position(game, source, "engineer")
 	_check(not chosen.is_empty() and chosen != Hex.point([1, 0]), "path ranking avoids geometrically nearest exit trapped in a pocket")
-	var ghost := {"definition": "engineer", "position": chosen}
+	var ghost := preload("res://core/actor.gd").from_dict({"definition": "engineer", "position": chosen})
 	var data := Nav.actor_field(game, source)
 	_check(not Nav._path(game, ghost, [[4, 0]], data).is_empty(), "chosen exit has an actual traversable route to rally")
 	# All adjacent exits blocked: production stays ready instead of teleporting out.

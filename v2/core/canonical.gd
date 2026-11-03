@@ -1,7 +1,9 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Stable wire/checkpoint representation. Gameplay stores only integer scalar state.
 
 static func normalize(value):
+	if value is Actor: return normalize(value.to_dict())
 	if value is Dictionary:
 		var result: Dictionary = {}
 		var keys: Array = value.keys()

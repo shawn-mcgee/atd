@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Derived tile light field. Blockers receive light but never forward it.
 const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
@@ -8,7 +9,7 @@ static func field(game, cache: Dictionary) -> Dictionary:
 	var sources: Array = []
 	var blockers: Dictionary = {}
 	for cell in game.content.settings.get("terrain", []): blockers[Hex.key(cell)] = true
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if int(actor.hp) <= 0: continue
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
 		if not caps.has("illumination") and not caps.has("light_blocker"): continue

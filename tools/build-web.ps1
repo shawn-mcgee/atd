@@ -12,12 +12,6 @@ foreach ($project in $projects) {
     $projectRoot = Join-Path $repositoryRoot $project
     $output = if ($ProjectDirectory -eq 'all') { Join-Path $siteOutput $project } else { $siteOutput }
     New-Item -ItemType Directory -Path $output -Force | Out-Null
-    if ($project -eq 'v2') {
-        $nativeLog = Join-Path $output 'native-build.log'
-        & python (Join-Path $repositoryRoot 'tools/build-native-movement.py') --godot $GodotExecutable --web 2>&1 |
-            Out-File -LiteralPath $nativeLog -Encoding utf8
-        if ($LASTEXITCODE -ne 0) { throw "Native movement build failed. See $nativeLog" }
-    }
     foreach ($phase in @('import', 'export')) {
         $log = Join-Path $output "$phase.log"
         $arguments = @('--headless', '--path', $projectRoot)

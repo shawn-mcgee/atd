@@ -1,9 +1,10 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
 const Escalation = preload("res://core/nest_escalation.gd")
 
-static func site_error(game, mother: Dictionary, type: String, point: Array, known_only: bool = false, rotation: int = 0) -> String:
+static func site_error(game, mother: Actor, type: String, point: Array, known_only: bool = false, rotation: int = 0) -> String:
 	var cap: Dictionary = game.content.units[mother.definition].capabilities.get("metamorphosis", game.content.units[mother.definition].capabilities.get("builder", {}))
 	if int(mother.hp) <= 0 or cap.is_empty() or not type in cap.structures: return "Select a builder and a valid structure."
 	if not game.valid_point(point) or rotation < 0 or rotation > 5: return "Site is outside the arena."
@@ -17,7 +18,7 @@ static func site_error(game, mother: Dictionary, type: String, point: Array, kno
 		if not game.state.revealed[str(mother.owner)].has(key): return "Reveal the entire footprint before building."
 		if cell in game.content.settings.get("terrain", []): return "Terrain blocks this footprint."
 		keys[key] = true
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if int(actor.id) == int(mother.id) or int(actor.hp) <= 0: continue
 		if known_only and game.visible_to(int(mother.owner), actor) != 2: continue
 		if Geo.structure(game, actor):
@@ -29,7 +30,7 @@ static func site_error(game, mother: Dictionary, type: String, point: Array, kno
 				if keys.has(Hex.key(cell)): return "Another builder has reserved this footprint."
 	return ""
 
-static func completion_clear(game, site: Dictionary) -> bool:
+static func completion_clear(game, site: Actor) -> bool:
 	var occupied := Geo.cells(game, site)
 	for other in game.state.actors:
 		if int(other.id) == int(site.id) or int(other.hp) <= 0: continue
@@ -39,14 +40,14 @@ static func completion_clear(game, site: Dictionary) -> bool:
 		elif Geo.intersects_collision(game, other, site): return false
 	return true
 
-static func order(game, actor: Dictionary, type: String, point: Array, rotation: int = 0) -> void:
+static func order(game, actor: Actor, type: String, point: Array, rotation: int = 0) -> void:
 	if not game.valid_point(point): return
 	var site := Hex.point(Hex.from_point(point))
 	if not site_error(game, actor, type, site, false, rotation).is_empty(): return
 	if int(game.state.banks[str(actor.owner)]) < int(game.content.units[type].cost): return
 	actor.order = {"kind": "build", "definition": type, "point": site, "rotation": rotation, "manual": true}
 
-static func approach(game, actor: Dictionary) -> void:
+static func approach(game, actor: Actor) -> void:
 	var type: String = actor.order.definition
 	var site: Array = actor.order.point
 	if not site_error(game, actor, type, site, false, int(actor.order.get("rotation", 0))).is_empty():
@@ -71,7 +72,7 @@ static func approach(game, actor: Dictionary) -> void:
 		"remaining": int(game.content.units[type].construction_ticks), "total": int(game.content.units[type].construction_ticks)}
 	_event(game, "construction_started", actor, type, cost)
 
-static func advance(game, actor: Dictionary) -> void:
+static func advance(game, actor: Actor) -> void:
 	if actor.construction.get("kind") == "blueprint": return
 	actor.construction.remaining = maxi(0, int(actor.construction.remaining) - Escalation.rate(game, actor, "construction"))
 	if int(actor.construction.remaining) > 0: return
@@ -84,7 +85,7 @@ static func advance(game, actor: Dictionary) -> void:
 	actor.hp = hp
 	_event(game, "construction_completed", actor, type, 0)
 
-static func cancel(game, actor: Dictionary) -> void:
+static func cancel(game, actor: Actor) -> void:
 	if actor.construction.is_empty():
 		if actor.order.get("kind") == "build": actor.order = {}
 		return
@@ -100,30 +101,31 @@ static func cancel(game, actor: Dictionary) -> void:
 	actor.hp = hp
 	_event(game, "construction_cancelled", actor, work.definition, int(work.cost))
 
-static func _change(game, actor: Dictionary, type: String) -> void:
+static func _change(game, actor: Actor, type: String) -> void:
 	game._illumination_cache.clear()
 	game._navigation_cache.clear()
 	game.invalidate_unit_caches()
 	actor.definition = type
+	actor.compose(game.content.units[type])
 	actor.hp = int(game.content.units[type].hp)
 	actor.order = {}
-	actor.production = []
+	actor.production_state.queue = []
 	actor.construction = {}
-	actor.navigation = {}
-	actor.velocity = [0, 0, 0]
-	actor.avoidance = {}
+	actor.motion.navigation = {}
+	actor.motion.velocity = [0, 0, 0]
+	actor.motion.avoidance = {}
 	game.Rally.reset(game, actor)
-	actor.ready_tick = maxi(int(actor.ready_tick), int(game.state.tick))
-	actor.chyme = 0
-	actor.next_chyme_tick = int(game.state.tick) + int(game.content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0))
-	actor.passive_started_tick = int(game.state.tick)
-	actor.passive_remaining = int(game.content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0))
+	actor.combat.ready_tick = maxi(int(actor.combat.ready_tick), int(game.state.tick))
+	actor.cargo.chyme = 0
+	actor.cargo.next_chyme_tick = int(game.state.tick) + int(game.content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0))
+	actor.production_state.passive_started_tick = int(game.state.tick)
+	actor.production_state.passive_remaining = int(game.content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0))
 
 static func _scaled_hp(hp: int, old_max: int, new_max: int) -> int:
 	@warning_ignore("integer_division")
 	return maxi(1, hp * new_max / old_max)
 
-static func _event(game, kind: String, actor: Dictionary, type: String, amount: int) -> void:
+static func _event(game, kind: String, actor: Actor, type: String, amount: int) -> void:
 	var event: Dictionary = game._event(kind, int(actor.id), 0, amount)
 	event.owner = int(actor.owner)
 	event.definition = type

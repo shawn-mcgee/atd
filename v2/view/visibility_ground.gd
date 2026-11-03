@@ -1,4 +1,5 @@
 extends Node3D
+const Actor = preload("res://core/actor.gd")
 ## Read-only tile visibility. Detection alone never clears ground fog.
 const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
@@ -19,7 +20,7 @@ func refresh(game, observers: Array) -> void:
 	for owner in observers:
 		known.merge(game.state.revealed.get(str(owner), {}))
 		lit.merge(game.illumination_cells(int(owner)))
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if int(actor.hp) <= 0 or not observers.has(int(actor.owner)): continue
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
 		if caps.has("perception"): sources.append([Geo.center(game, actor), int(round(float(caps.perception.radius) * Hex.SCALE))])

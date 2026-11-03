@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
 
@@ -21,21 +22,6 @@ static func record(game, cache: Dictionary) -> void:
 		cache["@veil_revision"] = int(game.state.veil.revision)
 	var units: Dictionary = game.content.units
 	var map_radius := int(game.content.settings.map_radius)
-	if game._crowd.backend != null:
-		var observers := PackedInt64Array()
-		observers.resize(game.state.actors.size() * 4)
-		var used := 0
-		for actor in game.state.actors:
-			if int(actor.hp) <= 0: continue
-			var caps: Dictionary = units[actor.definition].capabilities
-			if not caps.has("perception"): continue
-			var position: Array = actor.position if caps.has("move") else Geo.center(game, actor)
-			observers[used] = int(actor.owner); observers[used + 1] = int(position[0]); observers[used + 2] = int(position[2])
-			observers[used + 3] = int(round(float(caps.perception.radius) * Hex.SCALE))
-			used += 4
-		observers.resize(used)
-		game._crowd.backend.call("explore", game.state.revealed, observers, map_radius)
-		return
 	var side := map_radius * 2 + 1
 	if cache.get("@grid", {}).get("radius", -1) != map_radius:
 		var tiles := PackedStringArray()
@@ -47,7 +33,7 @@ static func record(game, cache: Dictionary) -> void:
 	var tiles: PackedStringArray = cache["@grid"].tiles
 	var fringes: Dictionary = cache.get("@fringes", {})
 	var stencils: Dictionary = cache.get("@stencils", {})
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if int(actor.hp) <= 0: continue
 		var caps: Dictionary = units[actor.definition].capabilities
 		if not caps.has("perception"): continue
@@ -93,6 +79,6 @@ static func record(game, cache: Dictionary) -> void:
 	cache["@fringes"] = fringes
 	cache["@stencils"] = stencils
 	var alive: Dictionary = {}
-	for actor in game.state.actors: alive[str(actor.id)] = true
+	for actor: Actor in game.state.actors: alive[str(actor.id)] = true
 	for id in cache.keys():
 		if not str(id).begins_with("@") and not alive.has(id): cache.erase(id)

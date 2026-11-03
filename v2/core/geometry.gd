@@ -1,13 +1,14 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Shared fixed-point axial footprints and circle/hex clearance.
 const Hex = preload("res://core/hex_cells.gd")
 const S := 1024
 const CORNERS := [[1, 1], [-1, 2], [-2, 1], [-1, -1], [1, -2], [2, -1]]
 
-static func definition(game, actor: Dictionary) -> Dictionary:
+static func definition(game, actor: Actor) -> Dictionary:
 	return game.content.units[actor.construction.get("definition", actor.definition)]
 
-static func structure(game, actor: Dictionary) -> bool:
+static func structure(game, actor: Actor) -> bool:
 	return not game.content.units[actor.definition].capabilities.has("move")
 
 static func offsets(def: Dictionary, rotation: int = 0) -> Array:
@@ -21,8 +22,8 @@ static func offsets(def: Dictionary, rotation: int = 0) -> Array:
 		result.append([q, r])
 	return result
 
-static func cells(game, actor: Dictionary) -> Array:
-	return at(definition(game, actor), actor.position, int(actor.get("rotation", 0)))
+static func cells(game, actor: Actor) -> Array:
+	return at(definition(game, actor), actor.position, int(actor.rotation))
 
 static func at(def: Dictionary, point: Array, rotation: int = 0) -> Array:
 	var origin := Hex.from_point(point)
@@ -31,7 +32,7 @@ static func at(def: Dictionary, point: Array, rotation: int = 0) -> Array:
 	return result
 
 @warning_ignore("integer_division")
-static func center(game, actor: Dictionary) -> Array:
+static func center(game, actor: Actor) -> Array:
 	if not structure(game, actor): return actor.position.duplicate()
 	var occupied := cells(game, actor)
 	var q := 0; var r := 0
@@ -40,16 +41,16 @@ static func center(game, actor: Dictionary) -> Array:
 		r += int(cell[1]) * S
 	return [q / occupied.size(), int(actor.position[1]), r / occupied.size()]
 
-static func radius(game, actor: Dictionary) -> int:
+static func radius(game, actor: Actor) -> int:
 	return int(round(float(game.content.units[actor.definition].get("collision_radius", 0.2)) * S))
 
-static func collision_shape(game, actor: Dictionary) -> String:
+static func collision_shape(game, actor: Actor) -> String:
 	return str(definition(game, actor).get("collision_shape", "footprint" if structure(game, actor) else "circle"))
 
-static func collision_circle(game, actor: Dictionary) -> Dictionary:
+static func collision_circle(game, actor: Actor) -> Dictionary:
 	return {"id": int(actor.id), "position": center(game, actor), "radius": int(round(float(definition(game, actor).get("collision_radius", 0.2)) * S))}
 
-static func intersects_collision(game, unit: Dictionary, target: Dictionary) -> bool:
+static func intersects_collision(game, unit: Actor, target: Actor) -> bool:
 	if collision_shape(game, target) == "footprint": return intersects_unit(game, unit, cells(game, target))
 	var circle := collision_circle(game, target)
 	var combined := radius(game, unit) + int(circle.radius) + 2
@@ -93,10 +94,10 @@ static func distance_to_cells(point: Array, occupied: Array) -> int:
 		for index in 6: best = mini(best, segment_distance(p, corners[index], corners[(index + 1) % 6]))
 	return best / 9
 
-static func distance_to_actor(game, point: Array, target: Dictionary) -> int:
+static func distance_to_actor(game, point: Array, target: Actor) -> int:
 	return distance_to_cells(point, cells(game, target)) if structure(game, target) else game.distance_squared(point, target.position)
 
-static func interaction_distance(game, point: Array, target: Dictionary) -> int:
+static func interaction_distance(game, point: Array, target: Actor) -> int:
 	# Interaction radii are center-to-center, including for multi-tile targets.
 	if not structure(game, target): return game.distance_squared(point, target.position)
 	var best := 9223372036854775807
@@ -104,11 +105,11 @@ static func interaction_distance(game, point: Array, target: Dictionary) -> int:
 	return best
 
 @warning_ignore("integer_division")
-static func adjacent_radius(game, actor: Dictionary, target: Dictionary) -> int:
+static func adjacent_radius(game, actor: Actor, target: Actor) -> int:
 	var bodies := radius(game, actor) + (S / 2 if structure(game, target) else radius(game, target))
 	return maxi(3 * S / 2, (bodies + S - 1) / S * S)
 
-static func intersects_unit(game, unit: Dictionary, occupied: Array) -> bool:
+static func intersects_unit(game, unit: Actor, occupied: Array) -> bool:
 	var size := radius(game, unit)
 	return distance_to_cells(unit.position, occupied) < size * size
 

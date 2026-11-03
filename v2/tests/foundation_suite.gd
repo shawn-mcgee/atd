@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 const Content = preload("res://core/content.gd")
 const Rules = preload("res://core/match_rules.gd")
 const Sim = preload("res://core/simulation.gd")
@@ -61,7 +62,7 @@ func run() -> Dictionary:
 	var small: Dictionary = content.data.duplicate(true)
 	small.settings.map_radius = 8
 	twin.initialize(small, players, 42)
-	for actor in twin.state.actors:
+	for actor: Actor in twin.state.actors:
 		_check(twin.valid_point(actor.position), "starting actors fit the smallest configured map")
 	var authored: Dictionary = content.data.duplicate(true)
 	authored.units.sentry = authored.units.marine.duplicate(true)

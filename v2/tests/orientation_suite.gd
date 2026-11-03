@@ -65,7 +65,7 @@ func run() -> Dictionary:
 	for tick in 10:
 		var commands := [{"player": 1, "kind": "move", "actors": [2], "point": point}] if tick == 0 else []
 		game.step(commands); twin.step(commands)
-	_check(game.state.actors == twin.state.actors and game.state.banks == twin.state.banks, "changing shape and radius does not change gameplay")
+	_check(game.checkpoint().actors == twin.checkpoint().actors and game.state.banks == twin.state.banks, "changing shape and radius does not change gameplay")
 	return {"checks": checks, "failures": failures, "hash": game.state_hash()}
 
 func _check(condition: bool, message: String) -> void:

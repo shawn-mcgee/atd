@@ -528,6 +528,7 @@ a new match.
 | Configurator file navigation and editing | `view/config_editor.gd` |
 | Player roster and faction limits | `core/match_rules.gd` |
 | Ticks, state, commands, restore | `core/simulation.gd` |
+| Typed actors and composed capability state | `core/actor.gd`, `core/actor_capabilities.gd` |
 | Veil growth, support, alerts and global stance | `core/veil.gd`, `core/hex_cells.gd` |
 | Chyme collection, delivery and passive generation | `core/chyme.gd` |
 | Human blueprints, engineer work and refunds | `core/engineering.gd` |
@@ -535,8 +536,7 @@ a new match.
 | Deterministic routing and clearance caches | `core/navigation.gd` |
 | Soft friendly avoidance and idle settling | `core/steering.gd` |
 | Typed local movement bodies and spatial queries | `core/crowd.gd` |
-| Compiled integer movement, static clearance, exploration and state bytes | `native/movement_kernel.hpp`, `native/static_world.hpp`, `native/exploration_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
-| Canonical packed rollback state and hashing | `core/state_codec.gd`, `native/state_codec.hpp`, [ATD1 format](native/STATE_CODEC.md) |
+| Canonical packed rollback state and hashing | `core/state_codec.gd`, [ATD1 format](docs/state-codec.md) |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Flood-filled light field and blockers | `core/illumination.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
@@ -561,35 +561,24 @@ Camera, sandbox control selection and actor selection remain outside the core.
 
 ## Validate and export
 
-Build the compiled integer accelerator for the local editor and Web:
-
-```powershell
-python tools/build-native-movement.py --godot <GodotExecutable> --web
-```
-
-The helper generates the matching Godot C interface and builds the C++17 sources
-in `native/`. On Windows it installs pinned Zig 0.14.1 in a temporary tool cache;
-Linux/macOS use the system C++ compiler. Web builds install pinned Emscripten
-4.0.20. Generated headers, libraries and the extension descriptor are ignored.
-Libraries use content-addressed filenames so an open editor cannot lock a rebuild;
-restart the editor to load a changed native ABI. Without the generated extension,
-the same simulation runs through its GDScript reference implementation.
+The simulation and movement implementation use typed GDScript classes only;
+no custom C++ extension, compiler, Zig or Emscripten is required. Actors compose
+scene-free motion, combat, production and cargo state objects. One coordinator
+updates them in deterministic fixed ticks. Visuals remain scene nodes.
+Actor checkpoints explicitly flatten capability state to the existing dictionary
+schema; restoration builds fresh actors/components. Definitions and commands
+remain editable dictionaries. Protocol 23 hashes canonical ATD1 bytes; public
+JSON checkpoints retain state version 16.
 
 Run from the repository root, substituting the local engine path:
 
 ```powershell
-python tools/test-rewrite.py --godot <GodotExecutable> --network --require-native
+python tools/test-rewrite.py --godot <GodotExecutable> --network
 ```
 
-The rewrite runner imports first and rejects script errors even on exit zero.
-`--require-native` also verifies that compiled movement is actually loaded. Native
-and reference implementations are compared at every tick through collisions,
-large bodies, terrain routes, production, death and JSON restoration. Native state
-encoding matches the reference ATD1 bytes, including packed/JSON restoration and
-malformed-snapshot rejection. Protocol 23 hashes the packed snapshot with SHA-256;
-public JSON checkpoints retain state version 16. Older peers must update.
-Import/Web export use recovery mode to avoid native-extension DLL reload locks
-when the project is already open in a Windows editor; actual tests still load WebRTC.
+The runner imports first and rejects script errors even on exit zero. Suites
+cover movement, hard hostile contacts, terrain routes, production, death,
+integer-root boundaries, packed/JSON restoration and malformed-snapshot rejection.
 `--network` creates a temporary room on the deployed coordinator and tests two
 actual RTC peers, deliberately late input, rollback, and confirmed hash equality.
 Without it, validation is offline. Logs are ignored in `v2/test-results/`.
@@ -671,19 +660,19 @@ Use `-- --mission` to capture an authored fast mission through the command/sessi
 path, saving `test-results/mission.png`.
 Use `-- --spawning` for a fast source-at-cap preview in `test-results/spawning.png`.
 
-With matching Web export templates installed, including the single-threaded
-GDExtension (`web_dlink_nothreads_*`) templates:
+With matching Web export templates installed, using the standard single-threaded
+(`web_nothreads_*`) templates:
 
 ```powershell
 pwsh -File tools/build-web.ps1 -GodotExecutable <GodotExecutable> -ProjectDirectory v2
 python -m http.server 8000 --directory build/rewrite-web
 ```
 
-The v2 export helper builds the native host/Web accelerator before exporting.
-CI also validates the compiled v2 core; it does not run v1 regression suites.
+Web export disables custom extensions and threads. Desktop and browser run the
+same GDScript core. CI validates v2; it does not run v1 regression suites.
 
 `tools/test-rewrite-browser.cjs` serves the export on an ephemeral loopback port,
-runs the same suite in Chromium, compares the native result, captures the view,
+runs the same suite in Chromium, compares the desktop result, captures the view,
 and tests two browser peers through the coordinator. Use an externally installed
 Playwright package and Chromium:
 
@@ -691,105 +680,56 @@ Playwright package and Chromium:
 node tools/test-rewrite-browser.cjs --playwright <PathToPlaywrightPackage> --chromium <ChromiumExecutable> --godot <GodotExecutable>
 ```
 
-`--godot` also runs a real native-host/browser-client match and compares confirmed
-hashes. The browser test interface is available only with `?selftest=1`. Matching native/Web
+`--godot` also runs a real desktop-host/browser-client match and compares confirmed
+hashes. The browser test interface is available only with `?selftest=1`. Matching desktop/Web
 hashes validate covered scenarios, not future gameplay. Run
 `res://tests/benchmark_rollback.gd` headlessly to measure checkpoint/rollback cost
 for 128 sandbox actors. This is not a scale guarantee for later navigation or Veil.
 
-Run `res://tests/benchmark_movement.gd` headlessly for deterministic crowded movement
-with 16/32/64 movers and the same number of hostile bodies. It reports the first
-ten ticks, the next fifty, overall p95 and peak for full ticks, including retained
-rollback checkpoints and the scheduled 20-tick state hash. Step, snapshot and hash costs are
-also reported separately; elapsed time never enters gameplay. `-- --opposing --large`
-runs only the 64-per-side stress case. The CPU target is below 4 ms per full tick,
-including hash boundaries and command ticks; this remains an optimization target,
-not a verified performance guarantee. Add `--verify` to check hostile separation
-on every tick and replay from packed and JSON checkpoints, outside timed intervals.
-`--require-native` rejects a missing accelerator; `--reference` selects GDScript
-for comparison. Reports identify backend, platform and debug/release build.
-The headless wrapper and Web self-test both call `tests/movement_benchmark.gd`;
-add `--benchmark` to the browser harness command to save release-Web measurements
-in `test-results/movement-browser.json`. Both modes measure the same complete ticks.
-The probe uses the production rollback checkpoint and hash methods. Desktop
-reuses packed bytes; Web copies state and encodes at hash boundaries because
-native deep copy is faster there. Reports identify the format, packed size and the ordinary
-`state_json_hash` for gameplay comparisons across the protocol 23 hash transition.
-Timings are diagnostics, not guarantees; dense crowd work remains separate from
-static route searches and is reported explicitly by the opposing-group probe.
+Run `res://tests/benchmark_movement.gd` headlessly for deterministic crowded
+movement measurements, including retained rollback checkpoints and scheduled
+20-tick state hashes. Step, snapshot and hash costs are reported separately;
+elapsed time never enters gameplay. `-- --opposing --large --verify` runs the
+64-per-side stress case, checks hostile separation every tick and verifies
+checkpoint/JSON restore replay outside timed intervals. Desktop and Web use
+the same `tests/movement_benchmark.gd`; add `--benchmark` to the browser harness
+to save release-Web diagnostics in `test-results/movement-browser.json`.
+The target remains below 4 ms per full tick, including command and hash boundaries;
+it is not a verified performance guarantee.
 
-Measured on the development workstation on 2026-11-02 with the compiled backend,
-64 movers per side (134 actors), retained checkpoints and scheduled hashes:
+Initial Godot-only probes on the development workstation, 2026-11-02, with 134
+actors (64 movers per side), retained checkpoints and scheduled hashes:
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 4.427 ms | 6.346 ms | 10.530 ms |
-| Web export (release, headless Edge) | 11.880 ms | 17.900 ms | 18.500 ms |
+| Windows editor/headless (debug) | 16.539 ms | 21.239 ms | 25.243 ms |
+| Standard Web export (release, headless Edge) | 19.223 ms | 25.100 ms | 29.300 ms |
 
-Both probes passed hostile separation and JSON restore/replay verification with
-the same final hash. These results do **not** meet the 4 ms target. Static routing
-peaked at one search and nine expansions per tick; remaining work includes the
-GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
-on the next workstation before comparing timings across changes.
-The latest Windows means split into 3.656 ms simulation and 0.764 ms packed
-checkpoint work, plus 0.116 ms on scheduled hash ticks. Web means are 9.998 ms,
-1.733 ms for dictionary checkpoints and 2.733 ms on hash ticks. Desktop packed
-snapshots are 22,400 bytes in this scenario; Web's measured extension traversal
-cost exceeds native deep copy, so it retains dictionary snapshots. Both produce
-the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
-Timing varies with competing work; repeated Windows release runs ranged from
-3.645 to 7.979 ms mean and all exceeded 4 ms at p95/peak.
-Packed restoration currently uses the reference decoder: a separate Windows
-probe measured 7.595 ms mean versus 5.085 ms for dictionary restoration. This
-one-time restore cost is outside normal tick timings and remains optimization work.
+Both passed hostile separation and packed/JSON restore replay checks with the
+same pre-migration final hash. These results do not meet the 4 ms target; timings
+depend on hardware and competing workloads.
+
+Rollback uses independent dictionary snapshots on both platforms, avoiding
+interpreted ATD1 encoding every tick. Hash boundaries encode canonical state;
+packed snapshots remain supported for diagnostics and compatibility tests.
+The encoder reuses bounded, exactly validated immutable key layouts; values and
+per-snapshot schema IDs always remain fresh.
+Snapshots contain no actor objects or scene nodes. Public restore normalizes JSON
+scalars, composes fresh capability objects and discards derived caches.
 
 Run `res://tests/benchmark_frames.gd` with a display to measure the 1280x800 view
-in a sandbox warmed for 600 ticks, with both factions visible. It reports paused
-and running script CPU mean/p95, visibility/overlay/HUD costs, wall-frame p95,
-viewport CPU/GPU timings and draw calls. VSync is disabled only for this probe;
-script timing alone is not total frame time. Results depend on driver, debug
-build overhead and competing workloads.
+in a sandbox warmed for 600 ticks. It reports script CPU mean/p95, visibility,
+overlay/HUD costs, wall-frame p95, viewport CPU/GPU timings and draw calls.
+VSync is disabled only for this probe; script timing is not total frame time.
 
-Presentation updates follow simulation ticks, rollback, selection and overlay
-changes. Ground perception uses prepared source/light data and direct tile classification; unchanged visibility keeps
-its mesh. Ground geometry is cached separately from packed color blocks and
-uploaded in batches. Veil and rally/order geometry are retained while their inputs remain
-unchanged. Match sessions calculate hashes at the existing 20-tick exchange
-boundaries, retaining per-tick checkpoints/events. Standalone rollback sessions
-default to per-tick hashes. HUD diagnostics display the latest calculated boundary
-without rehashing state.
+Ground geometry, unchanged visibility, Veil and rally/order meshes remain cached.
+Movement uses typed GDScript body records, shared ordered windows of live spatial
+buckets, integer swept-circle contact and static clearance certificates. Hostile
+contacts still run every movement tick. Exploration shares shrinking unknown-tile
+fringes across observers; immutable coordinate stencils survive rollback while
+discovery caches do not. Actor IDs use a lazy tick-local index, updated on spawn
+and discarded on pruning, tick completion and restore. Integer roots use Godot's
+square root only as an estimate, corrected with exact integer division.
 
-`benchmark_movement.gd -- --opposing` sends both interleaved armies toward one
-point, exercising moving hostile obstacles and congestion; default mode leaves
-the opposing army stationary. It also reports maximum searches and node expansions
-per tick. `benchmark_simulation.gd` measures warmed gameplay, checkpoint copying
-and fresh state hashing separately. Desktop rollback stores canonical ATD1
-bytes plus an event copy; scheduled hashes reuse those bytes. Web retains native
-dictionary copies and encodes at hash boundaries. Packed restoration
-decodes fresh containers and clears derived caches; public JSON restoration
-normalizes scalars once. `tests/cpu_suite.gd` checks
-canonical hash equivalence, integer-root boundaries, exploration against exhaustive
-rasterization, shared static routes, hostile separation and restore/replay.
-
-Compiled exploration uses per-owner discovery bitsets and exact integer circle
-tests; restoring creates fresh derived discovery caches. The GDScript reference
-shares shrinking unknown-tile envelopes between observers of the same
-owner/radius in a hex; fully discovered envelopes require no further tile scans.
-Radius stencils and immutable tile-key tables are prepared once; rollback retains
-only those static tables and discards all observer/discovery cache entries.
-Movement shares ordered lists of live spatial buckets between nearby queries,
-invalidating them when a previously empty bucket gains a body. It uses integer-vector spatial bucket keys,
-scalar swept-circle contact math and cached static clearance certificates covering
-every steering direction in a tile. Certified open steps combine native integration,
-local steering and actor updates; idle settling uses the same certificate. Hostile
-contacts still run every movement tick. State serialization caches immutable key
-text, checking Variant equality on hash collisions, without caching state values.
-Small recurring keysets reuse sorted keys after size and membership validation.
-Native static geometry mirrors circle/hex/map-edge checks; stale field revisions
-fall back to their original geometry. Point movement combines progress tracking,
-direct-route reuse, local steering and arrival; blocked routes retain A*.
-Illumination validates once at tick entry and
-invalidates on source/blocker movement, creation, death and transformation. Veil
-maintenance avoids per-cell filter allocations and sorts only tissue needing damage.
-State-dependent derived caches are discarded on restore. Integer roots use a native
-estimate corrected by exact integer division, including at int64 square boundaries.
+Previous C++ accelerator measurements do not describe this implementation. Re-run
+the Godot-only probes before comparing timings across machines or builds.

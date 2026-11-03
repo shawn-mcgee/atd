@@ -1,9 +1,10 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Human blueprints are inert actors; one assigned engineer supplies work.
 const Hex = preload("res://core/hex_cells.gd")
 const Construction = preload("res://core/construction.gd")
 
-static func order(game, worker: Dictionary, type: String, point: Array, rotation: int = 0) -> void:
+static func order(game, worker: Actor, type: String, point: Array, rotation: int = 0) -> void:
 	if not Construction.site_error(game, worker, type, point, false, rotation).is_empty(): return
 	var cost := int(game.content.units[type].cost)
 	var bank := str(worker.owner)
@@ -18,7 +19,7 @@ static func order(game, worker: Dictionary, type: String, point: Array, rotation
 	worker.order = {"kind": "construct", "target": int(site.id), "manual": true}
 	Construction._event(game, "construction_started", site, type, cost)
 
-static func assign(game, worker: Dictionary, target: int) -> void:
+static func assign(game, worker: Actor, target: int) -> void:
 	var site = game.entity(target)
 	var cap: Dictionary = game.content.units[worker.definition].capabilities.get("builder", {})
 	if site == null or int(site.hp) <= 0 or int(site.owner) != int(worker.owner) or cap.is_empty(): return
@@ -26,7 +27,7 @@ static func assign(game, worker: Dictionary, target: int) -> void:
 	site.construction.worker = int(worker.id)
 	worker.order = {"kind": "construct", "target": target, "manual": true}
 
-static func work(game, worker: Dictionary) -> void:
+static func work(game, worker: Actor) -> void:
 	var site = game.entity(int(worker.order.target))
 	if site == null or int(site.hp) <= 0 or site.construction.get("kind") != "blueprint" or int(site.construction.worker) != int(worker.id):
 		worker.order = {}
@@ -38,7 +39,7 @@ static func work(game, worker: Dictionary) -> void:
 			cancel(game, site)
 			worker.order = {}
 		return
-	worker.navigation = {}
+	worker.motion.navigation = {}
 	game._face(worker, site.position)
 	site.construction.remaining = maxi(0, int(site.construction.remaining) - 1)
 	if int(site.construction.remaining) > 0: return
@@ -52,7 +53,7 @@ static func work(game, worker: Dictionary) -> void:
 	worker.order = {}
 	Construction._event(game, "construction_completed", site, type, 0)
 
-static func cancel(game, actor: Dictionary) -> void:
+static func cancel(game, actor: Actor) -> void:
 	var site = actor
 	if actor.order.get("kind") == "construct": site = game.entity(int(actor.order.target))
 	if site == null or int(site.hp) <= 0 or int(site.owner) != int(actor.owner) or site.construction.get("kind") != "blueprint": return
@@ -64,4 +65,4 @@ static func cancel(game, actor: Dictionary) -> void:
 	Construction._event(game, "construction_cancelled", site, work.definition, int(work.cost))
 	site.hp = 0
 	for worker in game.state.actors:
-		if worker.order.get("kind") == "construct" and int(worker.order.target) == int(site.id): worker.order = {}; worker.navigation = {}
+		if worker.order.get("kind") == "construct" and int(worker.order.target) == int(site.id): worker.order = {}; worker.motion.navigation = {}

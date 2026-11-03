@@ -1,15 +1,16 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Shared paid/passive emergence and rally orders.
 const Hex = preload("res://core/hex_cells.gd")
 const Geo = preload("res://core/geometry.gd")
 const Nav = preload("res://core/navigation.gd")
 
-static func capable(game, actor: Dictionary) -> bool:
+static func capable(game, actor: Actor) -> bool:
 	var caps: Dictionary = game.content.units[actor.definition].capabilities
 	return Geo.structure(game, actor) and (caps.has("factory") or caps.has("passive_spawner"))
 
 @warning_ignore("integer_division")
-static func default_point(game, source: Dictionary) -> Array:
+static func default_point(game, source: Actor) -> Array:
 	var center := Geo.center(game, source)
 	var south := int(center[2])
 	for cell in Geo.cells(game, source): south = maxi(south, int(cell[1]) * Hex.SCALE)
@@ -21,16 +22,16 @@ static func default_point(game, source: Dictionary) -> Array:
 		offset = maxi(0, offset - Hex.SCALE / 2)
 	return center
 
-static func reset(game, source: Dictionary) -> void:
+static func reset(game, source: Actor) -> void:
 	source.rally_point = default_point(game, source) if capable(game, source) else []
 
-static func dispatch(game, source: Dictionary, child: Dictionary) -> void:
+static func dispatch(game, source: Actor, child: Actor) -> void:
 	if not game.content.units[child.definition].capabilities.has("move"): return
 	var target: Array = source.rally_point if not source.rally_point.is_empty() else default_point(game, source)
 	child.order = {"kind": "move", "point": target.duplicate(), "manual": true, "start_tick": int(game.state.tick) + 1}
 	game._face(child, target)
 
-static func _emergence_ring(game, source: Dictionary, footprint: Array, size: int) -> int:
+static func _emergence_ring(game, source: Actor, footprint: Array, size: int) -> int:
 	if Geo.collision_shape(game, source) != "circle": return maxi(1, ceili(float(size + 2) / Hex.SCALE + 0.5))
 	var circle := Geo.collision_circle(game, source)
 	var combined := size + int(circle.radius) + 2
@@ -48,7 +49,7 @@ static func _emergence_ring(game, source: Dictionary, footprint: Array, size: in
 					if nearest == ring and game.distance_squared(Hex.point(cell), circle.position) > combined * combined: return ring
 	return limit
 
-static func spawn_position(game, source: Dictionary, product: String, destination: Array = []) -> Array:
+static func spawn_position(game, source: Actor, product: String, destination: Array = []) -> Array:
 	var target: Array = source.rally_point if destination.is_empty() else destination
 	if target.is_empty(): target = default_point(game, source)
 	var footprint := Geo.cells(game, source)
@@ -59,7 +60,7 @@ static func spawn_position(game, source: Dictionary, product: String, destinatio
 		if int(circle.id) != int(source.id): exiting.circles.append(circle)
 	for cell in footprint: exiting.hexes.erase(Hex.key(cell))
 	var occupied: Dictionary = {}
-	for actor in game.state.actors:
+	for actor: Actor in game.state.actors:
 		if int(actor.hp) <= 0: continue
 		if not Geo.structure(game, actor): occupied[Hex.key(Hex.from_point(actor.position))] = true
 		if actor.order.get("kind") == "build":
@@ -84,7 +85,7 @@ static func spawn_position(game, source: Dictionary, product: String, destinatio
 	cells.sort_custom(Hex.compare)
 	var goal := Hex.from_point(target)
 	var routes := Nav.static_field(data)
-	var goals: Array = [goal] if Nav.center_clear(game, goal, size, routes) else Nav._goals(game, {"definition": product, "position": target}, target, null, Hex.SCALE, routes)
+	var goals: Array = [goal] if Nav.center_clear(game, goal, size, routes) else Nav._goals(game, Actor.from_dict({"definition": product, "position": target}), target, null, Hex.SCALE, routes)
 	var best := Nav.closest_reachable(game, goals, cells, size, data)
 	if not best.is_empty(): return Hex.point(best)
 	# An unreachable rally must not freeze production; ordinary movement reports it.

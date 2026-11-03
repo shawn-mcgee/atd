@@ -1,4 +1,5 @@
 extends RefCounted
+const Actor = preload("res://core/actor.gd")
 ## Canonical ATD1 state bytes. Keyset IDs are local to each snapshot, assigned
 ## during sorted-key traversal. No identity, cache history or platform enters it.
 const MAX_BYTES := 16777216
@@ -7,6 +8,10 @@ const HEADER := [65, 84, 68, 1]
 
 class Writer:
 	extends RefCounted
+	# Cache immutable key metadata only. Wire schema IDs remain local to each
+	# writer, and exact membership is checked before reusing an ordering.
+	static var keysets: Dictionary = {}
+	static var large_keysets: Array = []
 	var data := PackedByteArray(HEADER)
 	var schemas: Dictionary = {}
 	var ok := true
@@ -26,8 +31,30 @@ class Writer:
 		else:
 			data.append(3); var offset := data.size(); data.resize(offset + 8); data.encode_s64(offset, value)
 
+	func keyset(value: Dictionary) -> Dictionary:
+		var size := value.size()
+		var candidates: Array = keysets.get(size, []) if size <= 64 else large_keysets
+		for candidate in candidates:
+			if candidate.ordered.size() == size and value.has_all(candidate.ordered): return candidate
+		var ordered: Array = []
+		for key in value:
+			if not key is String and not key is StringName: ok = false; return {}
+			ordered.append([str(key), key])
+		ordered.sort_custom(func(a, b): return a[0] < b[0])
+		var metadata := Writer.new()
+		metadata.data.clear(); metadata.count(size)
+		var keys: Array = []
+		for pair in ordered: metadata.text(pair[0]); keys.append(pair[1])
+		if not metadata.ok: ok = false; return {}
+		var result := {"ordered": keys, "bytes": metadata.data, "signature": metadata.data.hex_encode()}
+		if candidates.size() >= 4: candidates.pop_front()
+		candidates.append(result)
+		if size <= 64: keysets[size] = candidates
+		return result
+
 	func write(value, depth: int = 0) -> void:
 		if not ok: return
+		if value is Actor: value = value.to_dict()
 		if depth > 128 or data.size() > MAX_BYTES: ok = false; return
 		if value == null: data.append(0)
 		elif value is bool: data.append(2 if value else 1)
@@ -45,22 +72,15 @@ class Writer:
 		elif value is Dictionary:
 			if value.is_empty(): data.append(8); return
 			if value.size() > MAX_ITEMS: ok = false; return
-			var keys: Array = []
-			for key in value:
-				if not key is String and not key is StringName: ok = false; return
-				keys.append([str(key), key])
-			keys.sort_custom(func(a, b): return a[0] < b[0])
-			var metadata := Writer.new()
-			metadata.data.clear(); metadata.count(keys.size())
-			for key in keys: metadata.text(key[0])
-			if not metadata.ok: ok = false; return
-			if keys.size() <= 64:
-				var signature := metadata.data.hex_encode()
+			var layout := keyset(value)
+			if not ok: return
+			if value.size() <= 64:
+				var signature: String = layout.signature
 				if schemas.has(signature): data.append(7); count(int(schemas[signature]))
 				else:
-					schemas[signature] = schemas.size(); data.append(6); data.append_array(metadata.data)
-			else: data.append(9); data.append_array(metadata.data)
-			for key in keys: write(value[key[1]], depth + 1)
+					schemas[signature] = schemas.size(); data.append(6); data.append_array(layout.bytes)
+			else: data.append(9); data.append_array(layout.bytes)
+			for key in layout.ordered: write(value[key], depth + 1)
 		else: ok = false
 
 class Reader:
