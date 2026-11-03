@@ -27,6 +27,7 @@ func run(args: PackedStringArray) -> Dictionary:
 		var max_searches := 0; var max_expansions := 0
 		var samples: Array = []
 		var steps: Array = []; var copies: Array = []; var hashes: Array = []
+		var ordinary: Array = []; var boundaries: Array = []
 		var history: Array = []
 		var history_limit := int(game.content.settings.rollback_ticks) + 2
 		var initial: Dictionary = game.checkpoint() if verified else {}
@@ -49,6 +50,8 @@ func run(args: PackedStringArray) -> Dictionary:
 			if int(game.state.tick) % 20 == 0: hashes.append(finished - copied)
 			max_searches = maxi(max_searches, game._navigation_searches); max_expansions = maxi(max_expansions, game._navigation_expansions)
 			samples.append(finished - started)
+			if int(game.state.tick) % 20 == 0: boundaries.append(finished - started)
+			else: ordinary.append(finished - started)
 			# Verification is deliberately outside every timed interval.
 			if verified:
 				for human in humans:
@@ -78,11 +81,31 @@ func run(args: PackedStringArray) -> Dictionary:
 			"platform": OS.get_name(), "debug_build": OS.has_feature("debug"),
 			"mean_us": _mean(samples), "first_10_mean_us": cold / 10, "next_50_mean_us": steady / 50, "p95_us": sorted[56], "peak_us": sorted.back(),
 			"step_mean_us": _mean(steps), "checkpoint_mean_us": _mean(copies), "hash_mean_us": _mean(hashes), "final_hash": final_hash,
+			"ordinary_mean_us": _mean(ordinary), "hash_boundary_mean_us": _mean(boundaries), "hash_boundary_peak_us": boundaries.max(),
 			"state_json_hash": state_json_hash, "snapshot_bytes": history.back().get("packed", PackedByteArray()).size(), "checkpoint_format": "packed" if game.packed_rollback else "mixed",
 			"verification": ("passed" if valid else "failed") if verified else "not_requested"}
+		if "--codecs" in args: report.codecs = _codecs(game)
 		reports.append(report)
 		print("ATD_MOVEMENT_BENCHMARK " + JSON.stringify(report))
 	return {"ok": valid, "reports": reports}
+
+static func _codecs(game) -> Dictionary:
+	# Diagnostic comparison only. Codec timing never changes the measured tick,
+	# retained checkpoint format, gameplay or protocol hash.
+	var result: Dictionary = {}
+	for kind in ["selected_atd1", "gdscript_atd1", "sorted_json", "godot_binary", "dictionary"]:
+		var samples: Array = []; var size := 0
+		for repeat in 8:
+			var start := Time.get_ticks_usec()
+			match kind:
+				"selected_atd1": size = game.packed_state().size()
+				"gdscript_atd1": size = preload("res://core/state_codec.gd").pack(game.state).size()
+				"sorted_json": size = JSON.stringify(game.state, "", true, true).length()
+				"godot_binary": size = var_to_bytes(game.state).size()
+				"dictionary": game.checkpoint()
+			samples.append(Time.get_ticks_usec() - start)
+		result[kind] = {"mean_us": _mean(samples), "peak_us": samples.max(), "size": size}
+	return result
 
 static func _mean(samples: Array) -> int:
 	var total := 0

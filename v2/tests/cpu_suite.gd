@@ -28,6 +28,7 @@ func run() -> Dictionary:
 			_check(Sim.integer_sqrt(root * root + offset) == root - (1 if offset == -1 else 0), "native root estimate is corrected exactly around perfect squares")
 	_crowd_windows()
 	_bulk_crowd()
+	_tick_velocity_capture()
 	_fringe()
 	_sweeps()
 	_hash_boundaries()
@@ -156,11 +157,26 @@ func _batch_handlers() -> void:
 		game.step(commands); reference.step(commands)
 		_check(game.state_hash() == reference.state_hash(), "point batches preserve interleaved production, passive mobile sources, light invalidation, foreign obstacle caches and actor order")
 
+func _tick_velocity_capture() -> void:
+	var game = Fixture.new()._game()
+	if game._crowd.backend == null: return
+	game.entity(2).velocity = [73, 0, -18]
+	game.entity(5).velocity = [-31, 0, 97]
+	var positions: Array = game.state.actors.map(func(actor): return actor.position.duplicate())
+	var previous: Dictionary = game._crowd.backend.call("begin_tick", game.state.actors)
+	_check(previous.size() == game.state.actors.size() and previous[2] == [73, 0, -18] and previous[5] == [-31, 0, 97], "native tick capture retains previous velocities using actor IDs")
+	_check(game.state.actors.all(func(actor): return actor.velocity == [0, 0, 0]) and game.state.actors.map(func(actor): return actor.position) == positions, "native tick capture clears every velocity without changing position")
+	game.entity(2).velocity[0] = 99
+	_check(game.entity(5).velocity == [0, 0, 0] and previous[2] == [73, 0, -18], "velocity resets leave actor and retained arrays independent")
+	game.entity(2).velocity = [25, 0, 13]
+	var next: Dictionary = game._crowd.backend.call("begin_tick", game.state.actors)
+	_check(next[2] == [25, 0, 13] and previous[2] == [73, 0, -18], "successive native captures never alias earlier snapshot values")
+
 func _bulk_crowd() -> void:
 	var game = Fixture.new()._game()
 	if game._crowd.backend == null: return
 	var native = Crowd.new(); var reference = Crowd.new(false)
-	var velocities := {"2": [73, 0, -18], "5": [-31, 0, 97]}
+	var velocities := {2: [73, 0, -18], 5: [-31, 0, 97]}
 	for phase in 3:
 		if phase == 1:
 			game.content.units.engineer.collision_radius = 1 # Integer content values are valid.

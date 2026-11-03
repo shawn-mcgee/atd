@@ -39,8 +39,9 @@ void prepare_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensi
         auto point = array_point(position);
         GDExtensionConstVariantPtr old = velocity;
         if (has_previous) {
-            StringKey key(std::to_string(id)); GDExtensionBool valid;
-            if (api.has_key(velocities, &key.value, &valid)) old = api.dictionary_index(&previous.storage, &key.value);
+            Storage key{}; api.from(GDEXTENSION_VARIANT_TYPE_INT)(&key, &id); GDExtensionBool valid;
+            if (api.has_key(velocities, &key, &valid)) old = api.dictionary_index(&previous.storage, &key);
+            api.destroy(&key);
         }
         if (!old || api.type(old) != GDEXTENSION_VARIANT_TYPE_ARRAY) old = velocity;
         atd::Point delta{};
@@ -50,6 +51,21 @@ void prepare_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensi
         if (rule->second.simple) kernel.simple_rules.emplace(id, SimpleRule{rule->second.speed, rule->second.light, rule->second.weapon});
     }
     kernel.movement.prepare(frame.data(), frame.size());
+}
+void begin_tick(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensionVariantPtr result) {
+    Builtin list(GDEXTENSION_VARIANT_TYPE_ARRAY, actors);
+    Storage previous{}; api.constructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY, 0)(&previous, nullptr);
+    int64_t size = count_of(actors);
+    for (int64_t i = 0; i < size; ++i) {
+        auto actor = api.array_index(&list.storage, i);
+        Value id(actor, ID), velocity(actor, VELOCITY);
+        auto saved = api.dictionary_write(&previous, id); api.destroy(saved);
+        if (velocity.valid) api.copy(saved, velocity);
+        else point_variant(saved, {});
+        set_point(const_cast<void *>(actor), VELOCITY, {});
+    }
+    api.from(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(result, &previous);
+    api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&previous);
 }
 void body_info(Kernel &kernel, int64_t id, GDExtensionVariantPtr result) {
     auto actor = kernel.actors.find(id); const auto *body = kernel.movement.body(id);

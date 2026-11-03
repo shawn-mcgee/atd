@@ -711,6 +711,10 @@ for comparison. Reports identify backend, platform and debug/release build.
 The headless wrapper and Web self-test both call `tests/movement_benchmark.gd`;
 add `--benchmark` to the browser harness command to save release-Web measurements
 in `test-results/movement-browser.json`. Both modes measure the same complete ticks.
+Reports also separate ordinary-tick means from hash-boundary means and peaks.
+Add `--codecs` to the headless probe or browser harness for a separate comparison
+of ATD1, sorted JSON, Godot binary serialization and dictionary-copy costs.
+These eight-repeat diagnostics run after the stress measurement and verification.
 The probe uses the production rollback checkpoint and hash methods. Desktop
 reuses packed bytes; Web copies state on ordinary ticks and retains encoded bytes at hash boundaries because
 native deep copy is faster there. Reports identify the format, packed size and the ordinary
@@ -723,22 +727,27 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 2.525 ms | 3.885 ms | 4.440 ms |
-| Web export (release, headless Edge) | 7.163 ms | 11.400 ms | 19.700 ms |
+| Windows editor/headless (debug) | 2.269 ms | 3.645 ms | 4.111 ms |
+| Windows export (release, headless) | 3.016 ms | 4.836 ms | 5.479 ms |
+| Web export (release, headless Edge) | 7.505 ms | 11.000 ms | 14.100 ms |
 
-Both probes passed hostile separation and JSON restore/replay verification with
+All probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows means split into 1.739 ms simulation and 0.779 ms packed
-checkpoint work, plus 0.127 ms on scheduled hash ticks. Web means are 5.161 ms,
-1.990 ms for mixed checkpoint work and 0.133 ms hashing retained bytes on hash
+The latest Windows debug means split into 1.544 ms simulation and 0.718 ms packed
+checkpoint work, plus 0.112 ms on scheduled hash ticks. Web means are 5.301 ms,
+2.173 ms for mixed checkpoint work and 0.300 ms hashing retained bytes on hash
 ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
 Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
 snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
 Timing varies with competing work; re-measure before comparing platforms.
+Web ordinary ticks averaged 7.445 ms; hash boundaries averaged 8.633 ms and
+peaked at 12.500 ms. The native tick-start pass now captures previous velocities
+by integer actor ID and resets velocity arrays in one batch. Actor arrays remain
+independent, and the GDScript reference keeps the same capture semantics.
 Mobile perception now reads actor data in a native batch and shares bounded
 unknown-tile envelopes across observers. Structure centers still use shared
 footprint geometry. Veil builds obstruction data only when growth is due and

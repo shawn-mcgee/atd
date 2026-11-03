@@ -52,7 +52,7 @@ Build from the repository root with `python tools/build-native-movement.py --god
 method hashes. The builder publishes complete, content-addressed libraries and
 the runtime descriptor atomically; all generated output stays out of Git.
 
-ABI 14 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
+ABI 15 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
 mobile body: `id, owner, radius, q, r, previous_vq, previous_vr`. IDs are unique,
 radii positive, and coordinates/speeds follow the core's validated map/content
 limits. Movement updates those bodies sequentially in actor order. Small per-unit
@@ -77,7 +77,12 @@ Each restore rebuilds derived native bodies and discovery caches;
 `Simulation.accelerated = false` selects the
 reference implementation. Tests compare complete state hashes across both paths.
 Normal simulation uses `prepare_actors(actors, definitions, previous_velocities)`
-and lazy `body_info(id)` wrappers. `owner_ids()` returns sorted owners. The
+with integer actor IDs in the previous-velocity dictionary. `begin_tick(actors)`
+captures those arrays and replaces each actor's velocity with an independent zero
+array. Capture happens after commands and before actor updates, including
+actors that will be removed at the end of the tick. Both native and reference
+movement read the same integer-keyed previous-velocity dictionary.
+Queries use lazy `body_info(id)` wrappers. `owner_ids()` returns sorted owners. The
 `settle_actors` pass accepts actors, defeated owner IDs, tick frequency and static
 world revision; it declines stale geometry before making changes. `state_unpack`
 returns a dictionary or null for invalid bytes. None of these derived objects

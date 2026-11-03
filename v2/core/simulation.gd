@@ -142,11 +142,14 @@ func step(commands: Array) -> void:
 	_inside_step = true
 	_entity_index.clear(); _entities_indexed = false
 	for command in commands: _apply(command)
-	_velocity_snapshot = {}
-	for actor in state.actors:
-		# Velocities are replaced, never edited in place; retain the previous array.
-		_velocity_snapshot[str(actor.id)] = actor.get("velocity", [0, 0, 0])
-		actor.velocity = [0, 0, 0]
+	if _crowd.backend != null:
+		_velocity_snapshot = _crowd.backend.call("begin_tick", state.actors)
+	else:
+		_velocity_snapshot = {}
+		for actor in state.actors:
+			# Velocities are replaced, never edited in place; retain the previous array.
+			_velocity_snapshot[int(actor.id)] = actor.get("velocity", [0, 0, 0])
+			actor.velocity = [0, 0, 0]
 	# Defeat is resolved after actor updates, so this membership is stable through
 	# both actor loops. Avoid repeated string conversion/default dictionaries.
 	var defeated: Dictionary[int, bool] = {}
@@ -549,7 +552,7 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 	return true
 
 func previous_velocity(actor: Dictionary) -> Array:
-	return _velocity_snapshot.get(str(actor.id), actor.get("velocity", [0, 0, 0]))
+	return _velocity_snapshot.get(int(actor.id), actor.get("velocity", [0, 0, 0]))
 
 func _face(actor: Dictionary, destination: Array) -> void:
 	var origin := Geometry.center(self, actor)

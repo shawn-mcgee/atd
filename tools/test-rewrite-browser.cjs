@@ -59,7 +59,7 @@ async function main() {
   if (foundation.checks !== native.checks) throw new Error('Native/browser test counts differ; rebuild the Web export');
   if (foundation.deterministic_hash !== native.deterministic_hash) throw new Error('Native/browser deterministic hashes differ');
   const benchmark = args.includes('--benchmark')
-    ? (await state(host, 'benchmark', '--opposing --large --verify')).benchmark : null;
+    ? (await state(host, 'benchmark', '--opposing --large --verify' + (args.includes('--codecs') ? ' --codecs' : ''))).benchmark : null;
   if (benchmark && !benchmark.ok) throw new Error('Browser movement collision/replay verification failed');
   if (benchmark) fs.writeFileSync(path.join(results, 'movement-browser.json'), JSON.stringify(benchmark, null, 2));
   await host.screenshot({ path: path.join(results, 'configurator.png') });
