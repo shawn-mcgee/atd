@@ -9,7 +9,9 @@ clearance, integer cube rounding and map-edge checks for compiled execution.
 When a cached clearance disk encloses every possible local step, the adapter
 also integrates movement and settles idle overlaps in one call. Nearby static
 obstacles use the general per-step geometry checks. Hostile contact remains hard
-in both paths, and position/velocity/facing arrays are replaced rather than edited.
+in both paths. Positions remain integer arrays; velocity and facing use compact
+`Vector3i` values within validated world/speed bounds. Motion values are copied
+without allocating three-element arrays. Public checkpoints expose integer arrays.
 Local queries visit buckets directly, preserving scan limits, offset order and
 owner order. Prediction uses fixed storage for at most 48 candidates and selects
 the same nearest six by distance/ID. Hard contact visits every relevant hostile
@@ -31,7 +33,9 @@ clearance. It updates the body index between actors, then the core patches
 derived light/enemy caches before end-of-tick gameplay continues.
 Contiguous independent point orders (and no-op idle actors) run in ordered
 batches too. Batches stop before A*, production, construction, passive schedules
-or due automatic targeting. They update the native body index immediately;
+or due automatic targeting. Mobile automatic-order checks with an inactive stance
+and no old Veil order stay batched; active stances and order clearing use the
+general handler. They update the native body index immediately;
 existing GDScript body/enemy snapshots are synchronized at the batch boundary,
 and moving light sources invalidate the light field before the next handler.
 Direct point routes and progress goals use private expected values for whole-value
@@ -64,7 +68,7 @@ Build from the repository root with `python tools/build-native-movement.py --god
 method hashes. The builder publishes complete, content-addressed libraries and
 the runtime descriptor atomically; all generated output stays out of Git.
 
-ABI 15 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
+ABI 16 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
 mobile body: `id, owner, radius, q, r, previous_vq, previous_vr`. IDs are unique,
 radii positive, and coordinates/speeds follow the core's validated map/content
 limits. Movement updates those bodies sequentially in actor order. Small per-unit
@@ -90,10 +94,15 @@ Each restore rebuilds derived native bodies and discovery caches;
 reference implementation. Tests compare complete state hashes across both paths.
 Normal simulation uses `prepare_actors(actors, definitions, previous_velocities)`
 with integer actor IDs in the previous-velocity dictionary. `begin_tick(actors)`
-captures those arrays and replaces each actor's velocity with an independent zero
-array. Capture happens after commands and before actor updates, including
+captures those values and resets each actor's velocity to `Vector3i.ZERO`.
+Capture happens after commands and before actor updates, including
 actors that will be removed at the end of the tick. Both native and reference
 movement read the same integer-keyed previous-velocity dictionary.
+Direct point movement reuses the already-read origin, actor ID and avoidance
+dictionary, and keeps integration results native through the arrival check.
+Web position/goal arrays are copied from a private integer scratch buffer in one
+Godot constructor call; returned Arrays remain independent. The matching API dump
+supplies that constructor's index. Desktop keeps direct scalar array construction.
 Queries use lazy `body_info(id)` wrappers. `owner_ids()` returns sorted owners. The
 `settle_actors` pass accepts actors, defeated owner IDs, tick frequency and static
 world revision; it declines stale geometry before making changes. `state_unpack`

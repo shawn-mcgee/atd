@@ -38,6 +38,10 @@ class Writer:
 			else:
 				data.append(10); var offset := data.size(); data.resize(offset + 8); data.encode_double(offset, value)
 		elif value is String or value is StringName: data.append(4); text(str(value))
+		elif value is Vector3i:
+			if depth == 128: ok = false; return
+			data.append(5); count(3)
+			integer(value.x); integer(value.y); integer(value.z)
 		elif value is Array:
 			if value.size() > MAX_ITEMS: ok = false; return
 			data.append(5); count(value.size())

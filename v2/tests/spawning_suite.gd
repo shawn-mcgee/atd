@@ -65,7 +65,7 @@ func _timing_and_caps() -> void:
 	_check(Spawning.alive_count(game, 4) == 0, "first birth waits a full interval")
 	game.step([])
 	_check(Spawning.alive_count(game, 4) == 1 and int(game.entity(7).spawn_source) == 4 and int(game.entity(7).owner) == 9, "birth records source, faction ownership and unique actor ID")
-	_check(game.entity(7).facing != [0, 0, 0] and game.entity(7).definition == "scavenger", "offspring use their configured definition with a valid outward facing")
+	_check(game.entity(7).facing != Vector3i.ZERO and game.entity(7).definition == "scavenger", "offspring use their configured definition with a valid outward facing")
 	var saved: Dictionary = Canonical.normalize(JSON.parse_string(Canonical.text(game.checkpoint())))
 	_step(game, 10)
 	var expected: String = game.state_hash()

@@ -72,7 +72,15 @@ func initialize(definitions: Dictionary, players: Array, seed_value: int) -> voi
 	Exploration.record(self, _exploration_cache)
 
 func checkpoint() -> Dictionary:
-	return state.duplicate(true)
+	return export_checkpoint(state)
+
+static func export_checkpoint(source: Dictionary) -> Dictionary:
+	var saved := source.duplicate(true)
+	for actor in saved.get("actors", []):
+		for field in ["velocity", "facing"]:
+			var value = actor.get(field)
+			if value is Vector3i: actor[field] = [value.x, value.y, value.z]
+	return saved
 
 func packed_state(value = null) -> PackedByteArray:
 	var source: Dictionary = state if value == null else value
@@ -85,7 +93,7 @@ func rollback_checkpoint(for_hash: bool = false) -> Dictionary:
 	# A hash boundary already needs canonical bytes. Retain them directly rather
 	# than copying the same state first, including on the Web dictionary path.
 	if not packed_rollback and not for_hash:
-		var saved := checkpoint()
+		var saved := state.duplicate(true)
 		return {"state": saved, "events": saved.events}
 	var packed := packed_state()
 	assert(not packed.is_empty(), "State cannot be encoded for rollback")
@@ -113,6 +121,11 @@ func restore(saved: Dictionary) -> void:
 	_reset_derived()
 
 func _reset_derived() -> void:
+	for actor in state.actors:
+		for field in ["velocity", "facing"]:
+			var value = actor.get(field)
+			if value is Array and value.size() == 3 and value.all(func(item): return item is int and item >= -2147483648 and item <= 2147483647):
+				actor[field] = Vector3i(value[0], value[1], value[2])
 	_entity_index.clear(); _entities_indexed = false
 	Exploration.reset(_exploration_cache)
 	_illumination_cache.clear()
@@ -147,9 +160,9 @@ func step(commands: Array) -> void:
 	else:
 		_velocity_snapshot = {}
 		for actor in state.actors:
-			# Velocities are replaced, never edited in place; retain the previous array.
+			# Velocities are replaced; retain the previous value for this tick.
 			_velocity_snapshot[int(actor.id)] = actor.get("velocity", [0, 0, 0])
-			actor.velocity = [0, 0, 0]
+			actor.velocity = Vector3i.ZERO
 	# Defeat is resolved after actor updates, so this membership is stable through
 	# both actor loops. Avoid repeated string conversion/default dictionaries.
 	var defeated: Dictionary[int, bool] = {}
@@ -367,10 +380,10 @@ func _production(actor: Dictionary) -> void:
 		Rally.dispatch(self, actor, entity(int(state.next_id) - 1))
 
 func _spawn(type: String, owner: int, position: Array) -> void:
-	state.actors.append({"id": int(state.next_id), "owner": owner, "definition": type, "position": position.duplicate(), "rotation": 0, "navigation": {}, "velocity": [0, 0, 0], "avoidance": {},
+	state.actors.append({"id": int(state.next_id), "owner": owner, "definition": type, "position": position.duplicate(), "rotation": 0, "navigation": {}, "velocity": Vector3i.ZERO, "avoidance": {},
 		"hp": int(content.units[type].hp), "order": {}, "ready_tick": 0, "production": [], "construction": {}, "veil_networks": [],
 		"nacre": 0, "mining_ready_tick": 0,
-		"facing": [0, 0, -SCALE],
+		"facing": Vector3i(0, 0, -SCALE),
 		"spawn_source": 0, "passive_started_tick": int(state.tick), "passive_remaining": int(content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0)),
 		"chyme": 0, "next_chyme_tick": int(state.tick) + int(content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0)),
 		"veil_stance": {"mode": "neutral", "network": 0, "order": 0, "target": [], "expires": 0}})
@@ -539,7 +552,7 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 			point[axis] = int(point[axis]) + (int(waypoint[axis]) - int(point[axis])) * speed / distance
 	var intended: Array = point # Steering reads the input; it returns a fresh array when deflecting.
 	point = Steering.choose(self, actor, point, speed, movement, waypoint, reach if point_order and waypoint == destination else 0)
-	actor.velocity = [int(point[0]) - int(actor.position[0]), 0, int(point[2]) - int(actor.position[2])]
+	actor.velocity = Vector3i(int(point[0]) - int(actor.position[0]), 0, int(point[2]) - int(actor.position[2]))
 	if point != intended and point != actor.position:
 		_face(actor, point)
 		actor.navigation.deviated = true
@@ -551,14 +564,14 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 	if point_order and distance_squared(point, destination) <= reach * reach: actor.order = {}; actor.navigation = {}; actor.avoidance = {"settled_goal": destination.duplicate()}
 	return true
 
-func previous_velocity(actor: Dictionary) -> Array:
+func previous_velocity(actor: Dictionary):
 	return _velocity_snapshot.get(int(actor.id), actor.get("velocity", [0, 0, 0]))
 
 func _face(actor: Dictionary, destination: Array) -> void:
 	var origin := Geometry.center(self, actor)
 	var q := int(destination[0]) - int(origin[0])
 	var r := int(destination[2]) - int(origin[2])
-	if q != 0 or r != 0: actor.facing = [q, 0, r]
+	if q != 0 or r != 0: actor.facing = Vector3i(q, 0, r)
 
 func _nearest_enemy(actor: Dictionary):
 	var best = null

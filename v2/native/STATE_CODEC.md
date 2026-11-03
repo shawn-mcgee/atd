@@ -31,6 +31,9 @@ length and UTF-8 bytes; persistent native caches never assign snapshot IDs.
 The encoder uses tag 7 whenever a small keyset has already appeared. Integral
 floats within int64 range encode as integers, matching JSON restoration's scalar
 normalization. Interned names encode as strings. Gameplay scalar state is integer.
+Runtime `Vector3i` values encode exactly as tag 5 followed by three integer
+components. Decoders return ordinary arrays. This preserves existing bytes,
+schema IDs, protocol 23 hashes and version 16 JSON checkpoints.
 The native encoder retains at most four large keysets, checking size and complete
 membership before reuse. Parent keysets remain owned during nested eviction.
 This skips repeated sorting of stable revelation maps without retaining values
@@ -54,6 +57,10 @@ otherwise. Both validate the complete packet and build fresh containers without
 scene objects or pointers into the encoded buffer. Dictionary restoration normalizes
 scalars. Both discard derived movement/light/discovery caches. Public
 `checkpoint()`/`restore()` retain their editable JSON-compatible dictionary API.
+Internal dictionary snapshots retain compact velocity/facing values. Public and
+diagnostic checkpoints expand them into independent integer arrays. Restoring JSON
+or packed snapshots rebuilds compact motion when all components fit signed int32;
+legacy motion outside that range remains an array without narrowing.
 Diagnostic checkpoint requests return independent state dictionaries. Snapshot bytes
 are internal history; peers exchange commands and hashes, not these snapshots.
 

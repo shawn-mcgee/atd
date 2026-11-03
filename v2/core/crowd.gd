@@ -40,7 +40,7 @@ var _epoch := 0
 func _init(accelerated: bool = true) -> void:
 	if accelerated and ClassDB.class_exists("ATDMovementKernel"):
 		var candidate = ClassDB.instantiate("ATDMovementKernel") as RefCounted
-		if int(candidate.call("abi_version")) == 15: backend = candidate
+		if int(candidate.call("abi_version")) == 16: backend = candidate
 
 @warning_ignore("integer_division")
 static func coordinate(value: int) -> int:
@@ -66,7 +66,7 @@ func rebuild(actors: Array, definitions: Dictionary, velocities: Dictionary) -> 
 		body.actor = actor; body.id = int(actor.id); body.owner = int(actor.owner)
 		body.radius = int(round(float(definition.get("collision_radius", 0.2)) * S))
 		body.q = int(actor.position[0]); body.r = int(actor.position[2])
-		var velocity: Array = velocities.get(body.id, actor.get("velocity", [0, 0, 0]))
+		var velocity = velocities.get(body.id, actor.get("velocity", Vector3i.ZERO))
 		body.vq = int(velocity[0]); body.vr = int(velocity[2])
 		body.bucket = Vector2i(coordinate(body.q), coordinate(body.r))
 		if not owners.has(body.owner): owners.append(body.owner)

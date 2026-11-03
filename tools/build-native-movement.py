@@ -63,12 +63,14 @@ def main():
     int_resize = next(item for item in int_array["methods"] if item["name"] == "resize")
     array = next(item for item in definitions["builtin_classes"] if item["name"] == "Array")
     array_resize = next(item for item in array["methods"] if item["name"] == "resize")
+    point_constructor = next(item["index"] for item in array["constructors"]
+                             if [arg["type"] for arg in item.get("arguments", [])] == ["PackedInt64Array"])
     dictionary = next(item for item in definitions["builtin_classes"] if item["name"] == "Dictionary")
     has_all = next(item for item in dictionary["methods"] if item["name"] == "has_all")
     array_size = next(item for item in array["methods"] if item["name"] == "size")
     dictionary_size = next(item for item in dictionary["methods"] if item["name"] == "size")
     byte_size = next(item for item in byte_array["methods"] if item["name"] == "size")
-    used = {"Variant", "String", "StringName", "PackedInt64Array", "PackedByteArray", "Array", "Dictionary"}
+    used = {"Variant", "Vector3i", "String", "StringName", "PackedInt64Array", "PackedByteArray", "Array", "Dictionary"}
     for config in definitions["builtin_class_sizes"]:
         if any(item["size"] > 64 for item in config["sizes"] if item["name"] in used):
             raise RuntimeError("Godot builtin storage exceeds the movement adapter ABI")
@@ -76,7 +78,8 @@ def main():
     hashes = {"ATD_NOTIFICATION_HASH": notification["hash"], "ATD_BYTE_RESIZE_HASH": resize["hash"],
               "ATD_INT_RESIZE_HASH": int_resize["hash"], "ATD_ARRAY_RESIZE_HASH": array_resize["hash"],
               "ATD_HAS_ALL_HASH": has_all["hash"], "ATD_ARRAY_SIZE_HASH": array_size["hash"],
-              "ATD_DICTIONARY_SIZE_HASH": dictionary_size["hash"], "ATD_BYTE_SIZE_HASH": byte_size["hash"]}
+              "ATD_DICTIONARY_SIZE_HASH": dictionary_size["hash"], "ATD_BYTE_SIZE_HASH": byte_size["hash"],
+              "ATD_ARRAY_FROM_INTS": point_constructor}
     generated.write_text("".join(f"#define {name} {value}ULL\n" for name, value in hashes.items()))
     digest = hashlib.sha256()
     digest.update(Path(__file__).read_bytes())

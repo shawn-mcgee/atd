@@ -110,7 +110,7 @@ static func _change(game, actor: Dictionary, type: String) -> void:
 	actor.production = []
 	actor.construction = {}
 	actor.navigation = {}
-	actor.velocity = [0, 0, 0]
+	actor.velocity = Vector3i.ZERO
 	actor.avoidance = {}
 	game.Rally.reset(game, actor)
 	actor.ready_tick = maxi(int(actor.ready_tick), int(game.state.tick))

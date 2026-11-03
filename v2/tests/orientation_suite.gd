@@ -29,13 +29,13 @@ func run() -> Dictionary:
 	var players := [{"id": 1, "faction": "human", "controller": "human"}, {"id": 9, "faction": "lightless", "controller": "human"}]
 	var game = Sim.new()
 	game.initialize(definitions, players, 42)
-	_check(game.entity(2).facing == [0, 0, -Sim.SCALE], "actors start facing the negative-r hex direction")
+	_check(game.entity(2).facing == Vector3i(0, 0, -Sim.SCALE), "actors start facing the negative-r hex direction")
 	var point := [int(game.entity(2).position[0]) + 1024, 0, int(game.entity(2).position[2]) + 1024]
 	game.step([{"player": 1, "kind": "move", "actors": [2], "point": point}])
-	_check(game.entity(2).facing == [1024, 0, 1024], "movement records an integer axial facing")
+	_check(game.entity(2).facing == Vector3i(1024, 0, 1024), "movement records an integer axial facing")
 	var saved: Dictionary = Canonical.normalize(JSON.parse_string(Canonical.text(game.checkpoint())))
 	for tick in 40: game.step([])
-	var idle: Array = game.entity(2).facing.duplicate()
+	var idle: Vector3i = game.entity(2).facing
 	var expected: String = game.state_hash()
 	game.restore(saved)
 	for tick in 40: game.step([])
@@ -56,7 +56,7 @@ func run() -> Dictionary:
 	game.entity(5).position = [7 * Sim.SCALE, 0, 0]
 	game.entity(5).chyme = 2
 	game.step([{"player": 9, "kind": "deliver_chyme", "actors": [5], "target": 4}])
-	_check(game.entity(5).facing == [Sim.SCALE, 0, 0], "delivery faces its receiver without requiring movement")
+	_check(game.entity(5).facing == Vector3i(Sim.SCALE, 0, 0), "delivery faces its receiver without requiring movement")
 	var larger: Dictionary = definitions.duplicate(true)
 	larger.units.engineer.visual = {"shape": "cylinder", "radius": 3, "color": "eac45e"}
 	var twin = Sim.new()

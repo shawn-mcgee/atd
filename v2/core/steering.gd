@@ -57,7 +57,7 @@ static func _separate_native(game, actor: Dictionary, crowd: Crowd, body: Crowd.
 		var score := int(crowd.backend.call("pressure", body.id, Vector2i(int(point[0]), int(point[2]))))
 		if score < pressure and _native_legal(game, crowd, body, point, data.blocked, false, body.radius + distance + 2): pressure = score; best = point
 	if best != actor.position:
-		actor.velocity = [int(best[0]) - body.q, 0, int(best[2]) - body.r]
+		actor.velocity = Vector3i(int(best[0]) - body.q, 0, int(best[2]) - body.r)
 		game._face(actor, best)
 		game.invalidate_unit_caches(body.owner)
 		game.invalidate_light(actor)
@@ -219,7 +219,7 @@ static func separate_idle(game, actor: Dictionary) -> void:
 		var score := _pressure(body, int(point[0]), int(point[2]), friends)
 		if score < pressure and _legal(game, body, point, data.blocked, enemies, false): pressure = score; best = point
 	if best != actor.position:
-		actor.velocity = [int(best[0]) - body.q, 0, int(best[2]) - body.r]
+		actor.velocity = Vector3i(int(best[0]) - body.q, 0, int(best[2]) - body.r)
 		game._face(actor, best)
 		game.invalidate_unit_caches(body.owner)
 		game.invalidate_light(actor)

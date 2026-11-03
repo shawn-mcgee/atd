@@ -58,10 +58,26 @@ async function main() {
   const native = JSON.parse(fs.readFileSync(nativeLog, 'utf8').split('\n').find(line => line.startsWith('ATD_RESULT ')).slice(11));
   if (foundation.checks !== native.checks) throw new Error('Native/browser test counts differ; rebuild the Web export');
   if (foundation.deterministic_hash !== native.deterministic_hash) throw new Error('Native/browser deterministic hashes differ');
-  const benchmark = args.includes('--benchmark')
-    ? (await state(host, 'benchmark', '--opposing --large --verify' + (args.includes('--codecs') ? ' --codecs' : ''))).benchmark : null;
+  const benchmarkOptions = ['--codecs', '--packed-checkpoints', '--dictionary-checkpoints'].filter(flag => args.includes(flag)).join(' ');
+  const benchmark = args.includes('--benchmark') || args.includes('--benchmark-only') || args.includes('--compare-checkpoints')
+    ? (await state(host, 'benchmark', '--opposing --large --verify ' + benchmarkOptions)).benchmark : null;
   if (benchmark && !benchmark.ok) throw new Error('Browser movement collision/replay verification failed');
   if (benchmark) fs.writeFileSync(path.join(results, 'movement-browser.json'), JSON.stringify(benchmark, null, 2));
+  const checkpointComparison = [];
+  if (args.includes('--compare-checkpoints')) {
+    for (const format of ['--packed-checkpoints', '--dictionary-checkpoints', '--dictionary-checkpoints', '--packed-checkpoints']) {
+      const result = (await state(host, 'benchmark', '--opposing --large --verify ' + format)).benchmark;
+      if (!result.ok) throw new Error('Checkpoint comparison collision/replay verification failed');
+      if (benchmark && result.reports[0].final_hash !== benchmark.reports[0].final_hash) throw new Error('Checkpoint formats changed the stress state');
+      checkpointComparison.push({ option: format, ...result.reports[0] });
+    }
+    fs.writeFileSync(path.join(results, 'checkpoint-comparison-browser.json'), JSON.stringify(checkpointComparison, null, 2));
+  }
+  if (args.includes('--benchmark-only')) {
+    if (errors.length) throw new Error(errors.join('\n'));
+    console.log(JSON.stringify({ok: true, native_browser_hash: foundation.deterministic_hash, foundation_checks: foundation.checks, benchmark, checkpoint_comparison: checkpointComparison}));
+    return;
+  }
   await host.screenshot({ path: path.join(results, 'configurator.png') });
   // Exercise actual browser downloads/upload, preserving editable project files.
   const projectDownload = host.waitForEvent('download');
@@ -170,7 +186,7 @@ async function main() {
   }
   if (errors.length) throw new Error(errors.join('\n'));
   const result = { ok: true, native_browser_hash: foundation.deterministic_hash, foundation_checks: foundation.checks,
-    browser_match: comparison, native_browser_match: nativeBrowserMatch, benchmark, screenshots: ['configurator.png', 'arena.png', 'veil.png'] };
+    browser_match: comparison, native_browser_match: nativeBrowserMatch, benchmark, checkpoint_comparison: checkpointComparison, screenshots: ['configurator.png', 'arena.png', 'veil.png'] };
   fs.writeFileSync(path.join(results, 'browser.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 }

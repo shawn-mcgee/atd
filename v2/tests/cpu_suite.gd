@@ -14,8 +14,10 @@ var failures: Array[String] = []
 
 func run() -> Dictionary:
 	_state_codec()
+	_motion_checkpoints()
 	_native_equivalence()
 	_batch_handlers()
+	_automatic_batch_boundaries()
 	for bits in 63:
 		for offset in [-1, 0, 1]:
 			var value: int = (1 << bits) + offset
@@ -74,7 +76,7 @@ func _state_codec() -> void:
 	var game = Fixture.new()._game()
 	game.packed_rollback = true
 	var backend = game._crowd.backend
-	var samples: Array = [null, false, true, -9223372036854775807 - 1, 9223372036854775807, -65, -64, 175, 176, 1.25, 1.0, -0.0, "雪 ☃ 😀", "\"\\\n\v", &"named", [], {}, [{"a": 1}, {"a": 2}], {&"z": 2, "a": [false]}]
+	var samples: Array = [null, false, true, -9223372036854775807 - 1, 9223372036854775807, -65, -64, 175, 176, 1.25, 1.0, -0.0, "雪 ☃ 😀", "\"\\\n\v", &"named", [], {}, [{"a": 1}, {"a": 2}], {&"z": 2, "a": [false]}, Vector3i.ZERO, Vector3i(-2147483648, 2147483647, -1), {"nested": [Vector3i(176, -65, 1024)]}]
 	for value in samples:
 		var sample := {"value": value}
 		var packed := StateCodec.pack(sample)
@@ -119,6 +121,12 @@ func _state_codec() -> void:
 			var expected = StateCodec.unpack(mutated)
 			var actual = backend.call("state_unpack", mutated)
 			_check((expected == null and actual == null) or (expected is Dictionary and actual is Dictionary and StateCodec.pack(actual) == StateCodec.pack(expected)), "compiled decoding matches reference validation on deterministic byte mutations and Unicode keysets")
+	for levels in [126, 127]:
+		var nested = Vector3i.ZERO
+		for level in levels: nested = [nested]
+		var packed := StateCodec.pack({"value": nested})
+		_check(packed.is_empty() == (levels == 127), "compact vectors preserve the array encoding depth limit")
+		if backend != null: _check(backend.call("state_pack", {"value": nested}) == packed, "native compact-vector depth checks match the reference")
 	var frame: Dictionary = game.rollback_checkpoint()
 	var original: String = game.state_hash()
 	game.step([])
@@ -136,6 +144,55 @@ func _state_codec() -> void:
 	var fixture = Fixture.new(); reference.initialize(fixture._definitions(), fixture._players(), 42)
 	reference.restore(game.checkpoint())
 	_check(reference.state_hash() == game.state_hash(), "reference and compiled sessions share the ATD1 hash format")
+
+func _motion_checkpoints() -> void:
+	var game = Fixture.new()._game()
+	game.packed_rollback = false
+	game.entity(2).velocity = Vector3i(73, 0, -18)
+	game.entity(2).facing = Vector3i(1024, 0, -512)
+	var original: String = game.state_hash()
+	var internal: Dictionary = game.rollback_checkpoint()
+	var public: Dictionary = game.checkpoint()
+	_check(internal.state.actors[1].velocity is Vector3i and public.actors[1].velocity == [73, 0, -18] and public.actors[1].facing == [1024, 0, -512], "internal snapshots retain compact motion while public checkpoints expose integer arrays")
+	_check(game.packed_state(internal.state) == game.packed_state(public), "compact and public motion have identical canonical bytes")
+	var parsed: Dictionary = JSON.parse_string(JSON.stringify(public))
+	_check(parsed.actors[1].velocity is Array and parsed.actors[1].facing is Array, "ordinary public checkpoint JSON preserves motion arrays")
+	game.restore(parsed)
+	_check(game.entity(2).velocity is Vector3i and game.entity(2).facing is Vector3i and game.state_hash() == original, "JSON restore rebuilds compact motion without changing state")
+	var packed: Dictionary = game.rollback_checkpoint(true)
+	game.entity(2).velocity[0] = 99
+	game.restore_rollback(packed)
+	_check(game.state_hash() == original and game.entity(2).velocity is Vector3i, "packed restore rebuilds independent compact motion")
+	var session = Rollback.new(); session.checkpoints[0] = internal
+	var debug: Dictionary = session.checkpoint_state(0)
+	debug.actors[1].velocity[0] = 123
+	public.actors[1].facing[0] = 321
+	_check(internal.state.actors[1].velocity == Vector3i(73, 0, -18) and game.state_hash() == original, "editable public and debug motion arrays never mutate live or retained snapshots")
+	var wide: Dictionary = game.checkpoint(); wide.actors[1].velocity = [1 << 40, 0, 0]
+	game.restore(wide)
+	_check(game.entity(2).velocity == [1 << 40, 0, 0] and game.state_hash() == StateCodec.hash_bytes(StateCodec.pack(wide)), "restore preserves legacy int64 motion outside the compact range")
+
+func _automatic_batch_boundaries() -> void:
+	for scenario in ["neutral", "empty_target", "expired", "stale_order", "active", "manual"]:
+		var game = Fixture.new()._game()
+		game.entity(5).position = [0, 0, 0]
+		game.entity(3).position = [3072, 0, 0]
+		game.state.tick = 10
+		var actor = game.entity(5)
+		actor.veil_stance = {"mode": "offensive", "network": 1, "order": 1, "target": [-4096, 0, 0], "expires": 50}
+		actor.order = {"kind": "move", "point": [-6144, 0, 0]}
+		match scenario:
+			"neutral": actor.veil_stance.mode = "neutral"
+			"empty_target": actor.veil_stance.target = []
+			"expired": actor.veil_stance.expires = 10
+			"stale_order": actor.veil_stance.mode = "neutral"; actor.order.veil_order = true
+			"manual": actor.order.manual = true
+		var reference = Sim.new(); reference.accelerated = false
+		reference.initialize(game.content, game.state.players, 42); reference.restore(game.checkpoint())
+		game.step([]); reference.step([])
+		_check(game.state_hash() == reference.state_hash(), "automatic batch boundary matches reference for %s stance/order" % scenario)
+		if scenario == "active": _check(actor.order.get("kind") == "attack", "active mobile stance still performs due automatic targeting")
+		if scenario == "stale_order": _check(actor.order.is_empty(), "inactive old Veil order is still cleared on the due tick")
 
 func _batch_handlers() -> void:
 	if not ClassDB.class_exists("ATDMovementKernel"): return
@@ -165,9 +222,9 @@ func _tick_velocity_capture() -> void:
 	var positions: Array = game.state.actors.map(func(actor): return actor.position.duplicate())
 	var previous: Dictionary = game._crowd.backend.call("begin_tick", game.state.actors)
 	_check(previous.size() == game.state.actors.size() and previous[2] == [73, 0, -18] and previous[5] == [-31, 0, 97], "native tick capture retains previous velocities using actor IDs")
-	_check(game.state.actors.all(func(actor): return actor.velocity == [0, 0, 0]) and game.state.actors.map(func(actor): return actor.position) == positions, "native tick capture clears every velocity without changing position")
+	_check(game.state.actors.all(func(actor): return actor.velocity == Vector3i.ZERO) and game.state.actors.map(func(actor): return actor.position) == positions, "native tick capture clears every velocity without changing position")
 	game.entity(2).velocity[0] = 99
-	_check(game.entity(5).velocity == [0, 0, 0] and previous[2] == [73, 0, -18], "velocity resets leave actor and retained arrays independent")
+	_check(game.entity(5).velocity == Vector3i.ZERO and previous[2] == [73, 0, -18], "velocity resets leave actor and retained arrays independent")
 	game.entity(2).velocity = [25, 0, 13]
 	var next: Dictionary = game._crowd.backend.call("begin_tick", game.state.actors)
 	_check(next[2] == [25, 0, 13] and previous[2] == [73, 0, -18], "successive native captures never alias earlier snapshot values")

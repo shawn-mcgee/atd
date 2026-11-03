@@ -9,11 +9,15 @@ func run(args: PackedStringArray) -> Dictionary:
 	var reports: Array = []
 	var verified := "--verify" in args
 	var valid := true
+	if "--packed-checkpoints" in args and "--dictionary-checkpoints" in args:
+		return {"ok": false, "reports": [], "error": "Choose one checkpoint format"}
 	for count in ([64] if "--large" in args else [16, 32, 64]):
 		var fixture = Fixture.new()
 		var game = Sim.new()
 		game.accelerated = not "--reference" in args
 		game.initialize(fixture._definitions(), fixture._players(), 42)
+		if "--packed-checkpoints" in args: game.packed_rollback = true
+		elif "--dictionary-checkpoints" in args: game.packed_rollback = false
 		if "--require-native" in args and game._crowd.backend == null:
 			return {"ok": false, "reports": [], "error": "Compiled movement kernel is unavailable"}
 		var movers: Array = []
@@ -63,6 +67,11 @@ func run(args: PackedStringArray) -> Dictionary:
 			if i < 10: cold += int(samples[i])
 			else: steady += int(samples[i])
 		var sorted := samples.duplicate(); sorted.sort()
+		var ranked: Array = range(samples.size())
+		ranked.sort_custom(func(a, b): return samples[a] > samples[b])
+		var slowest: Array = []
+		for index in ranked.slice(0, 3):
+			slowest.append({"tick": int(index) + 1, "total_us": samples[index], "step_us": steps[index], "checkpoint_us": copies[index], "hash_boundary": (int(index) + 1) % 20 == 0})
 		var final_hash: String = game.state_hash()
 		var state_json_hash := Canonical.hash_of(game.state)
 		if verified:
@@ -82,6 +91,7 @@ func run(args: PackedStringArray) -> Dictionary:
 			"mean_us": _mean(samples), "first_10_mean_us": cold / 10, "next_50_mean_us": steady / 50, "p95_us": sorted[56], "peak_us": sorted.back(),
 			"step_mean_us": _mean(steps), "checkpoint_mean_us": _mean(copies), "hash_mean_us": _mean(hashes), "final_hash": final_hash,
 			"ordinary_mean_us": _mean(ordinary), "hash_boundary_mean_us": _mean(boundaries), "hash_boundary_peak_us": boundaries.max(),
+			"slowest_ticks": slowest,
 			"state_json_hash": state_json_hash, "snapshot_bytes": history.back().get("packed", PackedByteArray()).size(), "checkpoint_format": "packed" if game.packed_rollback else "mixed",
 			"verification": ("passed" if valid else "failed") if verified else "not_requested"}
 		if "--codecs" in args: report.codecs = _codecs(game)
@@ -93,6 +103,7 @@ static func _codecs(game) -> Dictionary:
 	# Diagnostic comparison only. Codec timing never changes the measured tick,
 	# retained checkpoint format, gameplay or protocol hash.
 	var result: Dictionary = {}
+	var exported: Dictionary = game.checkpoint()
 	for kind in ["selected_atd1", "gdscript_atd1", "sorted_json", "godot_binary", "dictionary"]:
 		var samples: Array = []; var size := 0
 		for repeat in 8:
@@ -100,9 +111,9 @@ static func _codecs(game) -> Dictionary:
 			match kind:
 				"selected_atd1": size = game.packed_state().size()
 				"gdscript_atd1": size = preload("res://core/state_codec.gd").pack(game.state).size()
-				"sorted_json": size = JSON.stringify(game.state, "", true, true).length()
+				"sorted_json": size = JSON.stringify(exported, "", true, true).length()
 				"godot_binary": size = var_to_bytes(game.state).size()
-				"dictionary": game.checkpoint()
+				"dictionary": game.state.duplicate(true)
 			samples.append(Time.get_ticks_usec() - start)
 		result[kind] = {"mean_us": _mean(samples), "peak_us": samples.max(), "size": size}
 	return result

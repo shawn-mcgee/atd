@@ -116,7 +116,7 @@ func _save() -> void:
 
 func checkpoint_state(tick: int) -> Dictionary:
 	if not checkpoints.has(tick): return {}
-	if checkpoints[tick].has("state"): return checkpoints[tick].state.duplicate(true)
+	if checkpoints[tick].has("state"): return Simulation.export_checkpoint(checkpoints[tick].state)
 	var decoded = simulation.unpack_state(checkpoints[tick].packed)
 	return decoded if decoded is Dictionary else {}
 

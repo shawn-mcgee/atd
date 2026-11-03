@@ -60,9 +60,10 @@ GDExtensionVariantFromTypeConstructorFunc variant_from[GDEXTENSION_VARIANT_TYPE_
 GDExtensionTypeFromVariantConstructorFunc variant_to[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{};
 GDExtensionPtrDestructor destroy_type[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{};
 GDExtensionPtrConstructor empty_type[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{}, array_copy;
+GDExtensionPtrConstructor array_from_ints;
 GDExtensionClassLibraryPtr library;
 Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, duplicate_name{}, method_names[23]{}, argument_names[7]{};
-enum Field { ID, POSITION, FACING, VELOCITY, AVOIDANCE, NAVIGATION, WAIT, SIDE, PASS, DEVIATED, SETTLED_GOAL, PROGRESS_FOR, PROGRESS_BEST, PROGRESS_TICK, ORDER, KEY, PATH, DIRECT, BLOCKED, DEFINITION, OWNER, HP, CAPS, MOVE, COLLISION_RADIUS, KIND, MANUAL, START_TICK, POINT, PRODUCTION, CONSTRUCTION, CHYME_SOURCE, PASSIVE_SPAWNER, SPEED, ILLUMINATION, LIGHT_BLOCKER, BATCH_COUNT, BATCH_CHANGED, LIGHT_DIRTY, WEAPON, PERCEPTION, RADIUS, FIELD_COUNT };
+enum Field { ID, POSITION, FACING, VELOCITY, AVOIDANCE, NAVIGATION, WAIT, SIDE, PASS, DEVIATED, SETTLED_GOAL, PROGRESS_FOR, PROGRESS_BEST, PROGRESS_TICK, ORDER, KEY, PATH, DIRECT, BLOCKED, DEFINITION, OWNER, HP, CAPS, MOVE, COLLISION_RADIUS, KIND, MANUAL, START_TICK, POINT, PRODUCTION, CONSTRUCTION, CHYME_SOURCE, PASSIVE_SPAWNER, SPEED, ILLUMINATION, LIGHT_BLOCKER, BATCH_COUNT, BATCH_CHANGED, LIGHT_DIRTY, WEAPON, PERCEPTION, RADIUS, VEIL_ORDER, VEIL_STANCE, MODE, TARGET, EXPIRES, FIELD_COUNT };
 Storage field_names[FIELD_COUNT]{};
 GDExtensionMethodBindPtr notification;
 GDExtensionPtrBuiltInMethod byte_resize;
@@ -112,8 +113,24 @@ struct Kernel {
     std::unordered_map<int64_t, std::unique_ptr<ActorRef>> actors;
     std::unordered_map<int64_t, SimpleRule> simple_rules;
     std::map<std::tuple<int64_t, int64_t, int64_t>, std::unique_ptr<DirectRoute>> direct_routes;
-    Kernel() { api.nil(&world_hash); }
-    ~Kernel() { api.destroy(&world_hash); }
+#ifdef __EMSCRIPTEN__
+    Storage point_components{};
+    int64_t *point_data = nullptr;
+#endif
+    Kernel() {
+        api.nil(&world_hash);
+#ifdef __EMSCRIPTEN__
+        empty_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&point_components, nullptr);
+        int64_t size = 3, error = 0; const void *arguments[] = {&size}; int_resize(&point_components, arguments, &error, 1);
+        point_data = api.int_index(&point_components, 0);
+#endif
+    }
+    ~Kernel() {
+        api.destroy(&world_hash);
+#ifdef __EMSCRIPTEN__
+        destroy_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&point_components);
+#endif
+    }
 };
 int arity(uintptr_t op) { return op == 22 ? 1 : op == 21 ? 4 : op == 20 ? 7 : op == 19 ? 4 : op == 18 ? 0 : op == 16 ? 3 : op == 13 ? 6 : op == 12 ? 4 : op == 11 ? 3 : op == 10 ? 2 : op == 9 ? 3 : op == 8 ? 5 : op == 5 ? 0 : op == 2 ? 7 : op == 3 ? 3 : (op == 1 || op == 4) ? 2 : 1; }
 GDExtensionVariantType argument_type(uintptr_t op, int index) {
@@ -166,7 +183,19 @@ void set_bool(GDExtensionVariantPtr parent, Field field, GDExtensionBool b) {
     Storage value{}; variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](&value, &b);
     GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid); api.destroy(&value);
 }
-void point_variant(GDExtensionVariantPtr result, atd::Point point) {
+void point_variant(GDExtensionVariantPtr result, atd::Point point, Kernel *kernel = nullptr) {
+#ifdef __EMSCRIPTEN__
+    if (kernel) {
+        // Copy from private integer scratch in one engine call. The resulting
+        // ordinary Array owns its values and never shares the scratch buffer.
+        kernel->point_data[0] = point.q; kernel->point_data[1] = 0; kernel->point_data[2] = point.r;
+        Storage array{}; const void *arguments[] = {&kernel->point_components};
+        array_from_ints(&array, arguments);
+        variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](result, &array);
+        destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
+        return;
+    }
+#endif
     Storage array{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, nullptr);
     int64_t size = 3, error = 0; const void *arguments[] = {&size}; array_resize(&array, arguments, &error, 1);
     int64_t coordinates[] = {point.q, 0, point.r};
@@ -177,8 +206,12 @@ void point_variant(GDExtensionVariantPtr result, atd::Point point) {
     variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](result, &array);
     destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
 }
-void set_point(GDExtensionVariantPtr parent, Field field, atd::Point point) {
-    Storage value{}; point_variant(&value, point);
+void set_point(Kernel &kernel, GDExtensionVariantPtr parent, Field field, atd::Point point) {
+    Storage value{};
+    if ((field == VELOCITY || field == FACING) && point.q >= INT32_MIN && point.q <= INT32_MAX && point.r >= INT32_MIN && point.r <= INT32_MAX) {
+        int32_t coordinates[] = {static_cast<int32_t>(point.q), 0, static_cast<int32_t>(point.r)};
+        variant_from[GDEXTENSION_VARIANT_TYPE_VECTOR3I](&value, coordinates);
+    } else point_variant(&value, point, &kernel);
     GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid);
     api.destroy(&value);
 }
@@ -186,34 +219,42 @@ int64_t field_integer(GDExtensionConstVariantPtr parent, Field field, int64_t fa
     Value value(parent, field);
     return api.type(value) == GDEXTENSION_VARIANT_TYPE_INT ? integer(value) : fallback;
 }
-void advance(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::Point goal, int64_t speed, int64_t stop, int64_t hz, GDExtensionVariantPtr result, int64_t collision_radius = -1) {
-    Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
-    Storage array{}; variant_to[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, position);
-    atd::Point origin{integer(api.array_index(&array, 0)), integer(api.array_index(&array, 2))};
-    destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
-    auto out = kernel.movement.advance(field_integer(actor_value, ID), goal, speed, stop, hz,
-        field_integer(avoidance, WAIT), field_integer(avoidance, SIDE, 1), field_integer(avoidance, PASS),
-        [&](atd::Point next) { return collision_radius < 0 || kernel.world.clear(origin, next, collision_radius); });
-    auto actor = const_cast<void *>(actor_value);
-    if (goal.q != origin.q || goal.r != origin.r) set_point(actor, FACING, {goal.q - origin.q, goal.r - origin.r});
-    if (out.stepped) set_integer(avoidance, PASS, out.pass);
-    if (out.write_wait) set_integer(avoidance, WAIT, out.wait);
-    if (out.write_side) set_integer(avoidance, SIDE, out.side);
-    atd::Point velocity{out.point.q - origin.q, out.point.r - origin.r};
-    set_point(actor, VELOCITY, velocity);
-    GDExtensionBool moved = velocity.q != 0 || velocity.r != 0;
-    if (moved && (out.point.q != out.intended.q || out.point.r != out.intended.r)) {
-        set_point(actor, FACING, velocity);
-        Value navigation(actor_value, NAVIGATION); set_bool(navigation, DEVIATED, true);
-    }
-    set_point(actor, POSITION, out.point);
-    variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](result, &moved);
-}
 atd::Point array_point(GDExtensionConstVariantPtr value) {
     Storage array{}; variant_to[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, const_cast<void *>(value));
     atd::Point result{integer(api.array_index(&array, 0)), integer(api.array_index(&array, 2))};
     destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array); return result;
 }
+// Direct point orders already own their position and avoidance values. Keep
+// integration results native instead of converting them to/from Variant again.
+bool advance_body(Kernel &kernel, GDExtensionConstVariantPtr actor_value, int64_t id, atd::Point origin,
+        GDExtensionVariantPtr avoidance, atd::Point goal, int64_t speed, int64_t stop, int64_t hz,
+        int64_t collision_radius, atd::Point &next) {
+    auto out = kernel.movement.advance(id, goal, speed, stop, hz,
+        field_integer(avoidance, WAIT), field_integer(avoidance, SIDE, 1), field_integer(avoidance, PASS),
+        [&](atd::Point next) { return collision_radius < 0 || kernel.world.clear(origin, next, collision_radius); });
+    auto actor = const_cast<void *>(actor_value);
+    if (goal.q != origin.q || goal.r != origin.r) set_point(kernel, actor, FACING, {goal.q - origin.q, goal.r - origin.r});
+    if (out.stepped) set_integer(avoidance, PASS, out.pass);
+    if (out.write_wait) set_integer(avoidance, WAIT, out.wait);
+    if (out.write_side) set_integer(avoidance, SIDE, out.side);
+    atd::Point velocity{out.point.q - origin.q, out.point.r - origin.r};
+    set_point(kernel, actor, VELOCITY, velocity);
+    GDExtensionBool moved = velocity.q != 0 || velocity.r != 0;
+    if (moved && (out.point.q != out.intended.q || out.point.r != out.intended.r)) {
+        set_point(kernel, actor, FACING, velocity);
+        Value navigation(actor_value, NAVIGATION); set_bool(navigation, DEVIATED, true);
+    }
+    set_point(kernel, actor, POSITION, out.point);
+    next = out.point;
+    return moved;
+}
+void advance(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::Point goal, int64_t speed, int64_t stop, int64_t hz, GDExtensionVariantPtr result, int64_t collision_radius = -1) {
+    Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
+    auto origin = array_point(position); atd::Point next;
+    GDExtensionBool moved = advance_body(kernel, actor_value, field_integer(actor_value, ID), origin, avoidance, goal, speed, stop, hz, collision_radius, next);
+    variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](result, &moved);
+}
+
 void settle(Kernel &kernel, GDExtensionConstVariantPtr actor_value, int64_t hz, GDExtensionVariantPtr result, bool static_checks = false) {
     Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
     Value goal(avoidance, SETTLED_GOAL);
@@ -226,7 +267,7 @@ void settle(Kernel &kernel, GDExtensionConstVariantPtr actor_value, int64_t hz, 
     if (changed) {
         auto actor = const_cast<void *>(actor_value);
         atd::Point velocity{next.q - origin.q, next.r - origin.r};
-        set_point(actor, VELOCITY, velocity); set_point(actor, FACING, velocity); set_point(actor, POSITION, next);
+        set_point(kernel, actor, VELOCITY, velocity); set_point(kernel, actor, FACING, velocity); set_point(kernel, actor, POSITION, next);
     }
     variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](result, &changed);
 }
@@ -561,11 +602,11 @@ void direct_navigation(GDExtensionVariantPtr actor, const DirectRoute &route) {
     GDExtensionBool valid; api.set_named(navigation, &field_names[KEY], &value, &valid);
     api.destroy(&value);
 }
-void arrived(GDExtensionVariantPtr actor, atd::Point goal) {
+void arrived(Kernel &kernel, GDExtensionVariantPtr actor, atd::Point goal) {
     set_empty(actor, ORDER, GDEXTENSION_VARIANT_TYPE_DICTIONARY);
     set_empty(actor, NAVIGATION, GDEXTENSION_VARIANT_TYPE_DICTIONARY);
     set_empty(actor, AVOIDANCE, GDEXTENSION_VARIANT_TYPE_DICTIONARY);
-    Value avoidance(actor, AVOIDANCE); set_point(avoidance, SETTLED_GOAL, goal);
+    Value avoidance(actor, AVOIDANCE); set_point(kernel, avoidance, SETTLED_GOAL, goal);
 }
 int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::Point goal, int64_t speed, int64_t tick, int64_t hz, int64_t revision) {
     if (!kernel.world.revision || kernel.world.revision != revision) return -1;
@@ -573,8 +614,9 @@ int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::
     Value position(actor, POSITION), avoidance(actor, AVOIDANCE), navigation(actor, NAVIGATION);
     auto origin = array_point(position);
     int64_t distance2 = atd::metric(origin.q - goal.q, origin.r - goal.r);
-    if (distance2 <= 1024 * 1024) { arrived(actor, goal); return 0; }
-    int64_t radius = kernel.movement.radius_of(field_integer(actor, ID));
+    if (distance2 <= 1024 * 1024) { arrived(kernel, actor, goal); return 0; }
+    int64_t id = field_integer(actor, ID);
+    int64_t radius = kernel.movement.radius_of(id);
     const DirectRoute &route = expected_route(kernel, goal, radius);
     bool cached = direct_key(navigation, route);
     bool retain = cached && (!field_bool(navigation, DEVIATED) || kernel.world.clear(origin, goal, radius + 2));
@@ -583,7 +625,7 @@ int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::
     int64_t remaining = atd::root(distance2);
     Value progress(avoidance, PROGRESS_FOR);
     if (api.type(progress) != GDEXTENSION_VARIANT_TYPE_ARRAY || !equal_values(progress, &route.point)) {
-        set_point(avoidance, PROGRESS_FOR, goal); set_integer(avoidance, PROGRESS_BEST, remaining); set_integer(avoidance, PROGRESS_TICK, tick);
+        set_point(kernel, avoidance, PROGRESS_FOR, goal); set_integer(avoidance, PROGRESS_BEST, remaining); set_integer(avoidance, PROGRESS_TICK, tick);
     } else if (field_integer(avoidance, PROGRESS_BEST) - remaining >= 64) {
         set_integer(avoidance, PROGRESS_BEST, remaining); set_integer(avoidance, PROGRESS_TICK, tick);
     } else if (tick - field_integer(avoidance, PROGRESS_TICK) >= std::max<int64_t>(2, hz / 2)) {
@@ -591,10 +633,9 @@ int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::
     }
     if (retain) set_bool(navigation, DEVIATED, false);
     else direct_navigation(actor, route);
-    Storage changed{}; advance(kernel, actor, goal, speed, 1024, hz, &changed, radius);
-    GDExtensionBool moved; variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&moved, &changed); api.destroy(&changed);
-    Value next_position(actor, POSITION); auto next = array_point(next_position);
-    if (atd::metric(next.q - goal.q, next.r - goal.r) <= 1024 * 1024) arrived(actor, goal);
+    atd::Point next;
+    bool moved = advance_body(kernel, actor, id, origin, avoidance, goal, speed, 1024, hz, radius, next);
+    if (atd::metric(next.q - goal.q, next.r - goal.r) <= 1024 * 1024) arrived(kernel, actor, goal);
     return moved ? 1 : 0;
 }
 
@@ -617,7 +658,7 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
         }
     }
     if (op == 5 && count == 0) {
-        int64_t version = 15;
+        int64_t version = 16;
         variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &version);
         return;
     }
@@ -723,7 +764,7 @@ void release(void *, GDExtensionClassInstancePtr instance) { delete static_cast<
 void initialize(void *, GDExtensionInitializationLevel level) {
     if (level != GDEXTENSION_INITIALIZATION_SCENE) return;
     for (auto type : {GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT, GDEXTENSION_VARIANT_TYPE_FLOAT,
-            GDEXTENSION_VARIANT_TYPE_STRING, GDEXTENSION_VARIANT_TYPE_STRING_NAME, GDEXTENSION_VARIANT_TYPE_VECTOR2I,
+            GDEXTENSION_VARIANT_TYPE_STRING, GDEXTENSION_VARIANT_TYPE_STRING_NAME, GDEXTENSION_VARIANT_TYPE_VECTOR2I, GDEXTENSION_VARIANT_TYPE_VECTOR3I,
             GDEXTENSION_VARIANT_TYPE_ARRAY, GDEXTENSION_VARIANT_TYPE_DICTIONARY,
             GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY}) {
         variant_from[type] = api.from(type); variant_to[type] = api.to(type);
@@ -734,6 +775,7 @@ void initialize(void *, GDExtensionInitializationLevel level) {
         destroy_type[type] = api.destructor(type); empty_type[type] = api.constructor(type, 0);
     }
     array_copy = api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 1);
+    array_from_ints = api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, ATD_ARRAY_FROM_INTS);
     api.name(&class_name, "ATDMovementKernel", false);
     api.name(&parent_name, "RefCounted", false);
     api.name(&object_name, "Object", false); api.name(&notification_name, "notification", false);
@@ -743,7 +785,7 @@ void initialize(void *, GDExtensionInitializationLevel level) {
     api.name(&keys_name, "keys", false); api.name(&resize_name, "resize", false);
     api.name(&has_all_name, "has_all", false);
     api.name(&duplicate_name, "duplicate", false);
-    const char *fields[] = {"id", "position", "facing", "velocity", "avoidance", "navigation", "wait", "side", "pass_ticks", "deviated", "settled_goal", "progress_for", "progress_best", "progress_tick", "order", "key", "path", "direct", "blocked", "definition", "owner", "hp", "capabilities", "move", "collision_radius", "kind", "manual", "start_tick", "point", "production", "construction", "chyme_source", "passive_spawner", "speed", "illumination", "light_blocker", "count", "changed", "light_dirty", "weapon", "perception", "radius"};
+    const char *fields[] = {"id", "position", "facing", "velocity", "avoidance", "navigation", "wait", "side", "pass_ticks", "deviated", "settled_goal", "progress_for", "progress_best", "progress_tick", "order", "key", "path", "direct", "blocked", "definition", "owner", "hp", "capabilities", "move", "collision_radius", "kind", "manual", "start_tick", "point", "production", "construction", "chyme_source", "passive_spawner", "speed", "illumination", "light_blocker", "count", "changed", "light_dirty", "weapon", "perception", "radius", "veil_order", "veil_stance", "mode", "target", "expires"};
     for (int i = 0; i < FIELD_COUNT; ++i) api.name(&field_names[i], fields[i], false);
     const char *labels[] = {"id", "point", "goal_or_reach", "speed", "stop_range", "tick_hz", "passing"};
     for (int i = 0; i < 7; ++i) api.name(&argument_names[i], labels[i], false);

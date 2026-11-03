@@ -715,6 +715,11 @@ Reports also separate ordinary-tick means from hash-boundary means and peaks.
 Add `--codecs` to the headless probe or browser harness for a separate comparison
 of ATD1, sorted JSON, Godot binary serialization and dictionary-copy costs.
 These eight-repeat diagnostics run after the stress measurement and verification.
+`--packed-checkpoints` and `--dictionary-checkpoints` override the format for a
+probe. The browser harness's `--compare-checkpoints` runs both formats in alternating
+order; `--benchmark-only` runs foundation/parity and stress verification without
+the UI/network exercise. Full browser validation remains the default workflow.
+Reports identify the three slowest ticks with their step and checkpoint costs.
 The probe uses the production rollback checkpoint and hash methods. Desktop
 reuses packed bytes; Web copies state on ordinary ticks and retains encoded bytes at hash boundaries because
 native deep copy is faster there. Reports identify the format, packed size and the ordinary
@@ -727,39 +732,41 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 3.719 ms | 5.630 ms | 6.628 ms |
-| Windows export (release, headless) | 2.887 ms | 4.446 ms | 8.134 ms |
-| Web export (release, headless Edge) | 5.898 ms | 9.400 ms | 11.500 ms |
+| Windows editor/headless (debug) | 2.224 ms | 4.052 ms | 4.509 ms |
+| Windows export (release, headless) | 3.243 ms | 5.371 ms | 8.030 ms |
+| Web export (release, headless Edge) | 5.685 ms | 8.500 ms | 10.200 ms |
 
 All probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows debug means split into 2.516 ms simulation and 1.193 ms packed
-checkpoint work, plus 0.169 ms on scheduled hash ticks. Web means are 4.021 ms,
-1.851 ms for mixed checkpoint work and 0.300 ms hashing retained bytes on hash
+The latest Windows debug means split into 1.442 ms simulation and 0.775 ms packed
+checkpoint work, plus 0.113 ms on scheduled hash ticks. Web means are 3.828 ms,
+1.840 ms for mixed checkpoint work and 0.200 ms hashing retained bytes on hash
 ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
 Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
 snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
 Timing varies with competing work; re-measure before comparing platforms.
-Web ordinary ticks averaged 5.819 ms; hash boundaries averaged 7.400 ms and
-peaked at 8.700 ms. Native movement reuses conversion callbacks and private route
+Web ordinary ticks averaged 5.638 ms; hash boundaries averaged 6.566 ms and
+peaked at 8.500 ms. Native movement reuses conversion callbacks and private route
 expectations, streams neighbor/contact queries and computes pressure from nearby
 allies. Ordering and scan limits match the reference; hard contact stays uncapped.
 The native tick-start pass captures previous velocities
-by integer actor ID and resets velocity arrays in one batch. Actor arrays remain
+by integer actor ID and resets compact integer velocity values in one batch.
+Velocity/facing use `Vector3i` internally; public JSON checkpoints and canonical
+bytes keep the same three-integer array representation. Snapshot copies remain
 independent, and the GDScript reference keeps the same capture semantics.
+Inactive mobile stance checks stay inside native point-order batches; active
+stances and stale Veil orders still use the general automatic-order handler.
 Mobile perception now reads actor data in a native batch and shares bounded
 unknown-tile envelopes across observers. Structure centers still use shared
 footprint geometry. Veil builds obstruction data only when growth is due and
 skips light and connection work when no membrane needs it. Both paths preserve
 the same state hashes, live content edits and restore behavior.
-Packed restoration uses the compiled decoder when available. A separate Windows
-probe measured 1.123 ms mean / 1.623 ms peak versus 4.769 ms mean for dictionary
-restoration, preserving the same final JSON state hash. This one-time restore
-cost is outside normal tick timings.
+Packed restoration uses the compiled decoder when available. Restoration rebuilds
+compact motion values and derived caches; its cost is outside normal tick timings.
 
 Run `res://tests/benchmark_frames.gd` with a display to measure the 1280x800 view
 in a sandbox warmed for 600 ticks, with both factions visible. It reports paused

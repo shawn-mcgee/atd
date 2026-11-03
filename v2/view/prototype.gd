@@ -1255,7 +1255,7 @@ func _material(color: Color, unshaded: bool = false) -> StandardMaterial3D:
 	if unshaded: material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	return material
 
-func _world(position: Array) -> Vector3:
+func _world(position) -> Vector3:
 	var q := float(position[0]) / Simulation.SCALE
 	var r := float(position[2]) / Simulation.SCALE
 	return Vector3(sqrt(3.0) * (q + r * 0.5), float(position[1]) / Simulation.SCALE, 1.5 * r)

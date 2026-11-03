@@ -2,6 +2,7 @@ extends RefCounted
 ## Stable wire/checkpoint representation. Gameplay stores only integer scalar state.
 
 static func normalize(value):
+	if value is Vector3i: return [value.x, value.y, value.z]
 	if value is Dictionary:
 		var result: Dictionary = {}
 		var keys: Array = value.keys()

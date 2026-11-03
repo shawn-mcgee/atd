@@ -31,6 +31,13 @@ struct StateWriter {
                 GDExtensionBool b; variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&b, const_cast<void *>(value)); out.push_back(b ? 2 : 1); return true;
             }
             case GDEXTENSION_VARIANT_TYPE_INT: integer(::integer(value)); return true;
+            case GDEXTENSION_VARIANT_TYPE_VECTOR3I: {
+                if (depth == 128) return false;
+                int32_t coordinates[3]; variant_to[GDEXTENSION_VARIANT_TYPE_VECTOR3I](coordinates, const_cast<void *>(value));
+                out.push_back(5); count(3);
+                for (auto coordinate : coordinates) integer(coordinate);
+                return true;
+            }
             case GDEXTENSION_VARIANT_TYPE_FLOAT: {
                 double n; variant_to[GDEXTENSION_VARIANT_TYPE_FLOAT](&n, const_cast<void *>(value));
                 if (!std::isfinite(n)) return false;

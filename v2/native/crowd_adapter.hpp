@@ -43,9 +43,15 @@ void prepare_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensi
             if (api.has_key(velocities, &key, &valid)) old = api.dictionary_index(&previous.storage, &key);
             api.destroy(&key);
         }
-        if (!old || api.type(old) != GDEXTENSION_VARIANT_TYPE_ARRAY) old = velocity;
+        auto old_type = old ? api.type(old) : GDEXTENSION_VARIANT_TYPE_NIL;
+        if (old_type != GDEXTENSION_VARIANT_TYPE_ARRAY && old_type != GDEXTENSION_VARIANT_TYPE_VECTOR3I) {
+            old = velocity; old_type = api.type(old);
+        }
         atd::Point delta{};
-        if (api.type(old) == GDEXTENSION_VARIANT_TYPE_ARRAY && count_of(old) == 3) delta = array_point(old);
+        if (old_type == GDEXTENSION_VARIANT_TYPE_VECTOR3I) {
+            int32_t coordinates[3]; variant_to[GDEXTENSION_VARIANT_TYPE_VECTOR3I](coordinates, const_cast<void *>(old));
+            delta = {coordinates[0], coordinates[2]};
+        } else if (old_type == GDEXTENSION_VARIANT_TYPE_ARRAY && count_of(old) == 3) delta = array_point(old);
         frame.insert(frame.end(), {id, owner, rule->second.radius, point.q, point.r, delta.q, delta.r});
         kernel.actors.emplace(id, std::make_unique<ActorRef>(actor));
         if (rule->second.simple) kernel.simple_rules.emplace(id, SimpleRule{rule->second.speed, rule->second.light, rule->second.weapon});
@@ -62,7 +68,7 @@ void begin_tick(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensionVa
         auto saved = api.dictionary_write(&previous, id); api.destroy(saved);
         if (velocity.valid) api.copy(saved, velocity);
         else point_variant(saved, {});
-        set_point(const_cast<void *>(actor), VELOCITY, {});
+        set_point(kernel, const_cast<void *>(actor), VELOCITY, {});
     }
     variant_from[GDEXTENSION_VARIANT_TYPE_DICTIONARY](result, &previous);
     destroy_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&previous);
@@ -118,6 +124,17 @@ void settle_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensio
     variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](result, &changed); destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&changed);
 }
 
+// Match Simulation._automatic_order's mobile branch. An inactive stance without
+// an old Veil order has no work; active stances and order clearing stay general.
+bool automatic_noop(Kernel &kernel, GDExtensionConstVariantPtr actor, GDExtensionConstVariantPtr order, int64_t tick) {
+    if (field_bool(order, VEIL_ORDER)) return false;
+    Value stance(actor, VEIL_STANCE), mode(stance, MODE);
+    if (key_text(kernel, mode) == "neutral") return true;
+    Value target(stance, TARGET);
+    if (!count_of(target)) return true;
+    int64_t expires = field_integer(stance, EXPIRES);
+    return expires != 0 && expires <= tick;
+}
 // Process a contiguous run of independent point orders and no-op idle actors.
 // Stop before general handlers, due automatic targeting or A*, preserving order.
 void point_orders(Kernel &kernel, GDExtensionConstVariantPtr actors, int64_t start, GDExtensionConstVariantPtr defeated, int64_t tick, int64_t hz, int64_t revision, bool sync, GDExtensionVariantPtr result) {
@@ -138,7 +155,7 @@ void point_orders(Kernel &kernel, GDExtensionConstVariantPtr actors, int64_t sta
         if (rule == kernel.simple_rules.end()) break;
         Value construction(actor, CONSTRUCTION), production(actor, PRODUCTION), order(actor, ORDER);
         if (count_of(construction) || count_of(production)) break;
-        if (rule->second.weapon && tick % 10 == 0 && !field_bool(order, MANUAL)) break;
+        if (rule->second.weapon && tick % 10 == 0 && !field_bool(order, MANUAL) && !automatic_noop(kernel, actor, order, tick)) break;
         if (!count_of(order)) { ++processed; continue; }
         Value kind(order, KIND);
         if (!kind.valid || key_text(kernel, kind) != "move") break;
