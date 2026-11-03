@@ -28,11 +28,11 @@ struct StateWriter {
         switch (api.type(value)) {
             case GDEXTENSION_VARIANT_TYPE_NIL: out.push_back(0); return true;
             case GDEXTENSION_VARIANT_TYPE_BOOL: {
-                GDExtensionBool b; api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&b, const_cast<void *>(value)); out.push_back(b ? 2 : 1); return true;
+                GDExtensionBool b; variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&b, const_cast<void *>(value)); out.push_back(b ? 2 : 1); return true;
             }
             case GDEXTENSION_VARIANT_TYPE_INT: integer(::integer(value)); return true;
             case GDEXTENSION_VARIANT_TYPE_FLOAT: {
-                double n; api.to(GDEXTENSION_VARIANT_TYPE_FLOAT)(&n, const_cast<void *>(value));
+                double n; variant_to[GDEXTENSION_VARIANT_TYPE_FLOAT](&n, const_cast<void *>(value));
                 if (!std::isfinite(n)) return false;
                 if (n == std::floor(n) && n >= -9223372036854775808.0 && n < 9223372036854775808.0) integer(static_cast<int64_t>(n));
                 else { uint64_t encoded; std::memcpy(&encoded, &n, 8); out.push_back(10); bits(encoded); }
@@ -131,8 +131,8 @@ void state_pack(Kernel &kernel, GDExtensionConstVariantPtr state, GDExtensionVar
     if (kernel.key_count > 8192) { kernel.keys.clear(); kernel.key_count = 0; }
     StateWriter writer(kernel);
     if (!writer.write(state) || writer.out.size() > StateWriter::max_bytes) writer.out.clear();
-    Storage packed{}; api.constructor(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, 0)(&packed, nullptr);
+    Storage packed{}; empty_type[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY](&packed, nullptr);
     int64_t length = static_cast<int64_t>(writer.out.size()), error = 0; const void *arguments[] = {&length}; byte_resize(&packed, arguments, &error, 1);
     if (length && !error) std::memcpy(api.byte_index(&packed, 0), writer.out.data(), writer.out.size());
-    api.from(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY)(result, &packed); api.destructor(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY)(&packed);
+    variant_from[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY](result, &packed); destroy_type[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY](&packed);
 }

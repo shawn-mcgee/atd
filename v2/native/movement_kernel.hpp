@@ -1,6 +1,7 @@
 // Deterministic integer crowd movement. No Godot, clocks, threads or physics APIs.
 #pragma once
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -45,10 +46,10 @@ class Movement {
         auto it = ids.find(id);
         return it == ids.end() ? nullptr : &bodies[it->second];
     }
-    std::vector<size_t> query(I owner, I q, I r, I reach, I cap = 0, I offset = 0) const {
-        std::vector<size_t> result;
+    template<class Visit>
+    bool visit_group(I owner, I q, I r, I reach, I cap, I offset, Visit visit) const {
         auto found = groups.find(owner);
-        if (found == groups.end()) return result;
+        if (found == groups.end()) return true;
         const Group &group = found->second;
         I radius = reach + group.radius;
         I extent = (radius * 1183 + 1023) / 1024 + 2;
@@ -68,23 +69,24 @@ class Movement {
                         size_t index = list[(i + static_cast<size_t>(offset)) % list.size()];
                         const Body &other = bodies[index];
                         ++scanned;
-                        if (metric(q - other.q, r - other.r) <= radius * radius) result.push_back(index);
-                        if (cap > 0 && scanned >= cap) return result;
+                        if (metric(q - other.q, r - other.r) <= radius * radius && !visit(index)) return false;
+                        if (cap > 0 && scanned >= cap) return true;
                     }
                 }
             }
         }
-        return result;
+        return true;
     }
-    std::vector<size_t> hostiles(I owner, I q, I r, I reach, I cap = 0, I offset = 0) const {
-        std::vector<size_t> result;
+    template<class Visit>
+    bool visit_hostiles(I owner, I q, I r, I reach, I cap, I offset, Visit visit) const {
+        I matched = 0;
         for (const auto &entry : groups) {
             if (entry.first == owner) continue;
-            auto more = query(entry.first, q, r, reach, cap > 0 ? std::max<I>(1, cap - result.size()) : 0, offset);
-            result.insert(result.end(), more.begin(), more.end());
-            if (cap > 0 && static_cast<I>(result.size()) >= cap) break;
+            if (!visit_group(entry.first, q, r, reach, cap > 0 ? std::max<I>(1, cap - matched) : 0, offset,
+                [&](size_t index) { ++matched; return visit(index); })) return false;
+            if (cap > 0 && matched >= cap) break;
         }
-        return result;
+        return true;
     }
     static I predicted(I q, I r, I vq, I vr) {
         I length = metric(vq, vr);
@@ -155,7 +157,7 @@ public:
     }
     std::vector<I> neighbors(I owner, I q, I r, I reach, I cap, I offset) const {
         std::vector<I> result;
-        for (size_t index : query(owner, q, r, reach, cap, offset)) result.push_back(bodies[index].id);
+        visit_group(owner, q, r, reach, cap, offset, [&](size_t index) { result.push_back(bodies[index].id); return true; });
         return result;
     }
     void prepare(const I *data, size_t size) {
@@ -189,27 +191,31 @@ public:
         I length = root(metric(vq, vr));
         if (!length) return {body.q, body.r};
         I horizon = std::max<I>(1, hz / 2), reach = speed * horizon + 1024;
-        auto candidates = query(body.owner, body.q, body.r, body.radius + reach, 24, body.id);
-        auto enemies = hostiles(body.owner, body.q, body.r, body.radius + reach, 24, body.id);
-        candidates.insert(candidates.end(), enemies.begin(), enemies.end());
         struct Entry { I distance, id; size_t index; };
-        std::vector<Entry> nearby;
-        for (size_t index : candidates) {
+        // Prediction samples at most 24 friends and 24 hostiles. Contact checks
+        // below remain complete; only soft steering uses this fixed scratch.
+        std::array<Entry, 48> nearby;
+        size_t count = 0;
+        auto consider = [&](size_t index) {
             const Body &other = bodies[index];
-            if (other.id == body.id) continue;
+            if (other.id == body.id) return true;
             I distance = metric(body.q - other.q, body.r - other.r);
             I limit = body.radius + other.radius + reach;
-            if (distance < limit * limit) nearby.push_back({distance, other.id, index});
-        }
-        std::sort(nearby.begin(), nearby.end(), [](const Entry &a, const Entry &b) {
+            if (distance < limit * limit) nearby[count++] = {distance, other.id, index};
+            return true;
+        };
+        visit_group(body.owner, body.q, body.r, body.radius + reach, 24, body.id, consider);
+        visit_hostiles(body.owner, body.q, body.r, body.radius + reach, 24, body.id, consider);
+        size_t nearest = std::min<size_t>(6, count);
+        std::partial_sort(nearby.begin(), nearby.begin() + nearest, nearby.begin() + count, [](const Entry &a, const Entry &b) {
             return a.distance < b.distance || (a.distance == b.distance && a.id < b.id);
         });
-        if (nearby.size() > 6) nearby.resize(6);
         I distance = std::min(length * horizon, std::max(length, root(metric(body.q - wq, body.r - wr)) - stop));
         Point prediction = scaled(vq, vr, distance), perpendicular = scaled(-vq - 2 * vr, 2 * vq + vr, length);
         I fq = 0, fr = 0;
         static constexpr I axes[6][2] = {{1,0},{0,1},{-1,1},{-1,0},{0,-1},{1,-1}};
-        for (const Entry &entry : nearby) {
+        for (size_t i = 0; i < nearest; ++i) {
+            const Entry &entry = nearby[i];
             const Body &other = bodies[entry.index];
             if (passing && other.owner == body.owner) continue;
             I q = body.q - other.q, r = body.r - other.r;
@@ -249,7 +255,7 @@ public:
         if (!ptr) return false;
         const Body &b = *ptr;
         I vq = q - b.q, vr = r - b.r, length = metric(vq, vr);
-        for (size_t index : hostiles(b.owner, b.q, b.r, reach)) {
+        return visit_hostiles(b.owner, b.q, b.r, reach, 0, 0, [&](size_t index) {
             const Body &enemy = bodies[index];
             I eq = enemy.q - b.q, er = enemy.r - b.r, limit = b.radius + enemy.radius + 2;
             I start = metric(eq, er), closest = start;
@@ -258,21 +264,22 @@ public:
                 I t = std::clamp<I>(dot * 1048576 / (2 * length), 0, 1048576);
                 closest = metric(eq - vq * t / 1048576, er - vr * t / 1048576);
             }
-            if (closest > limit * limit) continue;
-            if (start < limit * limit && metric(eq - vq, er - vr) > start && closest >= start) continue;
+            if (closest > limit * limit) return true;
+            if (start < limit * limit && metric(eq - vq, er - vr) > start && closest >= start) return true;
             return false;
-        }
-        return true;
+        });
     }
     I pressure(I id, I q, I r) const {
         const Body *ptr = find(id);
         if (!ptr) return 0;
         I score = 0;
-        for (const Body &other : bodies) {
-            if (other.id == id || other.owner != ptr->owner) continue;
+        visit_group(ptr->owner, q, r, ptr->radius, 0, 0, [&](size_t index) {
+            const Body &other = bodies[index];
+            if (other.id == id) return true;
             I limit = ptr->radius + other.radius;
             score += std::max<I>(0, limit * limit - metric(q - other.q, r - other.r)) * 4096 / (limit * limit);
-        }
+            return true;
+        });
         return score;
     }
 };

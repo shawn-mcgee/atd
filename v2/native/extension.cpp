@@ -10,6 +10,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <tuple>
 
 namespace {
 // The used builtins (Variant, String, StringName, PackedInt64Array) fit in 64
@@ -52,8 +53,15 @@ struct API {
     GDExtensionInterfaceClassdbUnregisterExtensionClass unregister_class;
     GDExtensionInterfaceClassdbRegisterExtensionClassMethod register_method;
 } api;
+// Godot conversion and lifetime callbacks are immutable for this engine build.
+// Resolve them once, rather than crossing the extension ABI to look them up for
+// every coordinate and serialized scalar.
+GDExtensionVariantFromTypeConstructorFunc variant_from[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{};
+GDExtensionTypeFromVariantConstructorFunc variant_to[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{};
+GDExtensionPtrDestructor destroy_type[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{};
+GDExtensionPtrConstructor empty_type[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{}, array_copy;
 GDExtensionClassLibraryPtr library;
-Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, method_names[23]{}, argument_names[7]{};
+Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, duplicate_name{}, method_names[23]{}, argument_names[7]{};
 enum Field { ID, POSITION, FACING, VELOCITY, AVOIDANCE, NAVIGATION, WAIT, SIDE, PASS, DEVIATED, SETTLED_GOAL, PROGRESS_FOR, PROGRESS_BEST, PROGRESS_TICK, ORDER, KEY, PATH, DIRECT, BLOCKED, DEFINITION, OWNER, HP, CAPS, MOVE, COLLISION_RADIUS, KIND, MANUAL, START_TICK, POINT, PRODUCTION, CONSTRUCTION, CHYME_SOURCE, PASSIVE_SPAWNER, SPEED, ILLUMINATION, LIGHT_BLOCKER, BATCH_COUNT, BATCH_CHANGED, LIGHT_DIRTY, WEAPON, PERCEPTION, RADIUS, FIELD_COUNT };
 Storage field_names[FIELD_COUNT]{};
 GDExtensionMethodBindPtr notification;
@@ -75,15 +83,20 @@ struct ActorRef {
     ~ActorRef() { api.destroy(&value); }
 };
 struct SimpleRule { double speed; bool light; bool weapon; };
+struct DirectRoute {
+    Storage point{}, key{};
+    DirectRoute(atd::Point goal, int64_t radius, GDExtensionConstVariantPtr world_hash);
+    ~DirectRoute() { api.destroy(&point); api.destroy(&key); }
+};
 struct Schema {
     Storage keys{};
     std::vector<std::unique_ptr<CachedKey>> ordered;
     mutable std::string signature;
     Schema(GDExtensionConstVariantPtr source, const std::vector<std::pair<const std::string *, int64_t>> &order) {
-        api.to(GDEXTENSION_VARIANT_TYPE_ARRAY)(&keys, const_cast<void *>(source));
+        variant_to[GDEXTENSION_VARIANT_TYPE_ARRAY](&keys, const_cast<void *>(source));
         for (const auto &entry : order) ordered.push_back(std::make_unique<CachedKey>(api.array_index(&keys, entry.second), *entry.first));
     }
-    ~Schema() { api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&keys); }
+    ~Schema() { destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&keys); }
 };
 struct Kernel {
     atd::Movement movement;
@@ -98,6 +111,7 @@ struct Kernel {
     std::vector<std::shared_ptr<Schema>> large_schemas; // Four exact keysets, MRU last.
     std::unordered_map<int64_t, std::unique_ptr<ActorRef>> actors;
     std::unordered_map<int64_t, SimpleRule> simple_rules;
+    std::map<std::tuple<int64_t, int64_t, int64_t>, std::unique_ptr<DirectRoute>> direct_routes;
     Kernel() { api.nil(&world_hash); }
     ~Kernel() { api.destroy(&world_hash); }
 };
@@ -124,10 +138,10 @@ GDExtensionVariantType argument_type(uintptr_t op, int index) {
     return GDEXTENSION_VARIANT_TYPE_INT;
 }
 int64_t integer(GDExtensionConstVariantPtr value) {
-    int64_t result; api.to(GDEXTENSION_VARIANT_TYPE_INT)(&result, const_cast<void *>(value)); return result;
+    int64_t result; variant_to[GDEXTENSION_VARIANT_TYPE_INT](&result, const_cast<void *>(value)); return result;
 }
 atd::Point point(GDExtensionConstVariantPtr value) {
-    int32_t result[2]; api.to(GDEXTENSION_VARIANT_TYPE_VECTOR2I)(result, const_cast<void *>(value)); return {result[0], result[1]};
+    int32_t result[2]; variant_to[GDEXTENSION_VARIANT_TYPE_VECTOR2I](result, const_cast<void *>(value)); return {result[0], result[1]};
 }
 
 // Small owned Variants; dictionary writes retain Godot's normal shared-container
@@ -145,23 +159,23 @@ struct Value {
     operator GDExtensionConstVariantPtr() const { return &storage; }
 };
 void set_integer(GDExtensionVariantPtr parent, Field field, int64_t n) {
-    Storage value{}; api.from(GDEXTENSION_VARIANT_TYPE_INT)(&value, &n);
+    Storage value{}; variant_from[GDEXTENSION_VARIANT_TYPE_INT](&value, &n);
     GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid); api.destroy(&value);
 }
 void set_bool(GDExtensionVariantPtr parent, Field field, GDExtensionBool b) {
-    Storage value{}; api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(&value, &b);
+    Storage value{}; variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](&value, &b);
     GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid); api.destroy(&value);
 }
 void point_variant(GDExtensionVariantPtr result, atd::Point point) {
-    Storage array{}; api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 0)(&array, nullptr);
+    Storage array{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, nullptr);
     int64_t size = 3, error = 0; const void *arguments[] = {&size}; array_resize(&array, arguments, &error, 1);
     int64_t coordinates[] = {point.q, 0, point.r};
     for (int i = 0; i < 3; ++i) {
         auto element = api.array_write(&array, i); api.destroy(element);
-        api.from(GDEXTENSION_VARIANT_TYPE_INT)(element, &coordinates[i]);
+        variant_from[GDEXTENSION_VARIANT_TYPE_INT](element, &coordinates[i]);
     }
-    api.from(GDEXTENSION_VARIANT_TYPE_ARRAY)(result, &array);
-    api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array);
+    variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](result, &array);
+    destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
 }
 void set_point(GDExtensionVariantPtr parent, Field field, atd::Point point) {
     Storage value{}; point_variant(&value, point);
@@ -174,9 +188,9 @@ int64_t field_integer(GDExtensionConstVariantPtr parent, Field field, int64_t fa
 }
 void advance(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::Point goal, int64_t speed, int64_t stop, int64_t hz, GDExtensionVariantPtr result, int64_t collision_radius = -1) {
     Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
-    Storage array{}; api.to(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array, position);
+    Storage array{}; variant_to[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, position);
     atd::Point origin{integer(api.array_index(&array, 0)), integer(api.array_index(&array, 2))};
-    api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array);
+    destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
     auto out = kernel.movement.advance(field_integer(actor_value, ID), goal, speed, stop, hz,
         field_integer(avoidance, WAIT), field_integer(avoidance, SIDE, 1), field_integer(avoidance, PASS),
         [&](atd::Point next) { return collision_radius < 0 || kernel.world.clear(origin, next, collision_radius); });
@@ -193,12 +207,12 @@ void advance(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::Point 
         Value navigation(actor_value, NAVIGATION); set_bool(navigation, DEVIATED, true);
     }
     set_point(actor, POSITION, out.point);
-    api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(result, &moved);
+    variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](result, &moved);
 }
 atd::Point array_point(GDExtensionConstVariantPtr value) {
-    Storage array{}; api.to(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array, const_cast<void *>(value));
+    Storage array{}; variant_to[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, const_cast<void *>(value));
     atd::Point result{integer(api.array_index(&array, 0)), integer(api.array_index(&array, 2))};
-    api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array); return result;
+    destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array); return result;
 }
 void settle(Kernel &kernel, GDExtensionConstVariantPtr actor_value, int64_t hz, GDExtensionVariantPtr result, bool static_checks = false) {
     Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
@@ -214,16 +228,16 @@ void settle(Kernel &kernel, GDExtensionConstVariantPtr actor_value, int64_t hz, 
         atd::Point velocity{next.q - origin.q, next.r - origin.r};
         set_point(actor, VELOCITY, velocity); set_point(actor, FACING, velocity); set_point(actor, POSITION, next);
     }
-    api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(result, &changed);
+    variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](result, &changed);
 }
 
 struct Builtin {
     Storage storage{};
     GDExtensionVariantType type;
     Builtin(GDExtensionVariantType type, GDExtensionConstVariantPtr value) : type(type) {
-        api.to(type)(&storage, const_cast<void *>(value));
+        variant_to[type](&storage, const_cast<void *>(value));
     }
-    ~Builtin() { api.destructor(type)(&storage); }
+    ~Builtin() { destroy_type[type](&storage); }
 };
 
 int64_t count_of(GDExtensionConstVariantPtr value) {
@@ -235,7 +249,7 @@ int64_t count_of(GDExtensionConstVariantPtr value) {
     }
     Storage result{}; GDExtensionCallError error{}; int64_t count = 0;
     api.call(const_cast<void *>(value), &size_name, nullptr, 0, &result, &error);
-    api.to(GDEXTENSION_VARIANT_TYPE_INT)(&count, &result); api.destroy(&result);
+    variant_to[GDEXTENSION_VARIANT_TYPE_INT](&count, &result); api.destroy(&result);
     return count;
 }
 void text(std::vector<uint8_t> &out, const char *value) { out.insert(out.end(), value, value + std::strlen(value)); }
@@ -244,7 +258,7 @@ std::string utf8_value(GDExtensionConstVariantPtr value) {
     int64_t size = api.utf8(&string, nullptr, 0);
     std::string utf8(static_cast<size_t>(size), '\0');
     if (size) api.utf8(&string, utf8.data(), size);
-    api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&string);
+    destroy_type[GDEXTENSION_VARIANT_TYPE_STRING](&string);
     return utf8;
 }
 const std::string &key_text(Kernel &kernel, GDExtensionConstVariantPtr value) {
@@ -252,7 +266,7 @@ const std::string &key_text(Kernel &kernel, GDExtensionConstVariantPtr value) {
     for (const auto &key : bucket) {
         Storage result{}; GDExtensionBool valid, equal;
         api.evaluate(GDEXTENSION_VARIANT_OP_EQUAL, &key->value, value, &result, &valid);
-        api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&equal, &result); api.destroy(&result);
+        variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&equal, &result); api.destroy(&result);
         if (valid && equal) return key->text;
     }
     bucket.push_back(std::make_unique<CachedKey>(value, utf8_value(value)));
@@ -282,11 +296,11 @@ bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, Ker
     switch (api.type(value)) {
         case GDEXTENSION_VARIANT_TYPE_NIL: text(out, "null"); return true;
         case GDEXTENSION_VARIANT_TYPE_BOOL: {
-            GDExtensionBool b; api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&b, const_cast<void *>(value));
+            GDExtensionBool b; variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&b, const_cast<void *>(value));
             text(out, b ? "true" : "false"); return true;
         }
         case GDEXTENSION_VARIANT_TYPE_INT: {
-            int64_t n; api.to(GDEXTENSION_VARIANT_TYPE_INT)(&n, const_cast<void *>(value));
+            int64_t n; variant_to[GDEXTENSION_VARIANT_TYPE_INT](&n, const_cast<void *>(value));
             uint64_t magnitude = n < 0 ? static_cast<uint64_t>(-(n + 1)) + 1 : static_cast<uint64_t>(n);
             if (n < 0) out.push_back('-');
             char digits[20]; size_t used = 0;
@@ -378,12 +392,12 @@ void state_bytes(GDExtensionConstVariantPtr value, Kernel &kernel, GDExtensionVa
     // retained keys between calls; hash collisions are checked with Variant ==.
     if (kernel.key_count > 8192) { kernel.keys.clear(); kernel.key_count = 0; }
     if (!json_value(value, bytes, kernel)) bytes.clear();
-    Storage packed{}; api.constructor(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, 0)(&packed, nullptr);
+    Storage packed{}; empty_type[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY](&packed, nullptr);
     int64_t length = static_cast<int64_t>(bytes.size()), error = 0;
     const void *args[] = {&length}; byte_resize(&packed, args, &error, 1);
     if (length && error == 0) std::memcpy(api.byte_index(&packed, 0), bytes.data(), bytes.size());
-    api.from(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY)(result, &packed);
-    api.destructor(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY)(&packed);
+    variant_from[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY](result, &packed);
+    destroy_type[GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY](&packed);
 }
 
 struct PackedInput {
@@ -391,39 +405,39 @@ struct PackedInput {
     const int64_t *data = nullptr;
     int64_t size = 0;
     explicit PackedInput(GDExtensionConstVariantPtr value) {
-        api.to(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY)(&object, const_cast<void *>(value));
+        variant_to[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&object, const_cast<void *>(value));
         Storage result{};
         GDExtensionCallError error{};
         api.call(const_cast<void *>(value), &size_name, nullptr, 0, &result, &error);
-        api.to(GDEXTENSION_VARIANT_TYPE_INT)(&size, &result);
+        variant_to[GDEXTENSION_VARIANT_TYPE_INT](&size, &result);
         api.destroy(&result);
         if (size) data = api.index(&object, 0);
     }
-    ~PackedInput() { api.destructor(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY)(&object); }
+    ~PackedInput() { destroy_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&object); }
 };
 
 struct StringKey {
     Storage string{}, value{};
     explicit StringKey(const std::string &text) {
-        api.string(&string, text.c_str()); api.from(GDEXTENSION_VARIANT_TYPE_STRING)(&value, &string);
+        api.string(&string, text.c_str()); variant_from[GDEXTENSION_VARIANT_TYPE_STRING](&value, &string);
     }
-    ~StringKey() { api.destroy(&value); api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&string); }
+    ~StringKey() { api.destroy(&value); destroy_type[GDEXTENSION_VARIANT_TYPE_STRING](&string); }
 };
 void publish_discoveries(Kernel &kernel, GDExtensionConstVariantPtr revealed) {
     Builtin owners(GDEXTENSION_VARIANT_TYPE_DICTIONARY, revealed);
     int64_t owner = -1; Storage known{}; bool has_known = false;
     for (const auto &tile : kernel.exploration.additions) {
         if (tile.owner != owner) {
-            if (has_known) api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&known);
+            if (has_known) destroy_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&known);
             StringKey key(std::to_string(tile.owner));
-            api.to(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&known, const_cast<void *>(api.dictionary_index(&owners.storage, &key.value)));
+            variant_to[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&known, const_cast<void *>(api.dictionary_index(&owners.storage, &key.value)));
             owner = tile.owner; has_known = true;
         }
         StringKey key(std::to_string(tile.q) + "," + std::to_string(tile.r));
         auto value = api.dictionary_write(&known, &key.value); api.destroy(value);
-        GDExtensionBool yes = true; api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(value, &yes);
+        GDExtensionBool yes = true; variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](value, &yes);
     }
-    if (has_known) api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&known);
+    if (has_known) destroy_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&known);
 }
 void explore(Kernel &kernel, GDExtensionConstVariantPtr revealed, const PackedInput &observers, int64_t radius) {
     auto &exploration = kernel.exploration; exploration.prepare(radius);
@@ -438,7 +452,7 @@ void explore_actors(Kernel &kernel, GDExtensionConstVariantPtr revealed, GDExten
     struct Rule { bool mobile; int64_t reach; };
     std::unordered_map<std::string, Rule> rules;
     Builtin list(GDEXTENSION_VARIANT_TYPE_ARRAY, actors), units(GDEXTENSION_VARIANT_TYPE_DICTIONARY, definitions);
-    Storage structures{}; api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 0)(&structures, nullptr);
+    Storage structures{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&structures, nullptr);
     int64_t size = count_of(actors), used = 0, error = 0;
     const void *arguments[] = {&size}; array_resize(&structures, arguments, &error, 1);
     kernel.exploration.prepare(radius);
@@ -457,7 +471,7 @@ void explore_actors(Kernel &kernel, GDExtensionConstVariantPtr revealed, GDExten
             if (perception.valid) {
                 Value amount(perception, RADIUS); double value = 0;
                 if (api.type(amount) == GDEXTENSION_VARIANT_TYPE_INT) value = static_cast<double>(integer(amount));
-                else api.to(GDEXTENSION_VARIANT_TYPE_FLOAT)(&value, amount);
+                else variant_to[GDEXTENSION_VARIANT_TYPE_FLOAT](&value, amount);
                 reach = static_cast<int64_t>(std::round(value * 1024));
             }
             rule = rules.emplace(text, Rule{bool(move.valid), reach}).first;
@@ -472,7 +486,7 @@ void explore_actors(Kernel &kernel, GDExtensionConstVariantPtr revealed, GDExten
     }
     publish_discoveries(kernel, revealed);
     const void *trim[] = {&used}; array_resize(&structures, trim, &error, 1);
-    api.from(GDEXTENSION_VARIANT_TYPE_ARRAY)(result, &structures); api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&structures);
+    variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](result, &structures); destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&structures);
 }
 
 bool configure_world(Kernel &kernel, const PackedInput &input, int64_t radius, GDExtensionConstVariantPtr hash) {
@@ -484,58 +498,68 @@ bool configure_world(Kernel &kernel, const PackedInput &input, int64_t radius, G
     if (count < 0 || count > (input.size - index) / 3 || count * 3 != input.size - index) return false;
     for (int64_t i = 0; i < count; ++i, index += 3) world.circles.push_back({{input.data[index], input.data[index + 1]}, input.data[index + 2]});
     kernel.world = std::move(world);
+    kernel.direct_routes.clear();
     api.destroy(&kernel.world_hash); api.copy(&kernel.world_hash, hash);
     return true;
 }
 bool equal_values(GDExtensionConstVariantPtr a, GDExtensionConstVariantPtr b) {
     Storage result{}; GDExtensionBool valid, equal;
     api.evaluate(GDEXTENSION_VARIANT_OP_EQUAL, a, b, &result, &valid);
-    api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&equal, &result); api.destroy(&result);
+    variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&equal, &result); api.destroy(&result);
     return valid && equal;
 }
 bool field_bool(GDExtensionConstVariantPtr parent, Field field) {
     Value value(parent, field); GDExtensionBool result = false;
-    if (api.type(value) == GDEXTENSION_VARIANT_TYPE_BOOL) api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&result, value);
+    if (api.type(value) == GDEXTENSION_VARIANT_TYPE_BOOL) variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&result, value);
     return result;
 }
 void set_empty(GDExtensionVariantPtr parent, Field field, GDExtensionVariantType type) {
-    Storage raw{}, value{}; api.constructor(type, 0)(&raw, nullptr); api.from(type)(&value, &raw);
+    Storage raw{}, value{}; empty_type[type](&raw, nullptr); variant_from[type](&value, &raw);
     GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid);
-    api.destroy(&value); api.destructor(type)(&raw);
+    api.destroy(&value); destroy_type[type](&raw);
 }
-bool matches_point(GDExtensionConstVariantPtr value, atd::Point point) {
-    if (api.type(value) != GDEXTENSION_VARIANT_TYPE_ARRAY || count_of(value) != 3) return false;
-    Builtin array(GDEXTENSION_VARIANT_TYPE_ARRAY, value);
-    return integer(api.array_index(&array.storage, 0)) == point.q && integer(api.array_index(&array.storage, 1)) == 0 && integer(api.array_index(&array.storage, 2)) == point.r;
+DirectRoute::DirectRoute(atd::Point goal, int64_t radius, GDExtensionConstVariantPtr world_hash) {
+    point_variant(&point, goal);
+    Storage array{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, nullptr);
+    int64_t size = 6, error = 0; const void *arguments[] = {&size}; array_resize(&array, arguments, &error, 1);
+    for (int i = 0; i < 6; ++i) {
+        auto value = api.array_write(&array, i); api.destroy(value);
+        if (i == 0) api.copy(value, &point);
+        else if (i == 3) api.copy(value, world_hash);
+        else if (i == 5) { GDExtensionBool no = false; variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](value, &no); }
+        else { int64_t n = i == 1 ? 0 : i == 2 ? 1024 : radius; variant_from[GDEXTENSION_VARIANT_TYPE_INT](value, &n); }
+    }
+    variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](&key, &array);
+    destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
 }
-bool direct_key(Kernel &kernel, GDExtensionConstVariantPtr navigation, atd::Point goal, int64_t radius) {
+DirectRoute &expected_route(Kernel &kernel, atd::Point goal, int64_t radius) {
+    auto key = std::make_tuple(goal.q, goal.r, radius);
+    auto found = kernel.direct_routes.find(key);
+    if (found == kernel.direct_routes.end()) {
+        if (kernel.direct_routes.size() >= 128) kernel.direct_routes.clear();
+        found = kernel.direct_routes.emplace(key, std::make_unique<DirectRoute>(goal, radius, &kernel.world_hash)).first;
+    }
+    return *found->second;
+}
+bool direct_key(GDExtensionConstVariantPtr navigation, const DirectRoute &route) {
     if (!field_bool(navigation, DIRECT)) return false;
     Value key(navigation, KEY);
-    if (api.type(key) != GDEXTENSION_VARIANT_TYPE_ARRAY || count_of(key) != 6) return false;
-    Builtin array(GDEXTENSION_VARIANT_TYPE_ARRAY, key);
-    auto at = [&](int index) { return api.array_index(&array.storage, index); };
-    GDExtensionBool interaction = true;
-    if (api.type(at(5)) == GDEXTENSION_VARIANT_TYPE_BOOL) api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&interaction, const_cast<void *>(at(5)));
-    return matches_point(at(0), goal) && integer(at(1)) == 0 && integer(at(2)) == 1024
-        && equal_values(at(3), &kernel.world_hash) && integer(at(4)) == radius && !interaction;
+    return api.type(key) == GDEXTENSION_VARIANT_TYPE_ARRAY && equal_values(key, &route.key);
 }
-void direct_navigation(Kernel &kernel, GDExtensionVariantPtr actor, atd::Point goal, int64_t radius) {
+void direct_navigation(GDExtensionVariantPtr actor, const DirectRoute &route) {
     set_empty(actor, NAVIGATION, GDEXTENSION_VARIANT_TYPE_DICTIONARY);
     Value navigation(actor, NAVIGATION);
     set_empty(navigation, PATH, GDEXTENSION_VARIANT_TYPE_ARRAY);
     set_bool(navigation, DIRECT, true); set_bool(navigation, BLOCKED, false);
-    Storage array{}; api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 0)(&array, nullptr);
-    int64_t size = 6, error = 0; const void *arguments[] = {&size}; array_resize(&array, arguments, &error, 1);
-    for (int i = 0; i < 6; ++i) {
-        auto value = api.array_write(&array, i); api.destroy(value);
-        if (i == 0) point_variant(value, goal);
-        else if (i == 3) api.copy(value, &kernel.world_hash);
-        else if (i == 5) { GDExtensionBool no = false; api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(value, &no); }
-        else { int64_t n = i == 1 ? 0 : i == 2 ? 1024 : radius; api.from(GDEXTENSION_VARIANT_TYPE_INT)(value, &n); }
-    }
-    Storage value{}; api.from(GDEXTENSION_VARIANT_TYPE_ARRAY)(&value, &array);
+    // Only private expectations are cached. Actor keys remain independent and
+    // mutable, including nested destination arrays edited between ticks.
+    Storage value{}, deep{}; GDExtensionBool yes = true;
+    variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](&deep, &yes);
+    const void *arguments[] = {&deep}; GDExtensionCallError error{};
+    api.call(const_cast<Storage *>(&route.key), &duplicate_name, arguments, 1, &value, &error);
+    api.destroy(&deep);
     GDExtensionBool valid; api.set_named(navigation, &field_names[KEY], &value, &valid);
-    api.destroy(&value); api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array);
+    api.destroy(&value);
 }
 void arrived(GDExtensionVariantPtr actor, atd::Point goal) {
     set_empty(actor, ORDER, GDEXTENSION_VARIANT_TYPE_DICTIONARY);
@@ -551,13 +575,14 @@ int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::
     int64_t distance2 = atd::metric(origin.q - goal.q, origin.r - goal.r);
     if (distance2 <= 1024 * 1024) { arrived(actor, goal); return 0; }
     int64_t radius = kernel.movement.radius_of(field_integer(actor, ID));
-    bool cached = direct_key(kernel, navigation, goal, radius);
+    const DirectRoute &route = expected_route(kernel, goal, radius);
+    bool cached = direct_key(navigation, route);
     bool retain = cached && (!field_bool(navigation, DEVIATED) || kernel.world.clear(origin, goal, radius + 2));
     // Decline without mutation when the existing graph search/route is needed.
     if (!retain && !kernel.world.clear(origin, goal, radius + 2)) return -1;
     int64_t remaining = atd::root(distance2);
     Value progress(avoidance, PROGRESS_FOR);
-    if (!matches_point(progress, goal)) {
+    if (api.type(progress) != GDEXTENSION_VARIANT_TYPE_ARRAY || !equal_values(progress, &route.point)) {
         set_point(avoidance, PROGRESS_FOR, goal); set_integer(avoidance, PROGRESS_BEST, remaining); set_integer(avoidance, PROGRESS_TICK, tick);
     } else if (field_integer(avoidance, PROGRESS_BEST) - remaining >= 64) {
         set_integer(avoidance, PROGRESS_BEST, remaining); set_integer(avoidance, PROGRESS_TICK, tick);
@@ -565,9 +590,9 @@ int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::
         set_integer(avoidance, PASS, hz); set_integer(avoidance, PROGRESS_TICK, tick); set_integer(avoidance, PROGRESS_BEST, remaining);
     }
     if (retain) set_bool(navigation, DEVIATED, false);
-    else direct_navigation(kernel, actor, goal, radius);
+    else direct_navigation(actor, route);
     Storage changed{}; advance(kernel, actor, goal, speed, 1024, hz, &changed, radius);
-    GDExtensionBool moved; api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&moved, &changed); api.destroy(&changed);
+    GDExtensionBool moved; variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&moved, &changed); api.destroy(&changed);
     Value next_position(actor, POSITION); auto next = array_point(next_position);
     if (atd::metric(next.q - goal.q, next.r - goal.r) <= 1024 * 1024) arrived(actor, goal);
     return moved ? 1 : 0;
@@ -593,7 +618,7 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
     }
     if (op == 5 && count == 0) {
         int64_t version = 15;
-        api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &version);
+        variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &version);
         return;
     }
     if (op == 6 && count == 1 && api.type(args[0]) == GDEXTENSION_VARIANT_TYPE_DICTIONARY) {
@@ -611,16 +636,16 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
     if (op == 11) {
         auto &kernel = *static_cast<Kernel *>(instance); PackedInput data(args[0]);
         if (!configure_world(kernel, data, integer(args[1]), args[2])) { error->error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT; error->argument = 0; error->expected = GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY; api.nil(result); return; }
-        api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &kernel.world.revision); return;
+        variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &kernel.world.revision); return;
     }
     if (op == 12) {
         auto &kernel = *static_cast<Kernel *>(instance);
         int64_t clear = integer(args[0]) == kernel.world.revision ? (kernel.world.clear(point(args[1]), point(args[2]), integer(args[3])) ? 1 : 0) : -1;
-        api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &clear); return;
+        variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &clear); return;
     }
     if (op == 13) {
         int64_t moved = point_move(*static_cast<Kernel *>(instance), args[0], point(args[1]), integer(args[2]), integer(args[3]), integer(args[4]), integer(args[5]));
-        api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &moved); return;
+        variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &moved); return;
     }
     if (op == 14) { state_pack(*static_cast<Kernel *>(instance), args[0], result); return; }
     if (op == 15) { state_unpack(args[0], result); return; }
@@ -629,7 +654,7 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
     if (op == 18) { owner_ids(*static_cast<Kernel *>(instance), result); return; }
     if (op == 19) { settle_actors(*static_cast<Kernel *>(instance), args[0], args[1], integer(args[2]), integer(args[3]), result); return; }
     if (op == 20) {
-        GDExtensionBool sync; api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&sync, const_cast<void *>(args[6]));
+        GDExtensionBool sync; variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&sync, const_cast<void *>(args[6]));
         point_orders(*static_cast<Kernel *>(instance), args[0], integer(args[1]), args[2], integer(args[3]), integer(args[4]), integer(args[5]), sync, result); return;
     }
     if (op == 22) { begin_tick(*static_cast<Kernel *>(instance), args[0], result); return; }
@@ -640,18 +665,18 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
         if (op == 1) { kernel->moved(id, p.q, p.r); api.nil(result); }
         if (op == 2) {
             auto goal = point(args[2]); GDExtensionBool passing;
-            api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&passing, const_cast<void *>(args[6]));
+            variant_to[GDEXTENSION_VARIANT_TYPE_BOOL](&passing, const_cast<void *>(args[6]));
             auto next = kernel->preferred(id, p.q, p.r, goal.q, goal.r, integer(args[3]), integer(args[4]), integer(args[5]), passing);
             int32_t output[] = {static_cast<int32_t>(next.q), static_cast<int32_t>(next.r)};
-            api.from(GDEXTENSION_VARIANT_TYPE_VECTOR2I)(result, output);
+            variant_from[GDEXTENSION_VARIANT_TYPE_VECTOR2I](result, output);
         }
         if (op == 3) {
             GDExtensionBool clear = kernel->contact(id, p.q, p.r, integer(args[2]));
-            api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(result, &clear);
+            variant_from[GDEXTENSION_VARIANT_TYPE_BOOL](result, &clear);
         }
         if (op == 4) {
             int64_t pressure = kernel->pressure(id, p.q, p.r);
-            api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &pressure);
+            variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &pressure);
         }
         return;
     }
@@ -672,12 +697,12 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
         case 0: kernel->prepare(d, static_cast<size_t>(input.size)); api.nil(result); break;
         case 7: {
             auto ids = kernel->neighbors(d[0], d[1], d[2], d[3], d[4], d[5]);
-            Storage packed{}; api.constructor(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY, 0)(&packed, nullptr);
+            Storage packed{}; empty_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&packed, nullptr);
             int64_t length = static_cast<int64_t>(ids.size()), error = 0;
             const void *arguments[] = {&length}; int_resize(&packed, arguments, &error, 1);
             if (length && error == 0) std::memcpy(api.int_index(&packed, 0), ids.data(), ids.size() * sizeof(int64_t));
-            api.from(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY)(result, &packed);
-            api.destructor(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY)(&packed);
+            variant_from[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](result, &packed);
+            destroy_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&packed);
             break;
         }
     }
@@ -697,6 +722,18 @@ GDExtensionObjectPtr create(void *, GDExtensionBool notify) {
 void release(void *, GDExtensionClassInstancePtr instance) { delete static_cast<Kernel *>(instance); }
 void initialize(void *, GDExtensionInitializationLevel level) {
     if (level != GDEXTENSION_INITIALIZATION_SCENE) return;
+    for (auto type : {GDEXTENSION_VARIANT_TYPE_BOOL, GDEXTENSION_VARIANT_TYPE_INT, GDEXTENSION_VARIANT_TYPE_FLOAT,
+            GDEXTENSION_VARIANT_TYPE_STRING, GDEXTENSION_VARIANT_TYPE_STRING_NAME, GDEXTENSION_VARIANT_TYPE_VECTOR2I,
+            GDEXTENSION_VARIANT_TYPE_ARRAY, GDEXTENSION_VARIANT_TYPE_DICTIONARY,
+            GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY}) {
+        variant_from[type] = api.from(type); variant_to[type] = api.to(type);
+    }
+    for (auto type : {GDEXTENSION_VARIANT_TYPE_STRING, GDEXTENSION_VARIANT_TYPE_STRING_NAME,
+            GDEXTENSION_VARIANT_TYPE_ARRAY, GDEXTENSION_VARIANT_TYPE_DICTIONARY,
+            GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY}) {
+        destroy_type[type] = api.destructor(type); empty_type[type] = api.constructor(type, 0);
+    }
+    array_copy = api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 1);
     api.name(&class_name, "ATDMovementKernel", false);
     api.name(&parent_name, "RefCounted", false);
     api.name(&object_name, "Object", false); api.name(&notification_name, "notification", false);
@@ -705,6 +742,7 @@ void initialize(void *, GDExtensionInitializationLevel level) {
     api.name(&size_name, "size", false); api.name(&data_name, "data", false);
     api.name(&keys_name, "keys", false); api.name(&resize_name, "resize", false);
     api.name(&has_all_name, "has_all", false);
+    api.name(&duplicate_name, "duplicate", false);
     const char *fields[] = {"id", "position", "facing", "velocity", "avoidance", "navigation", "wait", "side", "pass_ticks", "deviated", "settled_goal", "progress_for", "progress_best", "progress_tick", "order", "key", "path", "direct", "blocked", "definition", "owner", "hp", "capabilities", "move", "collision_radius", "kind", "manual", "start_tick", "point", "production", "construction", "chyme_source", "passive_spawner", "speed", "illumination", "light_blocker", "count", "changed", "light_dirty", "weapon", "perception", "radius"};
     for (int i = 0; i < FIELD_COUNT; ++i) api.name(&field_names[i], fields[i], false);
     const char *labels[] = {"id", "point", "goal_or_reach", "speed", "stop_range", "tick_hz", "passing"};
@@ -740,14 +778,14 @@ void initialize(void *, GDExtensionInitializationLevel level) {
 void deinitialize(void *, GDExtensionInitializationLevel level) {
     if (level != GDEXTENSION_INITIALIZATION_SCENE) return;
     api.unregister_class(library, &class_name);
-    auto destroy = api.destructor(GDEXTENSION_VARIANT_TYPE_STRING_NAME);
+    auto destroy = destroy_type[GDEXTENSION_VARIANT_TYPE_STRING_NAME];
     for (auto &name : method_names) destroy(&name);
     destroy(&data_name); destroy(&size_name); destroy(&empty_name); destroy(&parent_name); destroy(&class_name);
     destroy(&object_name); destroy(&notification_name);
-    destroy(&keys_name); destroy(&resize_name); destroy(&has_all_name);
+    destroy(&keys_name); destroy(&resize_name); destroy(&has_all_name); destroy(&duplicate_name);
     for (auto &name : argument_names) destroy(&name);
     for (auto &name : field_names) destroy(&name);
-    api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&empty_string);
+    destroy_type[GDEXTENSION_VARIANT_TYPE_STRING](&empty_string);
 }
 } // namespace
 

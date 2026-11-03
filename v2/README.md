@@ -727,25 +727,28 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 2.269 ms | 3.645 ms | 4.111 ms |
-| Windows export (release, headless) | 3.016 ms | 4.836 ms | 5.479 ms |
-| Web export (release, headless Edge) | 7.505 ms | 11.000 ms | 14.100 ms |
+| Windows editor/headless (debug) | 3.719 ms | 5.630 ms | 6.628 ms |
+| Windows export (release, headless) | 2.887 ms | 4.446 ms | 8.134 ms |
+| Web export (release, headless Edge) | 5.898 ms | 9.400 ms | 11.500 ms |
 
 All probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows debug means split into 1.544 ms simulation and 0.718 ms packed
-checkpoint work, plus 0.112 ms on scheduled hash ticks. Web means are 5.301 ms,
-2.173 ms for mixed checkpoint work and 0.300 ms hashing retained bytes on hash
+The latest Windows debug means split into 2.516 ms simulation and 1.193 ms packed
+checkpoint work, plus 0.169 ms on scheduled hash ticks. Web means are 4.021 ms,
+1.851 ms for mixed checkpoint work and 0.300 ms hashing retained bytes on hash
 ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
 Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
 snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
 Timing varies with competing work; re-measure before comparing platforms.
-Web ordinary ticks averaged 7.445 ms; hash boundaries averaged 8.633 ms and
-peaked at 12.500 ms. The native tick-start pass now captures previous velocities
+Web ordinary ticks averaged 5.819 ms; hash boundaries averaged 7.400 ms and
+peaked at 8.700 ms. Native movement reuses conversion callbacks and private route
+expectations, streams neighbor/contact queries and computes pressure from nearby
+allies. Ordering and scan limits match the reference; hard contact stays uncapped.
+The native tick-start pass captures previous velocities
 by integer actor ID and resets velocity arrays in one batch. Actor arrays remain
 independent, and the GDScript reference keeps the same capture semantics.
 Mobile perception now reads actor data in a native batch and shares bounded

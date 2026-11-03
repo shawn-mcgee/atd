@@ -235,6 +235,8 @@ func _native_equivalence() -> void:
 	_native_discovery()
 	_native_observer_changes()
 	_native_clearance()
+	_native_route_keys()
+	_native_spatial_queries()
 	for walls in [false, true]:
 		var game = Fixture.new()._game()
 		var humans: Array = []; var foes: Array = []
@@ -260,6 +262,71 @@ func _native_equivalence() -> void:
 		game.restore(JSON.parse_string(JSON.stringify(saved)))
 		for tick in 99: game.step([])
 		_check(game.state_hash() == expected, "compiled movement rebuilds derived bodies after JSON restore")
+
+func _native_route_keys() -> void:
+	var game = Fixture.new()._game()
+	game.step([{"kind": "move", "player": 1, "actors": [2], "point": Hex.point([6, 0])}])
+	var reference = Sim.new(); reference.accelerated = false
+	reference.initialize(game.content, game.state.players, 42); reference.restore(game.checkpoint())
+	for phase in 11:
+		for engine in [game, reference]:
+			var actor = engine.entity(2)
+			match phase:
+				0: actor.navigation.key[0][0] += 1
+				1: actor.navigation.key[1] = 99
+				2: actor.navigation.key[2] = 512
+				3: actor.navigation.key[3] = "changed"
+				4: actor.navigation.key[4] += 1
+				5: actor.navigation.key[5] = true
+				6: actor.avoidance.progress_for[2] += 1
+				7: actor.navigation.direct = false
+				8: engine.content.units.engineer.collision_radius = 0.33
+				9: engine._spawn("wall", 1, Hex.point([0, 7]))
+				10: engine.restore(engine.checkpoint())
+			engine.step([])
+		_check(game.state_hash() == reference.state_hash(), "private route expectations follow live key, goal, radius, geometry and restore changes (%d)" % phase)
+	game = Fixture.new()._game(); game.entity(2).position = Hex.point([0, 3])
+	reference.initialize(game.content, game.state.players, 42); reference.restore(game.checkpoint())
+	for phase in 141:
+		var index := phase if phase < 140 else 0
+		var goal := [(-6144 if index % 2 == 0 else 6144), 0, 3072 + index * 13]
+		var commands := [{"kind": "move", "player": 1, "actors": [2], "point": goal}]
+		game.step(commands); reference.step(commands)
+		_check(game.state_hash() == reference.state_hash(), "bounded route expectations preserve reference state across eviction and destination reuse (%d)" % phase)
+
+@warning_ignore("integer_division")
+func _native_spatial_queries() -> void:
+	var game = Fixture.new()._game()
+	game.content.units.mother.collision_radius = 2.25
+	for index in 90:
+		game._spawn("mother" if index % 13 == 0 else "engineer", [1, 9, 17][index % 3], [(index % 10 - 5) * 512, 0, (index / 10 - 4) * 512])
+	var native := Crowd.new(); var reference := Crowd.new(false)
+	native.rebuild(game.state.actors, game.content.units, {})
+	reference.rebuild(game.state.actors, game.content.units, {})
+	for phase in 2:
+		if phase == 1:
+			game.entity(7).position = [-2049, 0, 2048]
+			native.moved(game.entity(7)); reference.moved(game.entity(7))
+		for owner in [1, 9, 17]:
+			for point in [Vector2i(-2049, 0), Vector2i.ZERO, Vector2i(2048, -2048)]:
+				for cap in [0, 1, 7, 24]:
+					for offset in [0, 5, 37]:
+						_check(native.query(owner, point.x, point.y, 2300, cap, offset).map(func(body): return body.id) == reference.query(owner, point.x, point.y, 2300, cap, offset).map(func(body): return body.id), "streamed queries preserve three-owner scan limits, bucket order, offsets and moved large bodies")
+		for id in [2, 7, 42, 95]:
+			var body: Crowd.Body = reference.body(id)
+			var enemies: Array[Crowd.Body] = []
+			for other in reference.bodies.values():
+				if other.owner != body.owner: enemies.append(other)
+			for offset in [Vector2i.ZERO, Vector2i(2050, -1600), Vector2i(-1000, 512), Vector2i(7000, 7000)]:
+				var point: Vector2i = Vector2i(body.q, body.r) + offset
+				var expected := 0
+				for other in reference.bodies.values():
+					if other.id == id or other.owner != body.owner: continue
+					var limit: int = body.radius + other.radius
+					expected += maxi(0, limit * limit - Geo.metric([point.x - other.q, point.y - other.r])) * 4096 / (limit * limit)
+				_check(int(native.backend.call("pressure", id, point)) == expected, "spatial pressure equals the exhaustive all-body sum")
+				var reach := body.radius + Sim.integer_sqrt(Geo.metric([offset.x, offset.y])) + 2
+				_check(bool(native.backend.call("contact", id, point, reach)) == Crowd.contact_clear(body, point.x, point.y, enemies), "streamed hard contact matches all hostile bodies without a prediction scan limit")
 
 func _native_discovery() -> void:
 	for radius in [0.0, 0.75, 9.25]:

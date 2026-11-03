@@ -10,6 +10,11 @@ When a cached clearance disk encloses every possible local step, the adapter
 also integrates movement and settles idle overlaps in one call. Nearby static
 obstacles use the general per-step geometry checks. Hostile contact remains hard
 in both paths, and position/velocity/facing arrays are replaced rather than edited.
+Local queries visit buckets directly, preserving scan limits, offset order and
+owner order. Prediction uses fixed storage for at most 48 candidates and selects
+the same nearest six by distance/ID. Hard contact visits every relevant hostile
+body and stops on a blocking collision. Idle pressure sums all overlapping allies
+from nearby buckets rather than scanning every mobile body.
 
 `exploration_kernel.hpp` rasterizes exact integer perception circles against map
 tile centers. Per-owner discovery bitsets suppress repeated writes; illumination
@@ -29,10 +34,17 @@ batches too. Batches stop before A*, production, construction, passive schedules
 or due automatic targeting. They update the native body index immediately;
 existing GDScript body/enemy snapshots are synchronized at the batch boundary,
 and moving light sources invalidate the light field before the next handler.
+Direct point routes and progress goals use private expected values for whole-value
+comparison through Godot. Each actor receives independent, deeply copied route
+data. The expectation cache holds at most 128 destination/radius pairs and clears
+on a new static-world revision; restoring creates a fresh kernel. Live nested
+route edits and content-radius changes remain observable.
 
 `extension.cpp` is a small Godot C-ABI adapter with no godot-cpp dependency. It
-registers a `RefCounted` utility, not scene nodes or native physics. Its legacy
-`state_bytes` diagnostic writes sorted JSON UTF-8 bytes. ASCII string/name keys,
+registers a `RefCounted` utility, not scene nodes or native physics. Its
+scalar conversion, container construction and destruction callbacks are resolved
+once during scene-level extension initialization and reused in movement and codecs.
+Its legacy `state_bytes` diagnostic writes sorted JSON UTF-8 bytes. ASCII string/name keys,
 integers, booleans, strings, arrays, dictionaries and null are accelerated; other
 values return an empty buffer. Interned names
 and ordinary string keys sort together by text. Serialization does not change

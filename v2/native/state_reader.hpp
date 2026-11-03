@@ -34,7 +34,7 @@ struct StateReader {
         return true;
     }
     void replace(GDExtensionVariantPtr value, GDExtensionVariantType type, void *raw) {
-        api.destroy(value); api.from(type)(value, raw);
+        api.destroy(value); variant_from[type](value, raw);
     }
     bool text(GDExtensionVariantPtr result, std::string *encoded = nullptr) {
         uint32_t length = count();
@@ -45,7 +45,7 @@ struct StateReader {
             replace(result, GDEXTENSION_VARIANT_TYPE_STRING, &string);
             if (encoded) encoded->assign(reinterpret_cast<const char *>(data + at), length);
         }
-        api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&string); at += length;
+        destroy_type[GDEXTENSION_VARIANT_TYPE_STRING](&string); at += length;
         return ok = error == 0;
     }
     bool read(GDExtensionVariantPtr result, unsigned depth = 0) {
@@ -71,18 +71,18 @@ struct StateReader {
             case 5: {
                 uint32_t length = count();
                 if (!ok || length > StateWriter::max_items || length > size - at) return ok = false;
-                Storage array{}; api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 0)(&array, nullptr);
+                Storage array{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, nullptr);
                 int64_t count_value = length, error = 0; const void *arguments[] = {&count_value};
                 array_resize(&array, arguments, &error, 1);
                 if (error) ok = false;
                 for (uint32_t i = 0; ok && i < length; ++i) read(api.array_write(&array, i), depth + 1);
                 if (ok) replace(result, GDEXTENSION_VARIANT_TYPE_ARRAY, &array);
-                api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array); return ok;
+                destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array); return ok;
             }
             case 8: {
-                Storage dictionary{}; api.constructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY, 0)(&dictionary, nullptr);
+                Storage dictionary{}; empty_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&dictionary, nullptr);
                 replace(result, GDEXTENSION_VARIANT_TYPE_DICTIONARY, &dictionary);
-                api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&dictionary); return true;
+                destroy_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&dictionary); return true;
             }
             case 6: case 7: case 9: return dictionary(result, tag, depth);
             default: return ok = false;
@@ -105,10 +105,10 @@ struct StateReader {
             }
             if (tag == 6) schemas.push_back(keys);
         }
-        Storage dictionary{}; api.constructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY, 0)(&dictionary, nullptr);
+        Storage dictionary{}; empty_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&dictionary, nullptr);
         for (const auto &key : *keys) if (!read(api.dictionary_write(&dictionary, &key->value), depth + 1)) break;
         if (ok) replace(result, GDEXTENSION_VARIANT_TYPE_DICTIONARY, &dictionary);
-        api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&dictionary); return ok;
+        destroy_type[GDEXTENSION_VARIANT_TYPE_DICTIONARY](&dictionary); return ok;
     }
 };
 
