@@ -544,7 +544,7 @@ a new match.
 | Passive birth timers and source caps | `core/spawning.gd` |
 | Rally state, emergence ranking and newborn orders | `core/rally.gd` |
 | Nacre, extraction, Human defeat and match outcomes | `core/mission.gd` |
-| Canonical hashing | `core/canonical.gd` |
+| Canonical hashing and immutable neutral default | `core/canonical.gd`, `core/neutral_stance.gd` |
 | Input history, rollback, confirmation | `net/rollback_session.gd` |
 | Lobby, input relay, desync checks | `net/match_session.gd` |
 | Signaling and RTC connections | `net/coordinator_transport.gd` |
@@ -722,6 +722,8 @@ the UI/network exercise. Full browser validation remains the default workflow.
 Reports identify the three slowest ticks with their step and checkpoint costs.
 `--full-actor-scans` keeps full actor scans in navigation, lighting and Veil for
 comparison with tick-local classification; it preserves the same gameplay checks.
+`--dictionary-stances` expands the stress actors' initial neutral stances to
+ordinary dictionaries, for comparison with the shared read-only runtime default.
 The probe uses the production rollback checkpoint and hash methods. Desktop
 reuses packed bytes; Web copies state on ordinary ticks and retains encoded bytes at hash boundaries because
 native deep copy is faster there. Reports identify the format, packed size and the ordinary
@@ -734,30 +736,30 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 2.751 ms | 4.457 ms | 5.096 ms |
-| Windows export (release, headless) | 2.568 ms | 4.381 ms | 6.283 ms |
-| Web export (release, headless Edge) | 7.628 ms | 9.300 ms | 15.100 ms |
+| Windows editor/headless (debug) | 2.653 ms | 4.396 ms | 5.681 ms |
+| Windows export (release, headless) | 3.073 ms | 4.453 ms | 7.257 ms |
+| Web export (release, headless Edge) | 5.563 ms | 8.000 ms | 9.900 ms |
 
 All probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows debug means split into 1.650 ms simulation and 1.091 ms packed
-checkpoint work, plus 0.169 ms on scheduled hash ticks. Web means are 5.008 ms,
-2.583 ms for mixed checkpoint work and 0.433 ms hashing retained bytes on hash
+The latest Windows debug means split into 1.665 ms simulation and 0.977 ms packed
+checkpoint work, plus 0.166 ms on scheduled hash ticks. Web means are 3.820 ms,
+1.725 ms for mixed checkpoint work and 0.233 ms hashing retained bytes on hash
 ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
 Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
 snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
 Timing varies with competing work; re-measure before comparing platforms.
-Web ordinary ticks averaged 7.522 ms; hash boundaries averaged 9.633 ms and
-peaked at 11.000 ms. An alternating full-scan/classified/classified/full-scan
-comparison in one browser page produced simulation means of 4.375/3.751/2.423/2.750 ms,
-with identical final hashes. Classification saved about 0.33–0.62 ms in these paired
-observations, but overall timings varied substantially between runs. The latest
-full browser validation above was slower than the separate comparison; neither
-establishes the 4 ms target. Native movement reuses conversion callbacks and private route
+Web ordinary ticks averaged 5.471 ms; hash boundaries averaged 7.300 ms and
+peaked at 9.500 ms. An alternating expanded/shared/shared/expanded neutral-stance
+comparison in one browser page reduced mean checkpoint cost from 1.858 to 1.715 ms
+and from 1.551 to 1.090 ms in the paired observations, with identical final hashes.
+Full tick means were 5.318/5.521/3.271/4.023 ms; timing variation still exceeds some
+of the savings, and these results do not establish the 4 ms target. Native movement
+reuses conversion callbacks and private route
 expectations, streams neighbor/contact queries and computes pressure from nearby
 allies. Ordering and scan limits match the reference; hard contact stays uncapped.
 The native tick-start pass captures previous velocities
@@ -765,6 +767,11 @@ by integer actor ID and resets compact integer velocity values in one batch.
 Velocity/facing use `Vector3i` internally; public JSON checkpoints and canonical
 bytes keep the same three-integer array representation. Snapshot copies remain
 independent, and the GDScript reference keeps the same capture semantics.
+The untouched neutral Veil stance uses one shared read-only value per simulation.
+Active, connected and custom stance dictionaries retain their data. Public JSON
+checkpoints expand the default into independent dictionaries/target arrays; ATD1
+bytes and hashes remain unchanged. The native encoder reuses its repeated bytes
+only within one traversal, after the dictionary schema has been established.
 Inactive mobile stance checks stay inside native point-order batches; active
 stances and stale Veil orders still use the general automatic-order handler.
 Navigation, lighting and Veil share ordered actor lists classified once per tick.
@@ -818,7 +825,7 @@ scalar swept-circle contact math and cached static clearance certificates coveri
 every steering direction in a tile. Certified open steps combine native integration,
 local steering and actor updates; idle settling uses the same certificate. Hostile
 contacts still run every movement tick. State serialization caches immutable key
-text, checking Variant equality on hash collisions, without caching state values.
+text, checking Variant equality on hash collisions, without retaining mutable state values.
 Small recurring keysets reuse sorted keys after size and membership validation.
 Native static geometry mirrors circle/hex/map-edge checks; stale field revisions
 fall back to their original geometry. Point movement combines progress tracking,

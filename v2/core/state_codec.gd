@@ -4,6 +4,7 @@ extends RefCounted
 const MAX_BYTES := 16777216
 const MAX_ITEMS := 1000000
 const HEADER := [65, 84, 68, 1]
+const NeutralStance = preload("res://core/neutral_stance.gd")
 
 class Writer:
 	extends RefCounted
@@ -29,7 +30,8 @@ class Writer:
 	func write(value, depth: int = 0) -> void:
 		if not ok: return
 		if depth > 128 or data.size() > MAX_BYTES: ok = false; return
-		if value == null: data.append(0)
+		if value is NeutralStance: write(value.checkpoint(), depth)
+		elif value == null: data.append(0)
 		elif value is bool: data.append(2 if value else 1)
 		elif value is int: integer(value)
 		elif value is float:

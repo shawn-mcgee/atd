@@ -1,7 +1,9 @@
 extends RefCounted
-## Stable wire/checkpoint representation. Gameplay stores only integer scalar state.
+const NeutralStance = preload("res://core/neutral_stance.gd")
+## Stable wire/checkpoint data, expanding compact runtime values into plain data.
 
 static func normalize(value):
+	if value is NeutralStance: return value.checkpoint().duplicate(true)
 	if value is Vector3i: return [value.x, value.y, value.z]
 	if value is Dictionary:
 		var result: Dictionary = {}

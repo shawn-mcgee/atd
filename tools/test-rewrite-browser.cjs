@@ -58,7 +58,7 @@ async function main() {
   const native = JSON.parse(fs.readFileSync(nativeLog, 'utf8').split('\n').find(line => line.startsWith('ATD_RESULT ')).slice(11));
   if (foundation.checks !== native.checks) throw new Error('Native/browser test counts differ; rebuild the Web export');
   if (foundation.deterministic_hash !== native.deterministic_hash) throw new Error('Native/browser deterministic hashes differ');
-  const benchmarkOptions = ['--codecs', '--packed-checkpoints', '--dictionary-checkpoints', '--full-actor-scans'].filter(flag => args.includes(flag)).join(' ');
+  const benchmarkOptions = ['--codecs', '--packed-checkpoints', '--dictionary-checkpoints', '--full-actor-scans', '--dictionary-stances'].filter(flag => args.includes(flag)).join(' ');
   const benchmark = args.includes('--benchmark') || args.includes('--benchmark-only') || args.includes('--compare-checkpoints')
     ? (await state(host, 'benchmark', '--opposing --large --verify ' + benchmarkOptions)).benchmark : null;
   if (benchmark && !benchmark.ok) throw new Error('Browser movement collision/replay verification failed');

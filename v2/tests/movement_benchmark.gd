@@ -32,6 +32,9 @@ func run(args: PackedStringArray) -> Dictionary:
 			movers.append(int(game.state.next_id) - 1)
 			game._spawn("scavenger", 9, [(i % 8 + 2) * 1024, 0, (i / 8 + 2) * 1024])
 			opponents.append(int(game.state.next_id) - 1)
+		if "--dictionary-stances" in args:
+			for actor in game.state.actors:
+				if actor.veil_stance is Sim.NeutralStance: actor.veil_stance = actor.veil_stance.checkpoint().duplicate(true)
 		var max_searches := 0; var max_expansions := 0
 		var samples: Array = []
 		var steps: Array = []; var copies: Array = []; var hashes: Array = []
@@ -97,6 +100,7 @@ func run(args: PackedStringArray) -> Dictionary:
 			"ordinary_mean_us": _mean(ordinary), "hash_boundary_mean_us": _mean(boundaries), "hash_boundary_peak_us": boundaries.max(),
 			"slowest_ticks": slowest,
 			"actor_filter": "full_scans" if "--full-actor-scans" in args else "classified",
+			"neutral_stances": "expanded" if "--dictionary-stances" in args else "shared",
 			"state_json_hash": state_json_hash, "snapshot_bytes": history.back().get("packed", PackedByteArray()).size(), "checkpoint_format": "packed" if game.packed_rollback else "mixed",
 			"verification": ("passed" if valid else "failed") if verified else "not_requested"}
 		if "--codecs" in args: report.codecs = _codecs(game)
@@ -117,7 +121,7 @@ static func _codecs(game) -> Dictionary:
 				"selected_atd1": size = game.packed_state().size()
 				"gdscript_atd1": size = preload("res://core/state_codec.gd").pack(game.state).size()
 				"sorted_json": size = JSON.stringify(exported, "", true, true).length()
-				"godot_binary": size = var_to_bytes(game.state).size()
+				"godot_binary": size = var_to_bytes(exported).size()
 				"dictionary": game.state.duplicate(true)
 			samples.append(Time.get_ticks_usec() - start)
 		result[kind] = {"mean_us": _mean(samples), "peak_us": samples.max(), "size": size}

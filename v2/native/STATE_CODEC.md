@@ -34,6 +34,14 @@ normalization. Interned names encode as strings. Gameplay scalar state is intege
 Runtime `Vector3i` values encode exactly as tag 5 followed by three integer
 components. Decoders return ordinary arrays. This preserves existing bytes,
 schema IDs, protocol 23 hashes and version 16 JSON checkpoints.
+The immutable `core/neutral_stance.gd` runtime default encodes as its ordinary
+five-field dictionary. Native kernels register that one marker and reject other
+objects. After its first occurrence, repeated bytes reuse the current traversal's
+schema reference; this cache never survives an encoding call. Restores and public
+JSON checkpoints still use ordinary dictionaries. Internally, exact default stance
+dictionaries are compacted again; active, nondefault and extended dictionaries
+retain all their data. Internal dictionary snapshots may share this read-only
+value safely; exported stance dictionaries and target arrays are independent.
 The native encoder retains at most four large keysets, checking size and complete
 membership before reuse. Parent keysets remain owned during nested eviction.
 This skips repeated sorting of stable revelation maps without retaining values

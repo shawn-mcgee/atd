@@ -19,6 +19,7 @@ const Escalation = preload("res://core/nest_escalation.gd")
 const Mission = preload("res://core/mission.gd")
 const Spawning = preload("res://core/spawning.gd")
 const SCALE := 1024
+const NeutralStance = preload("res://core/neutral_stance.gd")
 var content: Dictionary
 var state: Dictionary
 var accelerated := true # Implementation choice only; reference/native replay must agree.
@@ -28,6 +29,7 @@ var _illumination_cache: Dictionary = {}
 var _navigation_cache: Dictionary = {}
 var _velocity_snapshot: Dictionary = {}
 var _enemy_cache: Dictionary = {}
+var _neutral_stance := NeutralStance.new()
 var _crowd := Crowd.new()
 var _crowd_dirty := true
 var _inside_step := false
@@ -46,7 +48,7 @@ func initialize(definitions: Dictionary, players: Array, seed_value: int) -> voi
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
 	_enemy_cache.clear()
-	_crowd = Crowd.new(accelerated)
+	_crowd = Crowd.new(accelerated, _neutral_stance)
 	_crowd_dirty = true
 	_inside_step = false
 	state = {"version": 16, "content_hash": Canonical.hash_of(content), "tick": 0, "next_id": 1,
@@ -79,6 +81,7 @@ func checkpoint() -> Dictionary:
 static func export_checkpoint(source: Dictionary) -> Dictionary:
 	var saved := source.duplicate(true)
 	for actor in saved.get("actors", []):
+		if actor.get("veil_stance") is NeutralStance: actor.veil_stance = actor.veil_stance.checkpoint().duplicate(true)
 		for field in ["velocity", "facing"]:
 			var value = actor.get(field)
 			if value is Vector3i: actor[field] = [value.x, value.y, value.z]
@@ -125,6 +128,7 @@ func restore(saved: Dictionary) -> void:
 func _reset_derived() -> void:
 	_actor_groups.clear()
 	for actor in state.actors:
+		if actor.get("veil_stance") == NeutralStance.CHECKPOINT: actor.veil_stance = _neutral_stance
 		for field in ["velocity", "facing"]:
 			var value = actor.get(field)
 			if value is Array and value.size() == 3 and value.all(func(item): return item is int and item >= -2147483648 and item <= 2147483647):
@@ -135,7 +139,7 @@ func _reset_derived() -> void:
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
 	_enemy_cache.clear()
-	_crowd = Crowd.new(accelerated)
+	_crowd = Crowd.new(accelerated, _neutral_stance)
 	_crowd_dirty = true
 	_inside_step = false
 
@@ -415,7 +419,7 @@ func _spawn(type: String, owner: int, position: Array) -> void:
 		"facing": Vector3i(0, 0, -SCALE),
 		"spawn_source": 0, "passive_started_tick": int(state.tick), "passive_remaining": int(content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0)),
 		"chyme": 0, "next_chyme_tick": int(state.tick) + int(content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0)),
-		"veil_stance": {"mode": "neutral", "network": 0, "order": 0, "target": [], "expires": 0}})
+		"veil_stance": _neutral_stance})
 	if _entities_indexed and not _entity_index.has(int(state.next_id)): _entity_index[int(state.next_id)] = state.actors.back()
 	Rally.reset(self, state.actors.back())
 	invalidate_light(state.actors.back())
@@ -630,7 +634,7 @@ func _automatic_order(actor: Dictionary) -> void:
 				best = target
 		actor.order = {"kind": "attack", "target": int(best.id)} if best != null else {}
 		return
-	var stance: Dictionary = actor.veil_stance
+	var stance = actor.veil_stance
 	var active: bool = stance.mode != "neutral" and not stance.target.is_empty() and (int(stance.expires) == 0 or int(stance.expires) > int(state.tick))
 	if active:
 		var target = _nearest_enemy(actor)

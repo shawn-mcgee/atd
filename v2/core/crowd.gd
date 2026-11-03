@@ -37,10 +37,12 @@ var _query_offsets: Dictionary[int, Array] = {}
 var backend: RefCounted
 var _epoch := 0
 
-func _init(accelerated: bool = true) -> void:
+func _init(accelerated: bool = true, neutral_stance: RefCounted = null) -> void:
 	if accelerated and ClassDB.class_exists("ATDMovementKernel"):
 		var candidate = ClassDB.instantiate("ATDMovementKernel") as RefCounted
-		if int(candidate.call("abi_version")) == 17: backend = candidate
+		if int(candidate.call("abi_version")) == 18:
+			backend = candidate
+			if neutral_stance != null: backend.call("default_stance", neutral_stance, neutral_stance.checkpoint())
 
 @warning_ignore("integer_division")
 static func coordinate(value: int) -> int:

@@ -159,7 +159,9 @@ void settle_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensio
 // an old Veil order has no work; active stances and order clearing stay general.
 bool automatic_noop(Kernel &kernel, GDExtensionConstVariantPtr actor, GDExtensionConstVariantPtr order, int64_t tick) {
     if (field_bool(order, VEIL_ORDER)) return false;
-    Value stance(actor, VEIL_STANCE), mode(stance, MODE);
+    Value stance(actor, VEIL_STANCE);
+    if (api.type(stance) == GDEXTENSION_VARIANT_TYPE_OBJECT && equal_values(stance, &kernel.neutral_stance)) return true;
+    Value mode(stance, MODE);
     if (key_text(kernel, mode) == "neutral") return true;
     Value target(stance, TARGET);
     if (!count_of(target)) return true;

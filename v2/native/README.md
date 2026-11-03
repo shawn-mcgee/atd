@@ -68,7 +68,7 @@ Build from the repository root with `python tools/build-native-movement.py --god
 method hashes. The builder publishes complete, content-addressed libraries and
 the runtime descriptor atomically; all generated output stays out of Git.
 
-ABI 17 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
+ABI 18 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
 mobile body: `id, owner, radius, q, r, previous_vq, previous_vr`. IDs are unique,
 radii positive, and coordinates/speeds follow the core's validated map/content
 limits. Movement updates those bodies sequentially in actor order. Small per-unit
@@ -103,6 +103,12 @@ captures those values and resets each actor's velocity to `Vector3i.ZERO`.
 Capture happens after commands and before actor updates, including
 actors that will be removed at the end of the tick. Both native and reference
 movement read the same integer-keyed previous-velocity dictionary.
+`default_stance(marker, checkpoint)` registers the simulation's immutable neutral
+default and its read-only ordinary dictionary. Internal dictionary snapshots share
+that value; active/custom stances stay mutable dictionaries. Encoding expands only
+the registered marker, rejecting other objects. Its repeated dictionary reference
+bytes are cached within one traversal, after schema assignment, preserving ATD1
+bytes and depth/size limits. No object identity enters the encoded state.
 Direct point movement reuses the already-read origin, actor ID and avoidance
 dictionary, and keeps integration results native through the arrival check.
 Web position/goal arrays are copied from a private integer scratch buffer in one

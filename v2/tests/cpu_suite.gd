@@ -15,6 +15,7 @@ var failures: Array[String] = []
 func run() -> Dictionary:
 	_state_codec()
 	_motion_checkpoints()
+	_neutral_checkpoints()
 	_actor_classification()
 	_native_equivalence()
 	_batch_handlers()
@@ -172,6 +173,46 @@ func _motion_checkpoints() -> void:
 	var wide: Dictionary = game.checkpoint(); wide.actors[1].velocity = [1 << 40, 0, 0]
 	game.restore(wide)
 	_check(game.entity(2).velocity == [1 << 40, 0, 0] and game.state_hash() == StateCodec.hash_bytes(StateCodec.pack(wide)), "restore preserves legacy int64 motion outside the compact range")
+
+func _neutral_checkpoints() -> void:
+	var game = Fixture.new()._game()
+	game.packed_rollback = false
+	var marker = game.entity(2).veil_stance
+	_check(marker is Sim.NeutralStance and is_same(marker, game.entity(5).veil_stance) and marker.target.is_read_only() and marker.checkpoint().is_read_only() and marker.checkpoint().target.is_read_only(), "actors share a read-only default neutral stance")
+	var original: String = game.state_hash()
+	var internal: Dictionary = game.rollback_checkpoint()
+	var public: Dictionary = game.checkpoint()
+	_check(public.actors[1].veil_stance is Dictionary and StateCodec.pack(public) == game.packed_state(), "public stance dictionaries and shared defaults have identical canonical bytes")
+	_check(StateCodec.pack({"value": marker}) == StateCodec.pack({"value": marker.checkpoint()}), "reference codec expands immutable neutral defaults through the ordinary dictionary schema")
+	if game._crowd.backend != null:
+		_check(game._crowd.backend.call("state_pack", {"value": marker}) == StateCodec.pack({"value": marker}), "native neutral encoding matches the reference dictionary schema")
+		_check(game._crowd.backend.call("state_pack", {"value": RefCounted.new()}).is_empty(), "native codec rejects unregistered objects")
+	for levels in [0, 126, 127]:
+		var nested = marker
+		for level in levels: nested = [nested]
+		var sample := {"first": marker, "nested": nested, "other": {"field": 1, "value": marker}, "last": marker}
+		var expected := StateCodec.pack(Canonical.normalize(sample))
+		_check(StateCodec.pack(sample) == expected and expected.is_empty() == (levels == 127), "neutral templates preserve dictionary nesting limits and schema ordering")
+		if game._crowd.backend != null: _check(game._crowd.backend.call("state_pack", sample) == expected, "cached native neutral bytes use traversal-local schema IDs and depth validation")
+	var edge := {"a": "", "z": marker}
+	var overhead := StateCodec.pack(edge).size()
+	edge.a = "x".repeat(StateCodec.MAX_BYTES - overhead - 3) # Four-byte length replaces the empty string's one-byte length.
+	var boundary := StateCodec.pack(edge)
+	_check(boundary.size() == StateCodec.MAX_BYTES, "neutral default at the end of a maximum-sized snapshot remains encodable")
+	if game._crowd.backend != null: _check(game._crowd.backend.call("state_pack", edge) == boundary, "native template cache preparation does not reject a valid snapshot at the byte limit")
+	public.actors[1].veil_stance.mode = "offensive"
+	public.actors[1].veil_stance.target.append(99)
+	_check(game.entity(2).veil_stance.mode == "neutral" and internal.state.actors[1].veil_stance.target.is_empty() and game.state_hash() == original, "editable exported stances cannot mutate shared defaults or retained snapshots")
+	game.restore_rollback(internal)
+	_check(game.entity(2).veil_stance is Sim.NeutralStance and game.state_hash() == original, "dictionary rollback rebuilds the local neutral default without changing state")
+	var packed: Dictionary = game.rollback_checkpoint(true)
+	game.restore_rollback(packed)
+	_check(game.entity(2).veil_stance is Sim.NeutralStance and game.state_hash() == original, "packed rollback compacts neutral dictionaries without changing replay state")
+	public = game.checkpoint()
+	public.actors[1].veil_stance.network = 1 << 40
+	public.actors[1].veil_stance.extra = 7
+	game.restore(public)
+	_check(game.entity(2).veil_stance is Dictionary and game.checkpoint().actors[1].veil_stance == public.actors[1].veil_stance, "nondefault and extended stance dictionaries retain their full data on restore")
 
 func _actor_classification() -> void:
 	var game = Fixture.new()._game()

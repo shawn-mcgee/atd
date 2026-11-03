@@ -4,6 +4,7 @@ struct StateWriter {
     Kernel &kernel;
     std::vector<uint8_t> &out;
     std::unordered_map<std::string, uint32_t> schemas;
+    std::vector<uint8_t> neutral_encoded; // Valid only for this traversal's schema IDs.
     static constexpr size_t max_bytes = 16777216, max_items = 1000000;
     StateWriter(Kernel &kernel) : kernel(kernel), out(kernel.packed) { out.clear(); out.reserve(131072); out.insert(out.end(), {65,84,68,1}); }
     static void count(std::string &bytes, uint32_t value) {
@@ -61,6 +62,19 @@ struct StateWriter {
                 return true;
             }
             case GDEXTENSION_VARIANT_TYPE_DICTIONARY: return dictionary(value, depth);
+            case GDEXTENSION_VARIANT_TYPE_OBJECT: {
+                if (!equal_values(value, &kernel.neutral_stance) || depth == 128) return false;
+                if (neutral_encoded.empty()) {
+                    if (!dictionary(&kernel.neutral_state, depth)) return false;
+                    if (out.size() > max_bytes - 64) return true;
+                    // The first visit establishes every template schema. Capture
+                    // the subsequent reference encoding, then discard the probe.
+                    auto end = out.size();
+                    if (!dictionary(&kernel.neutral_state, depth)) return false;
+                    neutral_encoded.assign(out.begin() + end, out.end()); out.resize(end);
+                } else out.insert(out.end(), neutral_encoded.begin(), neutral_encoded.end());
+                return true;
+            }
             default: return false;
         }
     }

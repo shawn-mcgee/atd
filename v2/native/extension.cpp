@@ -62,7 +62,7 @@ GDExtensionPtrDestructor destroy_type[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{};
 GDExtensionPtrConstructor empty_type[GDEXTENSION_VARIANT_TYPE_VARIANT_MAX]{}, array_copy;
 GDExtensionPtrConstructor array_from_ints;
 GDExtensionClassLibraryPtr library;
-Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, duplicate_name{}, method_names[24]{}, argument_names[7]{};
+Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, duplicate_name{}, method_names[25]{}, argument_names[7]{};
 enum Field { ID, POSITION, FACING, VELOCITY, AVOIDANCE, NAVIGATION, WAIT, SIDE, PASS, DEVIATED, SETTLED_GOAL, PROGRESS_FOR, PROGRESS_BEST, PROGRESS_TICK, ORDER, KEY, PATH, DIRECT, BLOCKED, DEFINITION, OWNER, HP, CAPS, MOVE, COLLISION_RADIUS, KIND, MANUAL, START_TICK, POINT, PRODUCTION, CONSTRUCTION, CHYME_SOURCE, PASSIVE_SPAWNER, SPEED, ILLUMINATION, LIGHT_BLOCKER, BATCH_COUNT, BATCH_CHANGED, LIGHT_DIRTY, WEAPON, PERCEPTION, RADIUS, VEIL_ORDER, VEIL_STANCE, MODE, TARGET, EXPIRES, VEIL_SOURCE, FIELD_COUNT };
 Storage field_names[FIELD_COUNT]{};
 GDExtensionMethodBindPtr notification;
@@ -71,7 +71,7 @@ GDExtensionPtrBuiltInMethod int_resize;
 GDExtensionPtrBuiltInMethod array_resize;
 GDExtensionPtrBuiltInMethod dictionary_has_all;
 GDExtensionPtrBuiltInMethod array_size, dictionary_size, byte_size;
-const char *names[] = {"prepare", "moved", "preferred", "contact", "pressure", "abi_version", "state_bytes", "query", "advance", "explore", "settle", "world", "static_clear", "point_move", "state_pack", "state_unpack", "prepare_actors", "body_info", "owner_ids", "settle_actors", "point_orders", "explore_actors", "begin_tick", "classify_actors"};
+const char *names[] = {"prepare", "moved", "preferred", "contact", "pressure", "abi_version", "state_bytes", "query", "advance", "explore", "settle", "world", "static_clear", "point_move", "state_pack", "state_unpack", "prepare_actors", "body_info", "owner_ids", "settle_actors", "point_orders", "explore_actors", "begin_tick", "classify_actors", "default_stance"};
 struct CachedKey {
     Storage value{};
     std::string text;
@@ -103,7 +103,7 @@ struct Kernel {
     atd::Movement movement;
     atd::Exploration exploration;
     atd::StaticWorld world;
-    Storage world_hash{};
+    Storage world_hash{}, neutral_stance{}, neutral_state{};
     std::vector<uint8_t> json;
     std::vector<uint8_t> packed;
     std::unordered_map<uint32_t, std::vector<std::unique_ptr<CachedKey>>> keys;
@@ -118,7 +118,7 @@ struct Kernel {
     int64_t *point_data = nullptr;
 #endif
     Kernel() {
-        api.nil(&world_hash);
+        api.nil(&world_hash); api.nil(&neutral_stance); api.nil(&neutral_state);
 #ifdef __EMSCRIPTEN__
         empty_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&point_components, nullptr);
         int64_t size = 3, error = 0; const void *arguments[] = {&size}; int_resize(&point_components, arguments, &error, 1);
@@ -126,14 +126,15 @@ struct Kernel {
 #endif
     }
     ~Kernel() {
-        api.destroy(&world_hash);
+        api.destroy(&world_hash); api.destroy(&neutral_stance); api.destroy(&neutral_state);
 #ifdef __EMSCRIPTEN__
         destroy_type[GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY](&point_components);
 #endif
     }
 };
-int arity(uintptr_t op) { return op == 23 ? 2 : op == 22 ? 1 : op == 21 ? 4 : op == 20 ? 7 : op == 19 ? 4 : op == 18 ? 0 : op == 16 ? 3 : op == 13 ? 6 : op == 12 ? 4 : op == 11 ? 3 : op == 10 ? 2 : op == 9 ? 3 : op == 8 ? 5 : op == 5 ? 0 : op == 2 ? 7 : op == 3 ? 3 : (op == 1 || op == 4) ? 2 : 1; }
+int arity(uintptr_t op) { return op == 24 ? 2 : op == 23 ? 2 : op == 22 ? 1 : op == 21 ? 4 : op == 20 ? 7 : op == 19 ? 4 : op == 18 ? 0 : op == 16 ? 3 : op == 13 ? 6 : op == 12 ? 4 : op == 11 ? 3 : op == 10 ? 2 : op == 9 ? 3 : op == 8 ? 5 : op == 5 ? 0 : op == 2 ? 7 : op == 3 ? 3 : (op == 1 || op == 4) ? 2 : 1; }
 GDExtensionVariantType argument_type(uintptr_t op, int index) {
+    if (op == 24) return index == 0 ? GDEXTENSION_VARIANT_TYPE_OBJECT : GDEXTENSION_VARIANT_TYPE_DICTIONARY;
     if (op == 23) return index == 0 ? GDEXTENSION_VARIANT_TYPE_ARRAY : GDEXTENSION_VARIANT_TYPE_DICTIONARY;
     if (op == 22) return GDEXTENSION_VARIANT_TYPE_ARRAY;
     if (op == 21) return index == 1 ? GDEXTENSION_VARIANT_TYPE_ARRAY : index == 3 ? GDEXTENSION_VARIANT_TYPE_INT : GDEXTENSION_VARIANT_TYPE_DICTIONARY;
@@ -658,9 +659,15 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
             error->expected = argument_type(op, i); api.nil(result); return;
         }
     }
+    if (op == 24) {
+        auto &kernel = *static_cast<Kernel *>(instance);
+        api.destroy(&kernel.neutral_stance); api.copy(&kernel.neutral_stance, args[0]);
+        api.destroy(&kernel.neutral_state); api.copy(&kernel.neutral_state, args[1]);
+        api.nil(result); return;
+    }
     if (op == 23) { classify_actors(*static_cast<Kernel *>(instance), args[0], args[1], result); return; }
     if (op == 5 && count == 0) {
-        int64_t version = 17;
+        int64_t version = 18;
         variant_from[GDEXTENSION_VARIANT_TYPE_INT](result, &version);
         return;
     }
@@ -801,7 +808,7 @@ void initialize(void *, GDExtensionInitializationLevel level) {
     GDExtensionClassCreationInfo6 info{};
     info.is_exposed = true; info.create_instance_func = create; info.free_instance_func = release;
     api.register_class(library, &class_name, &parent_name, &info);
-    for (uintptr_t i = 0; i < 24; ++i) {
+    for (uintptr_t i = 0; i < 25; ++i) {
         api.name(&method_names[i], names[i], false);
         GDExtensionPropertyInfo arguments[7];
         GDExtensionClassMethodArgumentMetadata metadata[7]{};
@@ -812,7 +819,7 @@ void initialize(void *, GDExtensionInitializationLevel level) {
         GDExtensionClassMethodInfo method_info{};
         method_info.name = &method_names[i]; method_info.method_userdata = reinterpret_cast<void *>(i);
         method_info.call_func = method; method_info.method_flags = GDEXTENSION_METHOD_FLAG_NORMAL;
-        method_info.has_return_value = i >= 2 && i != 9 && i != 16;
+        method_info.has_return_value = i >= 2 && i != 9 && i != 16 && i != 24;
         method_info.return_value_info = &returned; method_info.return_value_metadata = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
         method_info.argument_count = arity(i);
         method_info.arguments_info = arguments; method_info.arguments_metadata = metadata;
