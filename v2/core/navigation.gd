@@ -9,7 +9,7 @@ static func field(game, cache: Dictionary) -> Dictionary:
 	var blocked: Dictionary = {}
 	var circles: Array = []
 	for cell in game.content.settings.get("terrain", []): blocked[Hex.key(cell)] = cell
-	for actor in game.state.actors:
+	for actor in game.actor_group("structures"):
 		if int(actor.hp) <= 0 or not Geo.structure(game, actor) or actor.construction.get("kind") == "blueprint": continue
 		if not game.content.units[actor.definition].get("blocks_movement", true): continue
 		if Geo.collision_shape(game, actor) == "circle":

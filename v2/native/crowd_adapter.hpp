@@ -1,6 +1,37 @@
 // Bulk movement-index preparation. Definitions are read afresh each rebuild;
 // only immutable name text is cached, so live content edits remain observable.
 struct BodyRule { bool mobile; int64_t radius; bool simple; double speed; bool light; bool weapon; };
+// Classify once per tick in actor order. Keep references (including dead actors)
+// so each consumer observes health and position at its original execution point.
+void classify_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensionConstVariantPtr definitions, GDExtensionVariantPtr result) {
+    Builtin list(GDEXTENSION_VARIANT_TYPE_ARRAY, actors), units(GDEXTENSION_VARIANT_TYPE_DICTIONARY, definitions);
+    std::unordered_map<std::string, int> rules;
+    std::vector<GDExtensionConstVariantPtr> groups[3];
+    for (int64_t i = 0, size = count_of(actors); i < size; ++i) {
+        auto actor = api.array_index(&list.storage, i);
+        Value name(actor, DEFINITION);
+        const auto &text = key_text(kernel, name);
+        auto rule = rules.find(text);
+        if (rule == rules.end()) {
+            auto definition = api.dictionary_index(&units.storage, name);
+            Value caps(definition, CAPS), move(caps, MOVE), light(caps, ILLUMINATION), blocker(caps, LIGHT_BLOCKER), veil(caps, VEIL_SOURCE);
+            rule = rules.emplace(text, (!move.valid ? 1 : 0) | (light.valid || blocker.valid ? 2 : 0) | (veil.valid ? 4 : 0)).first;
+        }
+        for (int group = 0; group < 3; ++group) if (rule->second & (1 << group)) groups[group].push_back(actor);
+    }
+    Storage outer{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&outer, nullptr);
+    int64_t size = 3, error = 0; const void *arguments[] = {&size}; array_resize(&outer, arguments, &error, 1);
+    for (int group = 0; group < 3; ++group) {
+        Storage array{}; empty_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array, nullptr);
+        int64_t count = static_cast<int64_t>(groups[group].size()); const void *length[] = {&count}; array_resize(&array, length, &error, 1);
+        for (int64_t i = 0; i < count; ++i) {
+            auto item = api.array_write(&array, i); api.destroy(item); api.copy(item, groups[group][i]);
+        }
+        auto item = api.array_write(&outer, group); api.destroy(item);
+        variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](item, &array); destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&array);
+    }
+    variant_from[GDEXTENSION_VARIANT_TYPE_ARRAY](result, &outer); destroy_type[GDEXTENSION_VARIANT_TYPE_ARRAY](&outer);
+}
 void prepare_actors(Kernel &kernel, GDExtensionConstVariantPtr actors, GDExtensionConstVariantPtr definitions, GDExtensionConstVariantPtr velocities) {
     Builtin list(GDEXTENSION_VARIANT_TYPE_ARRAY, actors), units(GDEXTENSION_VARIANT_TYPE_DICTIONARY, definitions), previous(GDEXTENSION_VARIANT_TYPE_DICTIONARY, velocities);
     int64_t size = count_of(actors);

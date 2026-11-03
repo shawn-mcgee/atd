@@ -15,6 +15,7 @@ var failures: Array[String] = []
 func run() -> Dictionary:
 	_state_codec()
 	_motion_checkpoints()
+	_actor_classification()
 	_native_equivalence()
 	_batch_handlers()
 	_automatic_batch_boundaries()
@@ -171,6 +172,37 @@ func _motion_checkpoints() -> void:
 	var wide: Dictionary = game.checkpoint(); wide.actors[1].velocity = [1 << 40, 0, 0]
 	game.restore(wide)
 	_check(game.entity(2).velocity == [1 << 40, 0, 0] and game.state_hash() == StateCodec.hash_bytes(StateCodec.pack(wide)), "restore preserves legacy int64 motion outside the compact range")
+
+func _actor_classification() -> void:
+	var game = Fixture.new()._game()
+	var expected := {"structures": [], "light": [], "veil_sources": []}
+	for actor in game.state.actors:
+		var caps: Dictionary = game.content.units[actor.definition].capabilities
+		if not caps.has("move"): expected.structures.append(actor)
+		if caps.has("illumination") or caps.has("light_blocker"): expected.light.append(actor)
+		if caps.has("veil_source"): expected.veil_sources.append(actor)
+	var native: Dictionary = game._classify_actors()
+	var backend = game._crowd.backend; game._crowd.backend = null
+	_check(game._classify_actors() == expected and native == expected, "compiled and reference classification retain exact actor order and capability membership")
+	game._crowd.backend = backend
+	_check(is_same(native.structures[0], game.entity(1)), "classification retains live actor references rather than frozen copies")
+	game.content.units.engineer.capabilities.illumination = {"radius": 1}
+	_check(game.actor_group("light").has(game.entity(2)), "out-of-tick classification observes live capability edits")
+	game.content.units.engineer.capabilities.erase("illumination")
+	game._inside_step = true
+	game.actor_group("structures")
+	game._spawn("wall", 1, [0, 0, 0])
+	_check(game.actor_group("structures").back() == game.state.actors.back(), "spawning invalidates tick-local structure membership")
+	game.Construction._change(game, game.entity(2), "wall")
+	_check(game.actor_group("structures").has(game.entity(2)), "transformation refreshes membership in the same tick")
+	game.entity(1).hp = 0
+	game._illumination_cache.clear()
+	var without_dead: Dictionary = game.Illumination.field(game, game._illumination_cache).duplicate(true)
+	game._actor_groups.clear()
+	_check(game.Illumination.field(game, {}).duplicate(true) == without_dead, "live health checks ignore a dead light source even with retained membership")
+	var saved: Dictionary = game.checkpoint()
+	game.restore(saved)
+	_check(game._actor_groups.is_empty() and not game._inside_step, "restoration discards all tick-local classification")
 
 func _automatic_batch_boundaries() -> void:
 	for scenario in ["neutral", "empty_target", "expired", "stale_order", "active", "manual"]:

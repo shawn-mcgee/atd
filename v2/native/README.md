@@ -68,7 +68,7 @@ Build from the repository root with `python tools/build-native-movement.py --god
 method hashes. The builder publishes complete, content-addressed libraries and
 the runtime descriptor atomically; all generated output stays out of Git.
 
-ABI 16 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
+ABI 17 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
 mobile body: `id, owner, radius, q, r, previous_vq, previous_vr`. IDs are unique,
 radii positive, and coordinates/speeds follow the core's validated map/content
 limits. Movement updates those bodies sequentially in actor order. Small per-unit
@@ -93,7 +93,12 @@ Each restore rebuilds derived native bodies and discovery caches;
 `Simulation.accelerated = false` selects the
 reference implementation. Tests compare complete state hashes across both paths.
 Normal simulation uses `prepare_actors(actors, definitions, previous_velocities)`
-with integer actor IDs in the previous-velocity dictionary. `begin_tick(actors)`
+and `classify_actors(actors, definitions)` returns ordered structure, light and
+Veil-source actor lists. Classification is shared within a tick, refreshed after
+spawns/transformations, and discarded between ticks and on restore. Lists retain
+live actor references; consumers still check current health and geometry. Native
+classification reads each used definition once, including after live content edits.
+Movement preparation uses integer actor IDs in the previous-velocity dictionary. `begin_tick(actors)`
 captures those values and resets each actor's velocity to `Vector3i.ZERO`.
 Capture happens after commands and before actor updates, including
 actors that will be removed at the end of the tick. Both native and reference

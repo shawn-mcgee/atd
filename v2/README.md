@@ -720,6 +720,8 @@ probe. The browser harness's `--compare-checkpoints` runs both formats in altern
 order; `--benchmark-only` runs foundation/parity and stress verification without
 the UI/network exercise. Full browser validation remains the default workflow.
 Reports identify the three slowest ticks with their step and checkpoint costs.
+`--full-actor-scans` keeps full actor scans in navigation, lighting and Veil for
+comparison with tick-local classification; it preserves the same gameplay checks.
 The probe uses the production rollback checkpoint and hash methods. Desktop
 reuses packed bytes; Web copies state on ordinary ticks and retains encoded bytes at hash boundaries because
 native deep copy is faster there. Reports identify the format, packed size and the ordinary
@@ -732,25 +734,30 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 2.224 ms | 4.052 ms | 4.509 ms |
-| Windows export (release, headless) | 3.243 ms | 5.371 ms | 8.030 ms |
-| Web export (release, headless Edge) | 5.685 ms | 8.500 ms | 10.200 ms |
+| Windows editor/headless (debug) | 2.751 ms | 4.457 ms | 5.096 ms |
+| Windows export (release, headless) | 2.568 ms | 4.381 ms | 6.283 ms |
+| Web export (release, headless Edge) | 7.628 ms | 9.300 ms | 15.100 ms |
 
 All probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows debug means split into 1.442 ms simulation and 0.775 ms packed
-checkpoint work, plus 0.113 ms on scheduled hash ticks. Web means are 3.828 ms,
-1.840 ms for mixed checkpoint work and 0.200 ms hashing retained bytes on hash
+The latest Windows debug means split into 1.650 ms simulation and 1.091 ms packed
+checkpoint work, plus 0.169 ms on scheduled hash ticks. Web means are 5.008 ms,
+2.583 ms for mixed checkpoint work and 0.433 ms hashing retained bytes on hash
 ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
 Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
 snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
 Timing varies with competing work; re-measure before comparing platforms.
-Web ordinary ticks averaged 5.638 ms; hash boundaries averaged 6.566 ms and
-peaked at 8.500 ms. Native movement reuses conversion callbacks and private route
+Web ordinary ticks averaged 7.522 ms; hash boundaries averaged 9.633 ms and
+peaked at 11.000 ms. An alternating full-scan/classified/classified/full-scan
+comparison in one browser page produced simulation means of 4.375/3.751/2.423/2.750 ms,
+with identical final hashes. Classification saved about 0.33–0.62 ms in these paired
+observations, but overall timings varied substantially between runs. The latest
+full browser validation above was slower than the separate comparison; neither
+establishes the 4 ms target. Native movement reuses conversion callbacks and private route
 expectations, streams neighbor/contact queries and computes pressure from nearby
 allies. Ordering and scan limits match the reference; hard contact stays uncapped.
 The native tick-start pass captures previous velocities
@@ -760,6 +767,9 @@ bytes keep the same three-integer array representation. Snapshot copies remain
 independent, and the GDScript reference keeps the same capture semantics.
 Inactive mobile stance checks stay inside native point-order batches; active
 stances and stale Veil orders still use the general automatic-order handler.
+Navigation, lighting and Veil share ordered actor lists classified once per tick.
+Spawning and transformation invalidate membership; health/position remain live,
+and outside-tick queries re-read definitions. No classification enters checkpoints.
 Mobile perception now reads actor data in a native batch and shares bounded
 unknown-tile envelopes across observers. Structure centers still use shared
 footprint geometry. Veil builds obstruction data only when growth is due and

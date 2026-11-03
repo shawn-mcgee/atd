@@ -5,6 +5,10 @@ const Sim = preload("res://core/simulation.gd")
 const Geo = preload("res://core/geometry.gd")
 const Canonical = preload("res://core/canonical.gd")
 
+class FullActorScans extends Sim:
+	func _classify_actors() -> Dictionary:
+		return {"structures": state.actors, "light": state.actors, "veil_sources": state.actors}
+
 func run(args: PackedStringArray) -> Dictionary:
 	var reports: Array = []
 	var verified := "--verify" in args
@@ -13,7 +17,7 @@ func run(args: PackedStringArray) -> Dictionary:
 		return {"ok": false, "reports": [], "error": "Choose one checkpoint format"}
 	for count in ([64] if "--large" in args else [16, 32, 64]):
 		var fixture = Fixture.new()
-		var game = Sim.new()
+		var game = FullActorScans.new() if "--full-actor-scans" in args else Sim.new()
 		game.accelerated = not "--reference" in args
 		game.initialize(fixture._definitions(), fixture._players(), 42)
 		if "--packed-checkpoints" in args: game.packed_rollback = true
@@ -92,6 +96,7 @@ func run(args: PackedStringArray) -> Dictionary:
 			"step_mean_us": _mean(steps), "checkpoint_mean_us": _mean(copies), "hash_mean_us": _mean(hashes), "final_hash": final_hash,
 			"ordinary_mean_us": _mean(ordinary), "hash_boundary_mean_us": _mean(boundaries), "hash_boundary_peak_us": boundaries.max(),
 			"slowest_ticks": slowest,
+			"actor_filter": "full_scans" if "--full-actor-scans" in args else "classified",
 			"state_json_hash": state_json_hash, "snapshot_bytes": history.back().get("packed", PackedByteArray()).size(), "checkpoint_format": "packed" if game.packed_rollback else "mixed",
 			"verification": ("passed" if valid else "failed") if verified else "not_requested"}
 		if "--codecs" in args: report.codecs = _codecs(game)

@@ -21,7 +21,7 @@ static func tick(game) -> void:
 	var alive: Dictionary = {}
 	var sources: Array = []
 	var growth_due := false
-	for actor in game.state.actors:
+	for actor in game.actor_group("veil_sources"):
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
 		if int(actor.hp) <= 0: continue
 		if caps.has("veil_source"):
@@ -38,7 +38,7 @@ static func tick(game) -> void:
 	var occupied: Dictionary = {}
 	if growth_due:
 		for cell in game.content.settings.get("terrain", []): occupied[Hex.key(cell)] = [0]
-		for actor in game.state.actors:
+		for actor in game.actor_group("structures"):
 			if int(actor.hp) <= 0 or not Geo.structure(game, actor): continue
 			for cell in Geo.cells(game, actor):
 				var key := Hex.key(cell)

@@ -35,9 +35,11 @@ var _navigation_searches := 0
 var _navigation_expansions := 0
 var _entity_index: Dictionary[int, Dictionary] = {}
 var _entities_indexed := false
+var _actor_groups: Dictionary = {}
 
 func initialize(definitions: Dictionary, players: Array, seed_value: int) -> void:
 	content = definitions.duplicate(true)
+	_actor_groups.clear()
 	_entity_index.clear(); _entities_indexed = false
 	_exploration_cache.clear()
 	_illumination_cache.clear()
@@ -121,6 +123,7 @@ func restore(saved: Dictionary) -> void:
 	_reset_derived()
 
 func _reset_derived() -> void:
+	_actor_groups.clear()
 	for actor in state.actors:
 		for field in ["velocity", "facing"]:
 			var value = actor.get(field)
@@ -146,6 +149,7 @@ func step(commands: Array) -> void:
 	if Mission.finished(self):
 		state.tick = int(state.tick) + 1
 		return
+	_actor_groups = _classify_actors()
 	Navigation.field(self, _navigation_cache)
 	Illumination.field(self, _illumination_cache)
 	_enemy_cache.clear()
@@ -261,6 +265,31 @@ func step(commands: Array) -> void:
 	Mission.record_visibility(self)
 	state.tick = int(state.tick) + 1
 	_inside_step = false
+	_actor_groups.clear()
+
+func _classify_actors() -> Dictionary:
+	# Membership is derived from definitions, never positions or health. Readers
+	# keep their live health checks; actor references preserve update ordering.
+	if _crowd.backend != null:
+		var groups: Array = _crowd.backend.call("classify_actors", state.actors, content.units)
+		return {"structures": groups[0], "light": groups[1], "veil_sources": groups[2]}
+	var groups := {"structures": [], "light": [], "veil_sources": []}
+	var rules: Dictionary = {}
+	for type in content.units:
+		var caps: Dictionary = content.units[type].capabilities
+		rules[type] = (1 if not caps.has("move") else 0) | (2 if caps.has("illumination") or caps.has("light_blocker") else 0) | (4 if caps.has("veil_source") else 0)
+	for actor in state.actors:
+		var flags: int = rules[actor.definition]
+		if flags & 1: groups.structures.append(actor)
+		if flags & 2: groups.light.append(actor)
+		if flags & 4: groups.veil_sources.append(actor)
+	return groups
+
+func actor_group(kind: String) -> Array:
+	if not _actor_groups.is_empty(): return _actor_groups[kind]
+	var groups := _classify_actors()
+	if _inside_step: _actor_groups = groups
+	return groups[kind]
 
 func entity(id: int):
 	if _inside_step:
@@ -395,6 +424,7 @@ func _spawn(type: String, owner: int, position: Array) -> void:
 	if not content.units[type].capabilities.has("move"): _navigation_cache.clear()
 
 func invalidate_unit_caches(owner: int = -1, membership: bool = false) -> void:
+	if membership: _actor_groups.clear()
 	if owner == -1 or membership: _crowd_dirty = true
 	for key in _enemy_cache.keys():
 		if owner != -1 and int(key) == owner: continue

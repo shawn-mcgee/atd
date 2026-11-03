@@ -101,6 +101,7 @@ static func cancel(game, actor: Dictionary) -> void:
 	_event(game, "construction_cancelled", actor, work.definition, int(work.cost))
 
 static func _change(game, actor: Dictionary, type: String) -> void:
+	game._actor_groups.clear()
 	game._illumination_cache.clear()
 	game._navigation_cache.clear()
 	game.invalidate_unit_caches()
