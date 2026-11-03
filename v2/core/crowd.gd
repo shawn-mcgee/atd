@@ -40,7 +40,7 @@ var _epoch := 0
 func _init(accelerated: bool = true) -> void:
 	if accelerated and ClassDB.class_exists("ATDMovementKernel"):
 		var candidate = ClassDB.instantiate("ATDMovementKernel") as RefCounted
-		if int(candidate.call("abi_version")) == 9: backend = candidate
+		if int(candidate.call("abi_version")) == 13: backend = candidate
 
 @warning_ignore("integer_division")
 static func coordinate(value: int) -> int:
@@ -49,9 +49,12 @@ static func coordinate(value: int) -> int:
 func rebuild(actors: Array, definitions: Dictionary, velocities: Dictionary) -> void:
 	groups.clear(); owners.clear()
 	_epoch += 1
-	var packed := PackedInt64Array()
-	var used := 0
-	if backend != null: packed.resize(actors.size() * 7)
+	if backend != null:
+		bodies.clear()
+		backend.call("prepare_actors", actors, definitions, velocities)
+		var ids: PackedInt64Array = backend.call("owner_ids")
+		for owner in ids: owners.append(owner)
+		return
 	for actor: Dictionary in actors:
 		var definition: Dictionary = definitions[actor.definition]
 		if int(actor.hp) <= 0 or not definition.capabilities.has("move"): continue
@@ -67,33 +70,37 @@ func rebuild(actors: Array, definitions: Dictionary, velocities: Dictionary) -> 
 		body.vq = int(velocity[0]); body.vr = int(velocity[2])
 		body.bucket = Vector2i(coordinate(body.q), coordinate(body.r))
 		if not owners.has(body.owner): owners.append(body.owner)
-		if backend == null:
-			if not groups.has(body.owner): groups[body.owner] = Group.new()
-			var group: Group = groups[body.owner]
-			group.include(body)
-			group.max_radius = maxi(group.max_radius, body.radius)
-			if not group.buckets.has(body.bucket): group.buckets[body.bucket] = []
-			group.buckets[body.bucket].append(body)
-		if backend != null:
-			packed[used] = body.id; packed[used + 1] = body.owner; packed[used + 2] = body.radius
-			packed[used + 3] = body.q; packed[used + 4] = body.r
-			packed[used + 5] = body.vq; packed[used + 6] = body.vr
-			used += 7
+		if not groups.has(body.owner): groups[body.owner] = Group.new()
+		var group: Group = groups[body.owner]
+		group.include(body)
+		group.max_radius = maxi(group.max_radius, body.radius)
+		if not group.buckets.has(body.bucket): group.buckets[body.bucket] = []
+		group.buckets[body.bucket].append(body)
 	owners.sort()
 	for id in bodies.keys():
 		if bodies[id].seen != _epoch: bodies.erase(id)
-	if backend != null:
-		packed.resize(used)
-		backend.call("prepare", packed)
 
-func moved(actor: Dictionary) -> void:
+func body(id: int) -> Body:
+	var found: Body = bodies.get(id)
+	if found != null or backend == null: return found
+	var row: Array = backend.call("body_info", id)
+	if row.is_empty(): return null
+	found = Body.new(); found.actor = row[0]; found.id = id
+	found.owner = int(row[1]); found.radius = int(row[2]); found.q = int(row[3]); found.r = int(row[4])
+	found.vq = int(row[5]); found.vr = int(row[6]); found.bucket = Vector2i(coordinate(found.q), coordinate(found.r))
+	bodies[id] = found
+	return found
+
+func moved(actor: Dictionary, native_updated: bool = false) -> void:
 	var body: Body = bodies.get(int(actor.id))
+	if backend != null:
+		if not native_updated: backend.call("moved", int(actor.id), Vector2i(int(actor.position[0]), int(actor.position[2])))
+		if body != null:
+			body.q = int(actor.position[0]); body.r = int(actor.position[2])
+			body.bucket = Vector2i(coordinate(body.q), coordinate(body.r))
+		return
 	if body == null: return
 	body.q = int(actor.position[0]); body.r = int(actor.position[2])
-	if backend != null:
-		backend.call("moved", body.id, Vector2i(body.q, body.r))
-		body.bucket = Vector2i(coordinate(body.q), coordinate(body.r))
-		return
 	var group: Group = groups[body.owner]
 	# Conservative bounds expand between rebuilds, so no moving body is omitted.
 	group.include(body)
@@ -111,8 +118,8 @@ func query(owner: int, q: int, r: int, reach: int, scan_limit: int = 0, offset: 
 	if backend != null:
 		var ids: PackedInt64Array = backend.call("query", PackedInt64Array([owner, q, r, reach, scan_limit, offset]))
 		for id in ids:
-			var body: Body = bodies.get(id)
-			if body != null and int(body.actor.hp) > 0: result.append(body)
+			var found := body(id)
+			if found != null and int(found.actor.hp) > 0: result.append(found)
 		return result
 	var group: Group = groups.get(owner)
 	if group == null: return result

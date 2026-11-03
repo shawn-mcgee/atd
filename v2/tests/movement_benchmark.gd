@@ -40,7 +40,7 @@ func run(args: PackedStringArray) -> Dictionary:
 			var started := Time.get_ticks_usec()
 			game.step(orders if tick == 0 else [])
 			var stepped := Time.get_ticks_usec()
-			history.append(game.rollback_checkpoint())
+			history.append(game.rollback_checkpoint(int(game.state.tick) % 20 == 0))
 			if history.size() > history_limit: history.pop_front()
 			var copied := Time.get_ticks_usec()
 			if int(game.state.tick) % 20 == 0: game.rollback_hash(history.back())
@@ -66,6 +66,10 @@ func run(args: PackedStringArray) -> Dictionary:
 			game.restore_rollback(history[30])
 			for tick in 29: game.step([])
 			valid = valid and game.state_hash() == final_hash and Canonical.hash_of(game.state) == state_json_hash
+			if not game.packed_rollback:
+				game.restore_rollback(history[39]) # A packed hash boundary in mixed Web history.
+				for tick in 20: game.step([])
+				valid = valid and game.state_hash() == final_hash and Canonical.hash_of(game.state) == state_json_hash
 			game.restore(JSON.parse_string(JSON.stringify(initial)))
 			for tick in 60: game.step(orders if tick == 0 else [])
 			valid = valid and game.state_hash() == final_hash
@@ -74,7 +78,7 @@ func run(args: PackedStringArray) -> Dictionary:
 			"platform": OS.get_name(), "debug_build": OS.has_feature("debug"),
 			"mean_us": _mean(samples), "first_10_mean_us": cold / 10, "next_50_mean_us": steady / 50, "p95_us": sorted[56], "peak_us": sorted.back(),
 			"step_mean_us": _mean(steps), "checkpoint_mean_us": _mean(copies), "hash_mean_us": _mean(hashes), "final_hash": final_hash,
-			"state_json_hash": state_json_hash, "snapshot_bytes": history.back().get("packed", PackedByteArray()).size(), "checkpoint_format": "packed" if game.packed_rollback else "dictionary",
+			"state_json_hash": state_json_hash, "snapshot_bytes": history.back().get("packed", PackedByteArray()).size(), "checkpoint_format": "packed" if game.packed_rollback else "mixed",
 			"verification": ("passed" if valid else "failed") if verified else "not_requested"}
 		reports.append(report)
 		print("ATD_MOVEMENT_BENCHMARK " + JSON.stringify(report))

@@ -92,7 +92,7 @@ static func _legal(game, body: Crowd.Body, point: Array, blocked: Dictionary, en
 static func choose(game, actor: Dictionary, intended: Array, speed: int, data: Dictionary, waypoint: Array, stop_range: int = 0) -> Array:
 	if intended == actor.position: return intended
 	var crowd: Crowd = game.movement_crowd()
-	var body: Crowd.Body = crowd.bodies[int(actor.id)]
+	var body: Crowd.Body = crowd.body(int(actor.id))
 	if crowd.backend != null: return _choose_native(game, actor, intended, speed, data, waypoint, stop_range, crowd, body)
 	var state: Dictionary = actor.avoidance
 	var vq := int(intended[0]) - body.q; var vr := int(intended[2]) - body.r
@@ -197,7 +197,7 @@ static func _pressure(body: Crowd.Body, q: int, r: int, friends: Array[Crowd.Bod
 
 static func separate_idle(game, actor: Dictionary) -> void:
 	var crowd: Crowd = game.movement_crowd()
-	var body: Crowd.Body = crowd.bodies[int(actor.id)]
+	var body: Crowd.Body = crowd.body(int(actor.id))
 	if crowd.backend != null:
 		_separate_native(game, actor, crowd, body)
 		return

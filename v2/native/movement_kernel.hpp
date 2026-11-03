@@ -96,8 +96,15 @@ class Movement {
         return metric(q - vq * t / 1048576, r - vr * t / 1048576);
     }
 public:
+    const Body *body(I id) const { return find(id); }
+    std::vector<I> owner_ids() const {
+        std::vector<I> result; result.reserve(groups.size());
+        for (const auto &entry : groups) result.push_back(entry.first);
+        return result;
+    }
     I radius_of(I id) const { const Body *body = find(id); return body ? body->radius : 0; }
-    Point settle(I id, I hz, bool bounded, Point goal) const {
+    template<class Legal>
+    Point settle(I id, I hz, bool bounded, Point goal, Legal legal) const {
         const Body *body = find(id);
         if (!body) return {};
         Point best{body->q, body->r};
@@ -111,7 +118,7 @@ public:
             Point next{body->q + offset.q, body->r + offset.r};
             if (bounded && metric(next.q - goal.q, next.r - goal.r) > 1024 * 1024) continue;
             I candidate = pressure(id, next.q, next.r);
-            if (candidate < score && contact(id, next.q, next.r, body->radius + distance + 2)) { score = candidate; best = next; }
+            if (candidate < score && contact(id, next.q, next.r, body->radius + distance + 2) && legal(next)) { score = candidate; best = next; }
         }
         return best;
     }

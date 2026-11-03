@@ -45,9 +45,13 @@ unknown tags/schema IDs, oversized containers, excess depth and trailing bytes.
 `Simulation.rollback_checkpoint()` uses packed bytes and an event copy on desktop;
 scheduled hashes reuse those bytes, avoiding another state traversal. Web uses
 Godot's faster native deep copy and encodes only at hash boundaries because its
-C-ABI traversal costs more than copying. `packed_rollback` is an implementation
+C-ABI traversal costs more than copying. On Web hash boundaries, it retains the
+encoded bytes directly, avoiding a redundant dictionary copy. History can contain
+both representations. `packed_rollback` is an implementation
 choice outside state; both representations produce identical ATD1 hashes.
-Packed restoration decodes fresh containers; dictionary restoration normalizes
+Packed restoration uses `state_reader.hpp` when available and the GDScript reader
+otherwise. Both validate the complete packet and build fresh containers without
+scene objects or pointers into the encoded buffer. Dictionary restoration normalizes
 scalars. Both discard derived movement/light/discovery caches. Public
 `checkpoint()`/`restore()` retain their editable JSON-compatible dictionary API.
 Diagnostic checkpoint requests return independent state dictionaries. Snapshot bytes

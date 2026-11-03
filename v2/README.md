@@ -534,9 +534,9 @@ a new match.
 | Footprint cells, centroids and circle/hex geometry | `core/geometry.gd` |
 | Deterministic routing and clearance caches | `core/navigation.gd` |
 | Soft friendly avoidance and idle settling | `core/steering.gd` |
-| Typed local movement bodies and spatial queries | `core/crowd.gd` |
+| Bulk movement index and lazy local body wrappers | `core/crowd.gd`, `native/crowd_adapter.hpp` |
 | Compiled integer movement, static clearance, exploration and state bytes | `native/movement_kernel.hpp`, `native/static_world.hpp`, `native/exploration_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
-| Canonical packed rollback state and hashing | `core/state_codec.gd`, `native/state_codec.hpp`, [ATD1 format](native/STATE_CODEC.md) |
+| Canonical packed rollback state and hashing | `core/state_codec.gd`, `native/state_codec.hpp`, `native/state_reader.hpp`, [ATD1 format](native/STATE_CODEC.md) |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Flood-filled light field and blockers | `core/illumination.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
@@ -712,7 +712,7 @@ The headless wrapper and Web self-test both call `tests/movement_benchmark.gd`;
 add `--benchmark` to the browser harness command to save release-Web measurements
 in `test-results/movement-browser.json`. Both modes measure the same complete ticks.
 The probe uses the production rollback checkpoint and hash methods. Desktop
-reuses packed bytes; Web copies state and encodes at hash boundaries because
+reuses packed bytes; Web copies state on ordinary ticks and retains encoded bytes at hash boundaries because
 native deep copy is faster there. Reports identify the format, packed size and the ordinary
 `state_json_hash` for gameplay comparisons across the protocol 23 hash transition.
 Timings are diagnostics, not guarantees; dense crowd work remains separate from
@@ -723,25 +723,26 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 4.427 ms | 6.346 ms | 10.530 ms |
-| Web export (release, headless Edge) | 11.880 ms | 17.900 ms | 18.500 ms |
+| Windows editor/headless (debug) | 2.791 ms | 4.045 ms | 4.750 ms |
+| Web export (release, headless Edge) | 7.456 ms | 12.500 ms | 14.900 ms |
 
 Both probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows means split into 3.656 ms simulation and 0.764 ms packed
-checkpoint work, plus 0.116 ms on scheduled hash ticks. Web means are 9.998 ms,
-1.733 ms for dictionary checkpoints and 2.733 ms on hash ticks. Desktop packed
-snapshots are 22,400 bytes in this scenario; Web's measured extension traversal
-cost exceeds native deep copy, so it retains dictionary snapshots. Both produce
+The latest Windows means split into 2.046 ms simulation and 0.737 ms packed
+checkpoint work, plus 0.134 ms on scheduled hash ticks. Web means are 5.521 ms,
+1.915 ms for mixed checkpoint work and 0.300 ms hashing retained bytes on hash
+ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
+Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
+snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
-Timing varies with competing work; repeated Windows release runs ranged from
-3.645 to 7.979 ms mean and all exceeded 4 ms at p95/peak.
-Packed restoration currently uses the reference decoder: a separate Windows
-probe measured 7.595 ms mean versus 5.085 ms for dictionary restoration. This
-one-time restore cost is outside normal tick timings and remains optimization work.
+Timing varies with competing work; re-measure before comparing platforms.
+Packed restoration uses the compiled decoder when available. A separate Windows
+probe measured 1.123 ms mean / 1.623 ms peak versus 4.769 ms mean for dictionary
+restoration, preserving the same final JSON state hash. This one-time restore
+cost is outside normal tick timings.
 
 Run `res://tests/benchmark_frames.gd` with a display to measure the 1280x800 view
 in a sandbox warmed for 600 ticks, with both factions visible. It reports paused
@@ -765,7 +766,7 @@ the opposing army stationary. It also reports maximum searches and node expansio
 per tick. `benchmark_simulation.gd` measures warmed gameplay, checkpoint copying
 and fresh state hashing separately. Desktop rollback stores canonical ATD1
 bytes plus an event copy; scheduled hashes reuse those bytes. Web retains native
-dictionary copies and encodes at hash boundaries. Packed restoration
+dictionary copies on ordinary ticks and packed bytes on hash boundaries. Packed restoration
 decodes fresh containers and clears derived caches; public JSON restoration
 normalizes scalars once. `tests/cpu_suite.gd` checks
 canonical hash equivalence, integer-root boundaries, exploration against exhaustive
@@ -793,3 +794,8 @@ invalidates on source/blocker movement, creation, death and transformation. Veil
 maintenance avoids per-cell filter allocations and sorts only tissue needing damage.
 State-dependent derived caches are discarded on restore. Integer roots use a native
 estimate corrected by exact integer division, including at int64 square boundaries.
+Native movement builds the crowd index in bulk and creates script Body wrappers
+only when queried. Contiguous independent orders and idle settling run in actor
+order in native batches; handlers needing A*, production, construction, passive
+work or automatic targeting keep their original turn. Entity-ID lookup is indexed
+lazily within a tick and invalidated after filtering or restoration.

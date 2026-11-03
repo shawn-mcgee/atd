@@ -33,9 +33,12 @@ var _crowd_dirty := true
 var _inside_step := false
 var _navigation_searches := 0
 var _navigation_expansions := 0
+var _entity_index: Dictionary[int, Dictionary] = {}
+var _entities_indexed := false
 
 func initialize(definitions: Dictionary, players: Array, seed_value: int) -> void:
 	content = definitions.duplicate(true)
+	_entity_index.clear(); _entities_indexed = false
 	_exploration_cache.clear()
 	_illumination_cache.clear()
 	_navigation_cache.clear()
@@ -78,8 +81,10 @@ func packed_state(value = null) -> PackedByteArray:
 		if not packed.is_empty(): return packed
 	return StateCodec.pack(source)
 
-func rollback_checkpoint() -> Dictionary:
-	if not packed_rollback:
+func rollback_checkpoint(for_hash: bool = false) -> Dictionary:
+	# A hash boundary already needs canonical bytes. Retain them directly rather
+	# than copying the same state first, including on the Web dictionary path.
+	if not packed_rollback and not for_hash:
 		var saved := checkpoint()
 		return {"state": saved, "events": saved.events}
 	var packed := packed_state()
@@ -89,11 +94,15 @@ func rollback_checkpoint() -> Dictionary:
 func rollback_hash(saved: Dictionary) -> String:
 	return StateCodec.hash_bytes(saved.packed if saved.has("packed") else packed_state(saved.state))
 
+func unpack_state(bytes: PackedByteArray):
+	if _crowd.backend != null: return _crowd.backend.call("state_unpack", bytes)
+	return StateCodec.unpack(bytes)
+
 func restore_rollback(saved: Dictionary) -> void:
 	if saved.has("state"):
 		restore(saved.state)
 		return
-	var decoded = StateCodec.unpack(saved.packed)
+	var decoded = unpack_state(saved.packed)
 	assert(decoded is Dictionary and decoded.get("content_hash") == state.content_hash, "Invalid rollback checkpoint")
 	state = decoded
 	_reset_derived()
@@ -104,6 +113,7 @@ func restore(saved: Dictionary) -> void:
 	_reset_derived()
 
 func _reset_derived() -> void:
+	_entity_index.clear(); _entities_indexed = false
 	Exploration.reset(_exploration_cache)
 	_illumination_cache.clear()
 	_navigation_cache.clear()
@@ -130,6 +140,7 @@ func step(commands: Array) -> void:
 	_navigation_searches = 0
 	_navigation_expansions = 0
 	_inside_step = true
+	_entity_index.clear(); _entities_indexed = false
 	for command in commands: _apply(command)
 	_velocity_snapshot = {}
 	for actor in state.actors:
@@ -141,7 +152,15 @@ func step(commands: Array) -> void:
 	var defeated: Dictionary[int, bool] = {}
 	for owner in state.mission.humans:
 		if state.mission.humans[owner].defeated: defeated[int(owner)] = true
-	for actor in state.actors:
+	var actor_index := 0
+	while actor_index < state.actors.size():
+		if _crowd.backend != null:
+			var processed := _move_batch(actor_index, defeated)
+			if processed > 0:
+				actor_index += processed
+				continue
+		var actor: Dictionary = state.actors[actor_index]
+		actor_index += 1
 		if int(actor.hp) <= 0 or defeated.has(int(actor.owner)): continue
 		if actor.order.get("kind") == "construct":
 			Engineering.work(self, actor)
@@ -205,11 +224,22 @@ func step(commands: Array) -> void:
 				else: _move(actor, following.position, following, adjacent, true)
 		elif actor.order.get("kind") == "move":
 			if int(actor.order.get("start_tick", 0)) <= int(state.tick): _move(actor, actor.order.point)
-	for actor in state.actors:
-		if int(actor.hp) > 0 and not defeated.has(int(actor.owner)) and actor.order.is_empty() and not Geometry.structure(self, actor): Steering.separate_idle(self, actor)
+	var settled := false
+	if _crowd.backend != null:
+		var field := navigation_field()
+		movement_crowd()
+		var changed = _crowd.backend.call("settle_actors", state.actors, defeated, int(content.settings.tick_hz), int(field.blocked.get("native_revision", 0)))
+		if changed != null:
+			for actor in changed:
+				invalidate_unit_caches(int(actor.owner)); invalidate_light(actor); update_friendly(actor, true)
+			settled = true
+	if not settled:
+		for actor in state.actors:
+			if int(actor.hp) > 0 and not defeated.has(int(actor.owner)) and actor.order.is_empty() and not Geometry.structure(self, actor): Steering.separate_idle(self, actor)
 	Escalation.resolve(self)
 	Mission.resolve(self)
 	state.actors = state.actors.filter(func(actor): return int(actor.hp) > 0)
+	_entity_index.clear(); _entities_indexed = false
 	Veil.tick(self)
 	Exploration.record(self, _exploration_cache)
 	Mission.record_visibility(self)
@@ -217,6 +247,13 @@ func step(commands: Array) -> void:
 	_inside_step = false
 
 func entity(id: int):
+	if _inside_step:
+		if not _entities_indexed:
+			for actor in state.actors:
+				var actor_id := int(actor.id)
+				if not _entity_index.has(actor_id): _entity_index[actor_id] = actor
+			_entities_indexed = true
+		return _entity_index.get(id)
 	for actor in state.actors:
 		if int(actor.id) == id: return actor
 	return null
@@ -334,6 +371,7 @@ func _spawn(type: String, owner: int, position: Array) -> void:
 		"spawn_source": 0, "passive_started_tick": int(state.tick), "passive_remaining": int(content.units[type].capabilities.get("passive_spawner", {}).get("interval_ticks", 0)),
 		"chyme": 0, "next_chyme_tick": int(state.tick) + int(content.units[type].capabilities.get("chyme_source", {}).get("interval_ticks", 0)),
 		"veil_stance": {"mode": "neutral", "network": 0, "order": 0, "target": [], "expires": 0}})
+	if _entities_indexed and not _entity_index.has(int(state.next_id)): _entity_index[int(state.next_id)] = state.actors.back()
 	Rally.reset(self, state.actors.back())
 	invalidate_light(state.actors.back())
 	state.next_id = int(state.next_id) + 1
@@ -352,7 +390,7 @@ func movement_crowd() -> Crowd:
 		_crowd_dirty = false
 	return _crowd
 
-func update_friendly(actor: Dictionary) -> void:
+func update_friendly(actor: Dictionary, native_updated: bool = false) -> void:
 	# Patch foreign obstacle snapshots in place; a moving body does not require
 	# recopying and hashing every hostile unit for each interleaved actor.
 	for key in _enemy_cache:
@@ -367,7 +405,7 @@ func update_friendly(actor: Dictionary) -> void:
 		data.bounds[1] = maxi(int(data.bounds[1]), int(actor.position[0]) + extent)
 		data.bounds[2] = mini(int(data.bounds[2]), int(actor.position[2]) - extent)
 		data.bounds[3] = maxi(int(data.bounds[3]), int(actor.position[2]) + extent)
-	if not _crowd_dirty: _crowd.moved(actor)
+	if not _crowd_dirty: _crowd.moved(actor, native_updated)
 
 func friendly_units(owner: int, point: Array, reach: int, scan_limit: int = 0, offset: int = 0) -> Array:
 	var result: Array = []
@@ -428,6 +466,16 @@ func distance_to_actor(point: Array, target: Dictionary) -> int:
 func interaction_distance(point: Array, target: Dictionary) -> int:
 	return Geometry.interaction_distance(self, point, target)
 
+func _move_batch(first: int, defeated: Dictionary) -> int:
+	var field := navigation_field()
+	var crowd := movement_crowd()
+	var sync := not _enemy_cache.is_empty() or not crowd.bodies.is_empty()
+	var batch = crowd.backend.call("point_orders", state.actors, first, defeated, int(state.tick), int(content.settings.tick_hz), int(field.blocked.get("native_revision", 0)), sync)
+	if batch == null: return 0
+	if batch.light_dirty: _illumination_cache.clear()
+	for actor in batch.changed: update_friendly(actor, true)
+	return int(batch.count)
+
 func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0, interaction: bool = false) -> bool:
 	var caps: Dictionary = content.units[actor.definition].capabilities
 	if not caps.has("move"): return false
@@ -466,7 +514,7 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 		if actor.order.get("kind") == "move": actor.order = {}
 		return false
 	var crowd := movement_crowd()
-	var body: Crowd.Body = crowd.bodies[int(actor.id)]
+	var body: Crowd.Body = crowd.body(int(actor.id))
 	# A disk enclosing every possible local step certifies static clearance.
 	# The native call then performs integration, steering and hostile contacts
 	# together; near terrain/structures the general path retains per-step checks.

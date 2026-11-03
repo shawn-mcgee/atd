@@ -15,6 +15,7 @@ var failures: Array[String] = []
 func run() -> Dictionary:
 	_state_codec()
 	_native_equivalence()
+	_batch_handlers()
 	for bits in 63:
 		for offset in [-1, 0, 1]:
 			var value: int = (1 << bits) + offset
@@ -26,6 +27,7 @@ func run() -> Dictionary:
 		for offset in [-1, 0, 1]:
 			_check(Sim.integer_sqrt(root * root + offset) == root - (1 if offset == -1 else 0), "native root estimate is corrected exactly around perfect squares")
 	_crowd_windows()
+	_bulk_crowd()
 	_fringe()
 	_sweeps()
 	_hash_boundaries()
@@ -79,12 +81,16 @@ func _state_codec() -> void:
 		_check(decoded is Dictionary and Canonical.text(decoded) == Canonical.text(sample) and StateCodec.pack(decoded) == packed, "ATD1 preserves all scalar boundaries, Unicode, nulls, containers and normalized names/floats")
 		if backend != null:
 			_check(backend.call("state_pack", sample) == packed, "compiled ATD1 bytes match the independent reference encoder")
+			var native_decoded = backend.call("state_unpack", packed)
+			_check(native_decoded is Dictionary and StateCodec.pack(native_decoded) == packed, "compiled decoder preserves reference scalar and container encodings")
 	for size in [64, 65]:
 		var sample: Dictionary = {}
 		for i in size: sample["key_%03d" % i] = i - 70
 		var packed := StateCodec.pack(sample)
 		_check(StateCodec.unpack(packed) == sample, "ATD1 handles both sides of the small-keyset boundary")
-		if backend != null: _check(backend.call("state_pack", sample) == packed, "compiled large-map encoding matches reference")
+		if backend != null:
+			_check(backend.call("state_pack", sample) == packed, "compiled large-map encoding matches reference")
+			_check(backend.call("state_unpack", packed) == sample, "compiled decoder preserves both sides of the keyset boundary")
 	if backend != null:
 		var nested: Dictionary = {}
 		for i in 65:
@@ -95,9 +101,23 @@ func _state_codec() -> void:
 			nested.parent_0.child_0_0 = repeat + 7
 			_check(backend.call("state_pack", nested) == StateCodec.pack(nested), "nested large-keyset eviction retains parent keys and reads live values without affecting wire bytes")
 	var valid := StateCodec.pack({"text": "雪", "array": [1, 2, 3]})
-	for length in valid.size(): _check(StateCodec.unpack(valid.slice(0, length)) == null, "truncated ATD1 snapshots are rejected")
+	for length in valid.size():
+		var truncated := valid.slice(0, length)
+		_check(StateCodec.unpack(truncated) == null, "truncated ATD1 snapshots are rejected")
+		if backend != null: _check(backend.call("state_unpack", truncated) == null, "compiled decoder rejects every truncated snapshot prefix")
 	for invalid in [PackedByteArray([65, 84, 68, 2, 8]), PackedByteArray([65, 84, 68, 1, 11]), PackedByteArray([65, 84, 68, 1, 7, 0]), PackedByteArray([65, 84, 68, 1, 6, 1, 1, 255, 80]), PackedByteArray([65, 84, 68, 1, 6, 1, 1, 0, 80]), valid + PackedByteArray([0])]:
 		_check(StateCodec.unpack(invalid) == null, "invalid versions, tags, schema IDs, UTF-8 and trailing data are rejected")
+		if backend != null: _check(backend.call("state_unpack", invalid) == null, "compiled decoder rejects invalid versions, tags, schemas, UTF-8 and trailing data")
+	if backend != null:
+		var source := StateCodec.pack({"雪": [{"n": -9223372036854775807 - 1, "t": "😀"}, {"n": 176, "t": "café"}], "number": 1.25})
+		var seed_value := 12345
+		for i in 256:
+			seed_value = (seed_value * 1103515245 + 12345) & 0x7fffffff
+			var mutated := source.duplicate()
+			mutated[seed_value % mutated.size()] = (seed_value >> 16) & 255
+			var expected = StateCodec.unpack(mutated)
+			var actual = backend.call("state_unpack", mutated)
+			_check((expected == null and actual == null) or (expected is Dictionary and actual is Dictionary and StateCodec.pack(actual) == StateCodec.pack(expected)), "compiled decoding matches reference validation on deterministic byte mutations and Unicode keysets")
 	var frame: Dictionary = game.rollback_checkpoint()
 	var original: String = game.state_hash()
 	game.step([])
@@ -107,12 +127,64 @@ func _state_codec() -> void:
 	game.packed_rollback = false
 	var plain: Dictionary = game.rollback_checkpoint()
 	_check(game.rollback_hash(plain) == game.rollback_hash(frame), "dictionary and packed checkpoint representations have identical canonical hashes")
+	var boundary: Dictionary = game.rollback_checkpoint(true)
+	_check(boundary.has("packed") and not boundary.has("state") and game.rollback_hash(boundary) == original, "Web hash boundaries retain canonical bytes without also copying the state dictionary")
 	game.step([]); game.restore_rollback(plain)
 	_check(game.state_hash() == original, "dictionary rollback retains the same complete state as packed rollback")
 	var reference = Sim.new(); reference.accelerated = false
 	var fixture = Fixture.new(); reference.initialize(fixture._definitions(), fixture._players(), 42)
 	reference.restore(game.checkpoint())
 	_check(reference.state_hash() == game.state_hash(), "reference and compiled sessions share the ATD1 hash format")
+
+func _batch_handlers() -> void:
+	if not ClassDB.class_exists("ATDMovementKernel"): return
+	var fixture = Fixture.new(); var data: Dictionary = fixture._definitions()
+	data.units.engineer.capabilities.illumination = {"radius": 2}
+	data.units.engineer.capabilities.factory = {"produces": ["engineer"]}
+	data.units.scavenger.capabilities.passive_spawner = {"definition": "scavenger", "interval_ticks": 5, "max_alive": 1, "spawn_radius": 1}
+	var game = Sim.new(); game.initialize(data, fixture._players(), 42)
+	var humans: Array = []; var foes: Array = []
+	for i in 3:
+		game._spawn("engineer", 1, [-4096 - i * 512, 0, -2048]); humans.append(int(game.state.next_id) - 1)
+		game._spawn("scavenger", 9, [4096 + i * 512, 0, 2048]); foes.append(int(game.state.next_id) - 1)
+	game.entity(humans[1]).production = [{"definition": "engineer", "remaining": 2}]
+	var reference = Sim.new(); reference.accelerated = false
+	reference.initialize(data, fixture._players(), 42); reference.restore(game.checkpoint())
+	for tick in 25:
+		var commands: Array = []
+		if tick == 0: commands = [{"kind": "move", "player": 1, "actors": humans, "point": [4096, 0, -1024]}, {"kind": "move", "player": 9, "actors": foes, "point": [-4096, 0, 1024]}]
+		game.step(commands); reference.step(commands)
+		_check(game.state_hash() == reference.state_hash(), "point batches preserve interleaved production, passive mobile sources, light invalidation, foreign obstacle caches and actor order")
+
+func _bulk_crowd() -> void:
+	var game = Fixture.new()._game()
+	if game._crowd.backend == null: return
+	var native = Crowd.new(); var reference = Crowd.new(false)
+	var velocities := {"2": [73, 0, -18], "5": [-31, 0, 97]}
+	for phase in 3:
+		if phase == 1:
+			game.content.units.engineer.collision_radius = 1 # Integer content values are valid.
+			game.entity(5).owner = 1
+			game._spawn("engineer", 9, [1024, 0, -512]); game.entity(7).velocity = [19, 0, 37]
+		if phase == 2:
+			game.entity(2).hp = 0
+			game.entity(5).definition = "maw" # Membership changes on transformation.
+		native.rebuild(game.state.actors, game.content.units, velocities)
+		reference.rebuild(game.state.actors, game.content.units, velocities)
+		_check(native.owners == reference.owners, "bulk index preserves sorted owners after spawn, death, ownership and definition changes")
+		for actor in game.state.actors:
+			var actual = native.body(int(actor.id)); var expected = reference.body(int(actor.id))
+			_check((actual == null and expected == null) or (actual != null and expected != null and actual.actor == expected.actor and [actual.owner, actual.radius, actual.q, actual.r, actual.vq, actual.vr] == [expected.owner, expected.radius, expected.q, expected.r, expected.vq, expected.vr]), "lazy body metadata matches reference including previous velocity and current content")
+		for owner in [1, 9]:
+			for point in [Vector2i(-12288, 0), Vector2i(0, 0), Vector2i(12288, 0)]:
+				_check(native.query(owner, point.x, point.y, 16384).map(func(row): return row.id) == reference.query(owner, point.x, point.y, 16384).map(func(row): return row.id), "bulk queries retain exact reference bucket order and membership")
+		var moving = game.entity(6)
+		moving.position = [phase * 2048 - 2049, 0, -2049]
+		native.moved(moving); reference.moved(moving)
+		_check(native.body(6).q == int(moving.position[0]) and native.query(int(moving.owner), -2048, -2048, 4096).map(func(row): return row.id) == reference.query(int(moving.owner), -2048, -2048, 4096).map(func(row): return row.id), "incremental updates keep native index and existing lazy wrappers synchronized")
+		moving.hp = 0
+		_check(native.query(int(moving.owner), -2048, -2048, 4096).map(func(row): return row.id) == reference.query(int(moving.owner), -2048, -2048, 4096).map(func(row): return row.id), "lazy wrappers retain live actor references for death filtering")
+		moving.hp = 15
 
 func _native_equivalence() -> void:
 	var loaded := ClassDB.class_exists("ATDMovementKernel")

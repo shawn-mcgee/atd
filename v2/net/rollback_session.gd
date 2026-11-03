@@ -5,7 +5,6 @@ signal confirmed(tick: int, state_hash: String)
 signal events_confirmed(events: Array)
 const Simulation = preload("res://core/simulation.gd")
 const Canonical = preload("res://core/canonical.gd")
-const StateCodec = preload("res://core/state_codec.gd")
 var simulation = Simulation.new()
 var local_id := 1
 var local_ids: Array[int] = []
@@ -39,7 +38,7 @@ func initialize(content: Dictionary, players: Array, seed_value: int, own_id: in
 	for tick in input_delay:
 		frames[tick] = {}
 		for id in human_ids: frames[tick][id] = []
-	checkpoints[0] = simulation.rollback_checkpoint()
+	checkpoints[0] = simulation.rollback_checkpoint(true)
 	hashes[0] = simulation.rollback_hash(checkpoints[0])
 
 func queue(command: Dictionary, player: int = -1) -> bool:
@@ -111,13 +110,14 @@ func _commands_at(tick: int) -> Array:
 
 func _save() -> void:
 	var tick := int(simulation.state.tick)
-	checkpoints[tick] = simulation.rollback_checkpoint()
-	if tick % hash_interval == 0: hashes[tick] = simulation.rollback_hash(checkpoints[tick])
+	var for_hash := tick % hash_interval == 0
+	checkpoints[tick] = simulation.rollback_checkpoint(for_hash)
+	if for_hash: hashes[tick] = simulation.rollback_hash(checkpoints[tick])
 
 func checkpoint_state(tick: int) -> Dictionary:
 	if not checkpoints.has(tick): return {}
 	if checkpoints[tick].has("state"): return checkpoints[tick].state.duplicate(true)
-	var decoded = StateCodec.unpack(checkpoints[tick].packed)
+	var decoded = simulation.unpack_state(checkpoints[tick].packed)
 	return decoded if decoded is Dictionary else {}
 
 func _confirm() -> void:
