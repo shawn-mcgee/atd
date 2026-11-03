@@ -535,7 +535,7 @@ a new match.
 | Deterministic routing and clearance caches | `core/navigation.gd` |
 | Soft friendly avoidance and idle settling | `core/steering.gd` |
 | Typed local movement bodies and spatial queries | `core/crowd.gd` |
-| Compiled integer movement, exploration and state-byte writer | `native/movement_kernel.hpp`, `native/exploration_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
+| Compiled integer movement, static clearance, exploration and state bytes | `native/movement_kernel.hpp`, `native/static_world.hpp`, `native/exploration_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Flood-filled light field and blockers | `core/illumination.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
@@ -717,14 +717,18 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 8.841 ms | 13.777 ms | 20.153 ms |
-| Web export (release, headless Edge) | 18.855 ms | 27.400 ms | 37.800 ms |
+| Windows editor/headless (debug) | 5.193 ms | 6.542 ms | 10.946 ms |
+| Web export (release, headless Edge) | 12.105 ms | 18.600 ms | 21.700 ms |
 
 Both probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, checkpoint copies and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
+The latest Windows means split into 3.757 ms simulation and 1.350 ms checkpoint
+copying, plus 1.665 ms on scheduled hash ticks. Web means are 10.115 ms, 1.778 ms
+and 4.033 ms respectively. A separate retained-snapshot probe found built-in
+binary Variant encoding no faster than deep copies, so rollback keeps deep copies.
 
 Run `res://tests/benchmark_frames.gd` with a display to measure the 1280x800 view
 in a sandbox warmed for 600 ticks, with both factions visible. It reports paused
@@ -764,6 +768,10 @@ every steering direction in a tile. Certified open steps combine native integrat
 local steering and actor updates; idle settling uses the same certificate. Hostile
 contacts still run every movement tick. State serialization caches immutable key
 text, checking Variant equality on hash collisions, without caching state values.
+Small recurring keysets reuse sorted keys after size and membership validation.
+Native static geometry mirrors circle/hex/map-edge checks; stale field revisions
+fall back to their original geometry. Point movement combines progress tracking,
+direct-route reuse, local steering and arrival; blocked routes retain A*.
 Illumination validates once at tick entry and
 invalidates on source/blocker movement, creation, death and transformation. Veil
 maintenance avoids per-cell filter allocations and sorts only tissue needing damage.

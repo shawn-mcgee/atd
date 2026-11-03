@@ -96,6 +96,7 @@ class Movement {
         return metric(q - vq * t / 1048576, r - vr * t / 1048576);
     }
 public:
+    I radius_of(I id) const { const Body *body = find(id); return body ? body->radius : 0; }
     Point settle(I id, I hz, bool bounded, Point goal) const {
         const Body *body = find(id);
         if (!body) return {};
@@ -114,7 +115,8 @@ public:
         }
         return best;
     }
-    Advance advance(I id, Point goal, I speed, I stop, I hz, I wait, I side, I pass) const {
+    template<class Legal>
+    Advance advance(I id, Point goal, I speed, I stop, I hz, I wait, I side, I pass, Legal legal) const {
         Advance out; out.wait = wait; out.side = side; out.pass = pass;
         const Body *body = find(id);
         if (!body) return out;
@@ -128,17 +130,17 @@ public:
         out.stepped = true; out.pass = std::max<I>(0, pass - 1);
         I reach = body->radius + length + 2;
         Point proposed = preferred(id, velocity.q, velocity.r, goal.q, goal.r, speed, stop, hz, pass > 0);
-        if (contact(id, proposed.q, proposed.r, reach)) {
+        if (contact(id, proposed.q, proposed.r, reach) && legal(proposed)) {
             out.point = proposed; out.wait = 0; out.write_wait = true; return out;
         }
-        if ((proposed.q != out.intended.q || proposed.r != out.intended.r) && contact(id, out.intended.q, out.intended.r, reach)) return out;
+        if ((proposed.q != out.intended.q || proposed.r != out.intended.r) && contact(id, out.intended.q, out.intended.r, reach) && legal(out.intended)) return out;
         I direction = side ? side : 1;
         Point perpendicular = scaled(-velocity.q - 2 * velocity.r, 2 * velocity.q + velocity.r, length);
         for (I bend : {direction * 8, direction * 64, -direction * 8, -direction * 64}) {
             Point delta = scaled(velocity.q * 4 + perpendicular.q * bend, velocity.r * 4 + perpendicular.r * bend, length);
             if (std::llabs(bend) == 64) delta = {perpendicular.q * sign(bend), perpendicular.r * sign(bend)};
             Point next{origin.q + delta.q, origin.r + delta.r};
-            if (!contact(id, next.q, next.r, reach)) continue;
+            if (!contact(id, next.q, next.r, reach) || !legal(next)) continue;
             out.point = next; out.side = sign(bend); out.wait = 0; out.write_wait = out.write_side = true; return out;
         }
         out.point = origin; out.wait = wait + 1; out.write_wait = true;

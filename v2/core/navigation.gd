@@ -23,6 +23,13 @@ static func field(game, cache: Dictionary) -> Dictionary:
 	if cache.get("signature", []) == signature: return cache.field
 	var keys: Array = blocked.keys(); keys.sort()
 	var result := {"blocked": {"hexes": blocked, "circles": circles}, "hash": Canonical.hash_of([keys, circles]), "clearance": {}}
+	if game._crowd.backend != null:
+		var shapes := PackedInt64Array([blocked.size()])
+		for cell in blocked.values(): shapes.append(int(cell[0])); shapes.append(int(cell[1]))
+		shapes.append(circles.size())
+		for circle in circles: shapes.append(int(circle.position[0])); shapes.append(int(circle.position[2])); shapes.append(int(circle.radius))
+		result.blocked.native_backend = game._crowd.backend
+		result.blocked.native_revision = int(game._crowd.backend.call("world", shapes, int(game.content.settings.map_radius), result.hash))
 	cache.signature = signature.duplicate(true)
 	cache.field = result
 	return result
@@ -41,6 +48,10 @@ static func segment_clear(game, a: Array, b: Array, size: int, obstacles: Dictio
 	var hexes: Dictionary = obstacles.get("hexes", obstacles)
 	var map_radius := int(game.content.settings.map_radius)
 	if int(a[1]) != 0 or int(b[1]) != 0: return false
+	var backend: RefCounted = obstacles.get("native_backend")
+	if backend != null:
+		var valid := int(backend.call("static_clear", int(obstacles.native_revision), Vector2i(int(a[0]), int(a[2])), Vector2i(int(b[0]), int(b[2])), size))
+		if valid >= 0: return valid == 1 and enemy_clear(a, b, size, enemies)
 	var pad := (size + Hex.SCALE - 1) / Hex.SCALE + 1
 	var interior := true
 	var inner_limit := (map_radius - pad) * Hex.SCALE

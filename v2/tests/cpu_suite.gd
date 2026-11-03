@@ -84,8 +84,16 @@ func _native_equivalence() -> void:
 	for tick in 16:
 		var changed := {&"named": tick, "a": [tick % 2 == 0, "changed %d" % tick], "extra_%d" % (tick % 3): tick * -3}
 		var bytes: PackedByteArray = encoder.call("state_bytes", changed)
-		_check(bytes == JSON.stringify(changed, "", true, true).to_utf8_buffer(), "cached key text never caches values or dictionary layouts")
+		_check(bytes == JSON.stringify(changed, "", true, true).to_utf8_buffer(), "cached keysets validate changing layouts and read current values")
+		var normalized: Dictionary = Canonical.normalize(changed)
+		bytes = encoder.call("state_bytes", normalized)
+		_check(bytes == JSON.stringify(normalized, "", true, true).to_utf8_buffer(), "cached keysets support mixed interned and ordinary keys after normalization")
+	for i in 20:
+		var nested := {"a_%d" % (i % 7): i, "b": {"a_%d" % ((i + 1) % 7): i + 1, "b": false, "c": []}, "c": true}
+		var bytes: PackedByteArray = encoder.call("state_bytes", nested)
+		_check(bytes == JSON.stringify(nested, "", true, true).to_utf8_buffer(), "nested and changing keysets preserve exact output beyond the schema-cache cap")
 	_native_discovery()
+	_native_clearance()
 	for walls in [false, true]:
 		var game = Fixture.new()._game()
 		var humans: Array = []; var foes: Array = []
@@ -132,6 +140,31 @@ func _native_discovery() -> void:
 			Exploration.record(game, game._exploration_cache)
 			_check(game.state.revealed == expected, "compiled discovery matches exhaustive map edges, zero/fractional/large radii and ownership changes")
 			if tick == 20: game.restore(game.checkpoint())
+
+func _native_clearance() -> void:
+	for mode in 4:
+		var fixture = Fixture.new()
+		var data: Dictionary = fixture._definitions()
+		data.settings.map_radius = 12 if mode < 3 else 3
+		data.settings.terrain = []
+		if mode == 1:
+			for q in range(-3, 4):
+				for r in range(-3, 4): data.settings.terrain.append([q, r])
+		var game = Sim.new(); game.initialize(data, fixture._players(), 42)
+		if mode == 0: game._spawn("wall", 1, [0, 0, 0])
+		var field: Dictionary = game.navigation_field()
+		var oracle := {"hexes": field.blocked.hexes, "circles": field.blocked.circles}
+		for i in 240:
+			var extent := 14336 if mode < 3 else 4096
+			var a := [i * 391 % (extent * 2) - extent, 0, i * 977 % (extent * 2) - extent]
+			var b := [int(a[0]) + i * 73 % 8192 - 4096, 0, int(a[2]) + i * 157 % 8192 - 4096]
+			if i % 5 == 0: b = a
+			var size := i * 19 % 2048
+			_check(Nav.segment_clear(game, a, b, size, field.blocked) == Nav.segment_clear(game, a, b, size, oracle), "compiled static clearance matches independent GDScript circle/hex/map-edge oracle")
+		game._spawn("wall", 1, [3072, 0, 0])
+		game.navigation_field()
+		_check(int(game._crowd.backend.call("static_clear", int(field.blocked.native_revision), Vector2i(2048, 0), Vector2i(4096, 0), 205)) == -1, "stale native world revisions decline rather than query changed geometry")
+		_check(Nav.segment_clear(game, [2048, 0, 0], [4096, 0, 0], 205, field.blocked) == Nav.segment_clear(game, [2048, 0, 0], [4096, 0, 0], 205, oracle), "retained static fields preserve their original clearance after world changes")
 
 func _crowd_windows() -> void:
 	var game = Fixture.new()._game()

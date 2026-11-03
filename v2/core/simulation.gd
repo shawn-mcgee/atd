@@ -111,8 +111,13 @@ func step(commands: Array) -> void:
 		# Velocities are replaced, never edited in place; retain the previous array.
 		_velocity_snapshot[str(actor.id)] = actor.get("velocity", [0, 0, 0])
 		actor.velocity = [0, 0, 0]
+	# Defeat is resolved after actor updates, so this membership is stable through
+	# both actor loops. Avoid repeated string conversion/default dictionaries.
+	var defeated: Dictionary[int, bool] = {}
+	for owner in state.mission.humans:
+		if state.mission.humans[owner].defeated: defeated[int(owner)] = true
 	for actor in state.actors:
-		if int(actor.hp) <= 0 or Mission.defeated(self, int(actor.owner)): continue
+		if int(actor.hp) <= 0 or defeated.has(int(actor.owner)): continue
 		if actor.order.get("kind") == "construct":
 			Engineering.work(self, actor)
 			continue
@@ -127,9 +132,14 @@ func step(commands: Array) -> void:
 			continue
 		var definition: Dictionary = content.units[actor.definition]
 		var caps: Dictionary = definition.capabilities
-		Chyme.passive(self, actor)
+		# A manual move suppresses automatic targeting. Actors without production
+		# or passive schedules can go straight to movement without no-op handlers.
+		if actor.order.get("kind") == "move" and actor.order.get("manual", false) and actor.production.is_empty() and not caps.has("chyme_source") and not caps.has("passive_spawner"):
+			if int(actor.order.get("start_tick", 0)) <= int(state.tick): _move(actor, actor.order.point)
+			continue
+		if caps.has("chyme_source"): Chyme.passive(self, actor)
 		if not actor.production.is_empty(): _production(actor)
-		Spawning.tick(self, actor)
+		if caps.has("passive_spawner"): Spawning.tick(self, actor)
 		if actor.order.get("kind") == "attack":
 			var ordered_target = entity(int(actor.order.target))
 			if ordered_target == null or (not actor.order.get("manual", false) and Mission.defeated(self, int(ordered_target.owner))): actor.order = {}
@@ -171,7 +181,7 @@ func step(commands: Array) -> void:
 		elif actor.order.get("kind") == "move":
 			if int(actor.order.get("start_tick", 0)) <= int(state.tick): _move(actor, actor.order.point)
 	for actor in state.actors:
-		if int(actor.hp) > 0 and not Mission.defeated(self, int(actor.owner)) and actor.order.is_empty() and not Geometry.structure(self, actor): Steering.separate_idle(self, actor)
+		if int(actor.hp) > 0 and not defeated.has(int(actor.owner)) and actor.order.is_empty() and not Geometry.structure(self, actor): Steering.separate_idle(self, actor)
 	Escalation.resolve(self)
 	Mission.resolve(self)
 	state.actors = state.actors.filter(func(actor): return int(actor.hp) > 0)
@@ -397,6 +407,17 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 	var caps: Dictionary = content.units[actor.definition].capabilities
 	if not caps.has("move"): return false
 	var point_order: bool = target == null and actor.order.get("kind") == "move"
+	var speed := maxi(1, int(round(float(caps.move.speed) * SCALE / int(content.settings.tick_hz))))
+	if point_order and _crowd.backend != null:
+		var field := navigation_field()
+		movement_crowd()
+		var result := int(_crowd.backend.call("point_move", actor, Vector2i(int(destination[0]), int(destination[2])), speed, int(state.tick), int(content.settings.tick_hz), int(field.blocked.get("native_revision", 0))))
+		if result >= 0:
+			if result == 1:
+				invalidate_unit_caches(int(actor.owner))
+				invalidate_light(actor)
+			update_friendly(actor)
+			return true
 	if point_order:
 		reach = SCALE
 		if distance_squared(actor.position, destination) <= reach * reach:
@@ -419,7 +440,6 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 	if waypoint.is_empty():
 		if actor.order.get("kind") == "move": actor.order = {}
 		return false
-	var speed := maxi(1, int(round(float(caps.move.speed) * SCALE / int(content.settings.tick_hz))))
 	var crowd := movement_crowd()
 	var body: Crowd.Body = crowd.bodies[int(actor.id)]
 	# A disk enclosing every possible local step certifies static clearance.
