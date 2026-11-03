@@ -46,7 +46,7 @@ jobs:
           chmod +x "Godot_v${release}_linux.x86_64"
           echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
           echo "GODOT_BIN=Godot_v${release}_linux.x86_64" >> "$GITHUB_ENV"
-          unzip -q "$templates" 'templates/web_nothreads_release.zip' 'templates/web_nothreads_debug.zip' 'templates/version.txt'
+          unzip -q "$templates" 'templates/web_nothreads_release.zip' 'templates/web_nothreads_debug.zip' 'templates/web_dlink_nothreads_release.zip' 'templates/web_dlink_nothreads_debug.zip' 'templates/version.txt'
           destination="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
           mkdir -p "$destination"
           mv templates/* "$destination/"
@@ -55,6 +55,11 @@ jobs:
         shell: pwsh
         run: |
           ./tools/build-web.ps1 -GodotExecutable (Get-Command $env:GODOT_BIN).Source
+
+      - name: Validate v2 compiled core
+        shell: pwsh
+        run: |
+          python tools/test-rewrite.py --godot (Get-Command $env:GODOT_BIN).Source --require-native
 
       - name: Configure GitHub Pages
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'

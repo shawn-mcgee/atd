@@ -10,3 +10,10 @@
 
 # Local Godot engine binaries stay outside the game project.
 /Godot*.exe
+__pycache__/
+
+# Native v2 acceleration is built locally or by CI, never checked in as binaries.
+/v2/native/.build/
+/v2/native/bin/
+/v2/native/runtime.gdextension
+/v2/native/runtime.gdextension.uid

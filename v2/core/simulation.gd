@@ -20,6 +20,7 @@ const Spawning = preload("res://core/spawning.gd")
 const SCALE := 1024
 var content: Dictionary
 var state: Dictionary
+var accelerated := true # Implementation choice only; reference/native replay must agree.
 var _exploration_cache: Dictionary = {}
 var _illumination_cache: Dictionary = {}
 var _navigation_cache: Dictionary = {}
@@ -38,7 +39,7 @@ func initialize(definitions: Dictionary, players: Array, seed_value: int) -> voi
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
 	_enemy_cache.clear()
-	_crowd = Crowd.new()
+	_crowd = Crowd.new(accelerated)
 	_crowd_dirty = true
 	_inside_step = false
 	state = {"version": 16, "content_hash": Canonical.hash_of(content), "tick": 0, "next_id": 1,
@@ -76,11 +77,18 @@ func restore(saved: Dictionary) -> void:
 	_navigation_cache.clear()
 	_velocity_snapshot.clear()
 	_enemy_cache.clear()
-	_crowd = Crowd.new()
+	_crowd = Crowd.new(accelerated)
 	_crowd_dirty = true
 	_inside_step = false
 
 func state_hash() -> String:
+	if _crowd.backend != null:
+		var bytes: PackedByteArray = _crowd.backend.call("state_bytes", state)
+		if not bytes.is_empty():
+			var digest := HashingContext.new()
+			digest.start(HashingContext.HASH_SHA256)
+			digest.update(bytes)
+			return digest.finish().hex_encode()
 	# State already contains integer scalars and string keys. Native sorted JSON
 	# preserves the wire hash without a second recursive copy/sort in GDScript.
 	return JSON.stringify(state, "", true, true).sha256_text()
@@ -100,7 +108,8 @@ func step(commands: Array) -> void:
 	for command in commands: _apply(command)
 	_velocity_snapshot = {}
 	for actor in state.actors:
-		_velocity_snapshot[str(actor.id)] = actor.get("velocity", [0, 0, 0]).duplicate()
+		# Velocities are replaced, never edited in place; retain the previous array.
+		_velocity_snapshot[str(actor.id)] = actor.get("velocity", [0, 0, 0])
 		actor.velocity = [0, 0, 0]
 	for actor in state.actors:
 		if int(actor.hp) <= 0 or Mission.defeated(self, int(actor.owner)): continue
@@ -419,7 +428,7 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 		for axis in [0, 2]:
 			@warning_ignore("integer_division")
 			point[axis] = int(point[axis]) + (int(waypoint[axis]) - int(point[axis])) * speed / distance
-	var intended: Array = point.duplicate()
+	var intended: Array = point # Steering reads the input; it returns a fresh array when deflecting.
 	point = Steering.choose(self, actor, point, speed, movement, waypoint, reach if point_order and waypoint == destination else 0)
 	actor.velocity = [int(point[0]) - int(actor.position[0]), 0, int(point[2]) - int(actor.position[2])]
 	if point != intended and point != actor.position:

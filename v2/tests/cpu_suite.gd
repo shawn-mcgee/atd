@@ -12,6 +12,7 @@ var checks := 0
 var failures: Array[String] = []
 
 func run() -> Dictionary:
+	_native_equivalence()
 	for bits in 63:
 		for offset in [-1, 0, 1]:
 			var value: int = (1 << bits) + offset
@@ -60,6 +61,51 @@ func run() -> Dictionary:
 	for tick in 80: game.step([])
 	_check(game.state_hash() == expected and expected == Canonical.hash_of(game.state), "JSON restore reproduces local forces, obstacle snapshots and exact hashes")
 	return {"checks": checks, "failures": failures}
+
+func _native_equivalence() -> void:
+	var loaded := ClassDB.class_exists("ATDMovementKernel")
+	_check(loaded or not "--require-native" in OS.get_cmdline_user_args(), "required compiled movement kernel is loaded")
+	if not loaded: return
+	var encoder = Fixture.new()._game()._crowd.backend
+	if encoder == null:
+		_check(false, "loaded movement kernel ABI matches the current core")
+		return
+	var controls := ""
+	for code in range(1, 32): controls += String.chr(code)
+	var samples: Array = [null, false, true, 0, -1, -9223372036854775807 - 1, 9223372036854775807, "\"\\/\n\r\t\v", controls, "Café ☃ 😀", [], {}, {&"named": &"value", "a": [1, false, "text"]}]
+	for value in samples:
+		var sample := {"value": value}
+		var bytes: PackedByteArray = encoder.call("state_bytes", sample)
+		_check(bytes == JSON.stringify(sample, "", true, true).to_utf8_buffer(), "compiled serializer preserves exact sorted JSON bytes, escapes, Unicode and int64 values")
+	var unsupported: PackedByteArray = encoder.call("state_bytes", {"float": 0.5})
+	_check(unsupported.is_empty(), "unsupported scalar types retain Godot's full serializer")
+	unsupported = encoder.call("state_bytes", {"雪": 1})
+	_check(unsupported.is_empty(), "arbitrary Unicode keys retain Godot's full serializer")
+	for walls in [false, true]:
+		var game = Fixture.new()._game()
+		var humans: Array = []; var foes: Array = []
+		for i in 8:
+			game._spawn("engineer", 1, [-4096 - i / 4 * 1024, 0, i % 4 * 384 - 768]); humans.append(int(game.state.next_id) - 1)
+			game._spawn("scavenger", 9, [4096 + i / 4 * 1024, 0, i % 4 * 384 - 768]); foes.append(int(game.state.next_id) - 1)
+		game._spawn("mother", 9, [4096, 0, -3072]); foes.append(int(game.state.next_id) - 1)
+		if walls:
+			for r in range(-2, 3): game._spawn("wall", 1, Hex.point([0, r]))
+		var reference = Sim.new(); reference.accelerated = false
+		reference.initialize(game.content, game.state.players, 42); reference.restore(game.checkpoint())
+		_check(game._crowd.backend != null and reference._crowd.backend == null, "native/reference equivalence uses distinct movement implementations")
+		var saved: Dictionary
+		for tick in 140:
+			var commands: Array = []
+			if tick == 0:
+				commands = [{"kind": "move", "player": 1, "actors": humans, "point": [4096, 0, 0]}, {"kind": "move", "player": 9, "actors": foes, "point": [-4096, 0, 0]}, {"kind": "train", "player": 1, "actors": [1], "definition": "engineer"}]
+			if tick == 30: commands = [{"kind": "attack", "player": 1, "actors": [2], "target": foes[0]}]
+			game.step(commands); reference.step(commands)
+			_check(game.state_hash() == reference.state_hash(), "compiled movement matches reference tick, including hard contact, large bodies, routes, production and death")
+			if tick == 40: saved = game.checkpoint()
+		var expected: String = game.state_hash()
+		game.restore(JSON.parse_string(JSON.stringify(saved)))
+		for tick in 99: game.step([])
+		_check(game.state_hash() == expected, "compiled movement rebuilds derived bodies after JSON restore")
 
 func _crowd_windows() -> void:
 	var game = Fixture.new()._game()

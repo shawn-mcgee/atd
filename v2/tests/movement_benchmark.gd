@@ -11,7 +11,10 @@ func run(args: PackedStringArray) -> Dictionary:
 	for count in ([64] if "--large" in args else [16, 32, 64]):
 		var fixture = Fixture.new()
 		var game = Sim.new()
+		game.accelerated = not "--reference" in args
 		game.initialize(fixture._definitions(), fixture._players(), 42)
+		if "--require-native" in args and game._crowd.backend == null:
+			return {"ok": false, "reports": [], "error": "Compiled movement kernel is unavailable"}
 		var movers: Array = []
 		var opponents: Array = []
 		var opposing := "--opposing" in args
@@ -62,6 +65,8 @@ func run(args: PackedStringArray) -> Dictionary:
 			for tick in 60: game.step(orders if tick == 0 else [])
 			valid = valid and game.state_hash() == final_hash
 		var report := {"movers": count, "opposing": opposing, "max_searches": max_searches, "max_expansions": max_expansions, "actors": game.state.actors.size(),
+			"backend": "native" if game._crowd.backend != null else "gdscript",
+			"platform": OS.get_name(), "debug_build": OS.has_feature("debug"),
 			"mean_us": _mean(samples), "first_10_mean_us": cold / 10, "next_50_mean_us": steady / 50, "p95_us": sorted[56], "peak_us": sorted.back(),
 			"step_mean_us": _mean(steps), "checkpoint_mean_us": _mean(copies), "hash_mean_us": _mean(hashes), "final_hash": final_hash,
 			"verification": ("passed" if valid else "failed") if verified else "not_requested"}

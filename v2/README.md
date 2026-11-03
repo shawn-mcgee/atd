@@ -535,6 +535,7 @@ a new match.
 | Deterministic routing and clearance caches | `core/navigation.gd` |
 | Soft friendly avoidance and idle settling | `core/steering.gd` |
 | Typed local movement bodies and spatial queries | `core/crowd.gd` |
+| Compiled integer movement and canonical state-byte writer | `native/movement_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Flood-filled light field and blockers | `core/illumination.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
@@ -559,14 +560,32 @@ Camera, sandbox control selection and actor selection remain outside the core.
 
 ## Validate and export
 
+Build the compiled integer accelerator for the local editor and Web:
+
+```powershell
+python tools/build-native-movement.py --godot <GodotExecutable> --web
+```
+
+The helper generates the matching Godot C interface and builds the C++17 sources
+in `native/`. On Windows it installs pinned Zig 0.14.1 in a temporary tool cache;
+Linux/macOS use the system C++ compiler. Web builds install pinned Emscripten
+4.0.20. Generated headers, libraries and the extension descriptor are ignored.
+Libraries use content-addressed filenames so an open editor cannot lock a rebuild;
+restart the editor to load a changed native ABI. Without the generated extension,
+the same simulation runs through its GDScript reference implementation.
+
 Run from the repository root, substituting the local engine path:
 
 ```powershell
-python tools/test-rewrite.py --godot <GodotExecutable> --network
-python tools/test-game.py --godot <GodotExecutable> --jobs 3
+python tools/test-rewrite.py --godot <GodotExecutable> --network --require-native
 ```
 
 The rewrite runner imports first and rejects script errors even on exit zero.
+`--require-native` also verifies that compiled movement is actually loaded. Native
+and reference implementations are compared at every tick through collisions,
+large bodies, terrain routes, production, death and JSON restoration. Native state
+serialization preserves the existing sorted JSON bytes and SHA-256 hashes;
+unsupported Variant types use Godot's serializer.
 Import/Web export use recovery mode to avoid native-extension DLL reload locks
 when the project is already open in a Windows editor; actual tests still load WebRTC.
 `--network` creates a temporary room on the deployed coordinator and tests two
@@ -650,12 +669,16 @@ Use `-- --mission` to capture an authored fast mission through the command/sessi
 path, saving `test-results/mission.png`.
 Use `-- --spawning` for a fast source-at-cap preview in `test-results/spawning.png`.
 
-With matching Web export templates installed:
+With matching Web export templates installed, including the single-threaded
+GDExtension (`web_dlink_nothreads_*`) templates:
 
 ```powershell
 pwsh -File tools/build-web.ps1 -GodotExecutable <GodotExecutable> -ProjectDirectory v2
 python -m http.server 8000 --directory build/rewrite-web
 ```
+
+The v2 export helper builds the native host/Web accelerator before exporting.
+CI also validates the compiled v2 core; it does not run v1 regression suites.
 
 `tools/test-rewrite-browser.cjs` serves the export on an ephemeral loopback port,
 runs the same suite in Chromium, compares the native result, captures the view,
@@ -681,11 +704,27 @@ runs only the 64-per-side stress case. The CPU target is below 4 ms per full tic
 including hash boundaries and command ticks; this remains an optimization target,
 not a verified performance guarantee. Add `--verify` to check hostile separation
 on every tick and replay from a JSON checkpoint, outside timed intervals.
+`--require-native` rejects a missing accelerator; `--reference` selects GDScript
+for comparison. Reports identify backend, platform and debug/release build.
 The headless wrapper and Web self-test both call `tests/movement_benchmark.gd`;
 add `--benchmark` to the browser harness command to save release-Web measurements
 in `test-results/movement-browser.json`. Both modes measure the same complete ticks.
 Timings are diagnostics, not guarantees; dense crowd work remains separate from
 static route searches and is reported explicitly by the opposing-group probe.
+
+Measured on the development workstation on 2026-11-02 with the compiled backend,
+64 movers per side (134 actors), retained checkpoints and scheduled hashes:
+
+| Build | Mean tick | p95 | Peak |
+| --- | ---: | ---: | ---: |
+| Windows editor/headless (debug) | 9.465 ms | 12.766 ms | 19.232 ms |
+| Web export (release, headless Edge) | 23.675 ms | 30.400 ms | 60.100 ms |
+
+Both probes passed hostile separation and JSON restore/replay verification with
+the same final hash. These results do **not** meet the 4 ms target. Static routing
+peaked at one search and nine expansions per tick; remaining work includes the
+GDScript actor-update path, checkpoint copies and state serialization. Re-measure
+on the next workstation before comparing timings across changes.
 
 Run `res://tests/benchmark_frames.gd` with a display to measure the 1280x800 view
 in a sandbox warmed for 600 ticks, with both factions visible. It reports paused
