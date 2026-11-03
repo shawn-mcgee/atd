@@ -11,6 +11,7 @@ var checks := 0
 
 func run() -> Dictionary:
 	_validation()
+	_empty_and_scheduled_growth()
 	_growth_under_units()
 	_random_growth()
 	_growth_and_senses()
@@ -51,6 +52,26 @@ func _validation() -> void:
 	_check(not content.load_text(Canonical.text(definitions)) and "settings.veil.decay_per_tick" in " ".join(content.errors), "invalid Veil tuning has a field path")
 	for cell in [[0, 0], [-5, 2], [2, -7]]:
 		_check(Hex.from_point(Hex.point(cell)) == cell, "integer axial conversion round-trips")
+
+func _empty_and_scheduled_growth() -> void:
+	var game = _game(3)
+	game.content.units.nest.capabilities.erase("veil_source")
+	game.entity(5).veil_networks = [99]
+	game.state.veil.contacts = {"5": "0,0"}
+	game.state.veil.cooldowns = {"expired": 0, "future": 9}
+	game.step([])
+	_check(game.entity(5).veil_networks.is_empty() and game.state.veil.contacts.is_empty(), "empty membrane clears old actor connections and contacts")
+	_check(game.state.veil.cooldowns == {"future": 9}, "empty membrane still expires alert cooldowns")
+	game = _game(3)
+	game.content.units.nest.capabilities.veil_source.growth_tiles = 1
+	game.step([])
+	game.content.settings.terrain = [[0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]
+	game._spawn("wall", 1, Hex.point([1, 0]))
+	_step(game, 3)
+	_check(game.state.veil.cells.size() == 1, "scheduled growth reads structures and terrain added since the preceding pulse")
+	game.entity(7).hp = 0
+	_step(game, 3)
+	_check(game.state.veil.cells.has("1,0"), "scheduled growth sees a removed obstruction on the next pulse")
 
 func _growth_under_units() -> void:
 	var game = _game()

@@ -217,6 +217,7 @@ func _native_equivalence() -> void:
 		var bytes: PackedByteArray = encoder.call("state_bytes", nested)
 		_check(bytes == JSON.stringify(nested, "", true, true).to_utf8_buffer(), "nested and changing keysets preserve exact output beyond the schema-cache cap")
 	_native_discovery()
+	_native_observer_changes()
 	_native_clearance()
 	for walls in [false, true]:
 		var game = Fixture.new()._game()
@@ -264,6 +265,40 @@ func _native_discovery() -> void:
 			Exploration.record(game, game._exploration_cache)
 			_check(game.state.revealed == expected, "compiled discovery matches exhaustive map edges, zero/fractional/large radii and ownership changes")
 			if tick == 20: game.restore(game.checkpoint())
+
+func _native_observer_changes() -> void:
+	var fixture = Fixture.new()
+	var data: Dictionary = fixture._definitions(); data.settings.map_radius = 5
+	for definition in data.units.values():
+		definition.capabilities.erase("perception"); definition.capabilities.erase("illumination")
+	data.units.engineer.capabilities.perception = {"radius": 0.75}
+	data.units.hq.capabilities.perception = {"radius": 1}
+	data.units.womb.capabilities.perception = {"radius": 2.25}
+	data.units.maw.footprint = [[0, 0], [1, 0], [2, 0]]
+	var game = Sim.new(); game.initialize(data, fixture._players(), 42)
+	game._spawn("womb", 9, [0, 0, 0])
+	game.entity(7).construction = {"definition": "maw"}
+	var expected: Dictionary = game.state.revealed.duplicate(true)
+	for tick in 48:
+		game.entity(2).owner = 1 if tick % 3 else 9
+		game.entity(2).position = [tick * 359 % 10241 - 5120, 0, tick * 733 % 10241 - 5120]
+		game.entity(2).hp = 0 if tick % 7 == 0 else 10
+		game.entity(1).position = [tick * 161 % 8193 - 4096, 0, tick * 317 % 8193 - 4096]
+		game.entity(7).rotation = tick % 6
+		game.content.units.engineer.capabilities.perception.radius = tick % 4 if tick % 2 else 1.25
+		if tick == 24: game.content.units.engineer.capabilities.erase("move")
+		if tick == 36: game.content.units.engineer.capabilities.move = {"speed": 3}
+		for actor in game.state.actors:
+			var caps: Dictionary = game.content.units[actor.definition].capabilities
+			if int(actor.hp) <= 0 or not caps.has("perception"): continue
+			var center := Geo.center(game, actor)
+			var reach := int(round(float(caps.perception.radius) * Hex.SCALE))
+			for q in range(-5, 6):
+				for r in range(-5, 6):
+					if absi(q + r) <= 5 and game.distance_squared(center, Hex.point([q, r])) <= reach * reach: expected[str(actor.owner)][Hex.key([q, r])] = true
+		Exploration.record(game, game._exploration_cache)
+		_check(game.state.revealed == expected, "bulk discovery follows live capability, owner, life, radius, rotated footprint and Womb center changes")
+		if tick == 20: game.restore(game.checkpoint())
 
 func _native_clearance() -> void:
 	for mode in 4:

@@ -52,7 +52,7 @@ Build from the repository root with `python tools/build-native-movement.py --god
 method hashes. The builder publishes complete, content-addressed libraries and
 the runtime descriptor atomically; all generated output stays out of Git.
 
-ABI 13 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
+ABI 14 accepts low-level frame records in a `PackedInt64Array`, seven integers per living
 mobile body: `id, owner, radius, q, r, previous_vq, previous_vr`. IDs are unique,
 radii positive, and coordinates/speeds follow the core's validated map/content
 limits. Movement updates those bodies sequentially in actor order. Small per-unit
@@ -60,6 +60,11 @@ calls use integer/Vector2i arguments without temporary packed arrays. `advance`
 and `settle` update a validated mobile actor dictionary only after the caller has
 certified static clearance. `explore` receives the revealed-owner dictionaries,
 four-integer observer records (`owner, q, r, perception_radius`) and map radius.
+Normal discovery uses `explore_actors` to read mobile observers directly and
+returns stationary observers for the shared GDScript footprint-center calculation.
+Definitions are reread each call. Bounded per-owner/cell/radius envelopes discard
+already discovered candidates between restores, including discoveries made by
+other observers. Restores replace the kernel and all discovery envelopes.
 `world` accepts packed static shapes (`hex_count, q, r, ..., circle_count, q, r,
 radius, ...`), map radius and the existing geometry hash. It returns a revision.
 `static_clear` checks that revision before querying geometry; retained older

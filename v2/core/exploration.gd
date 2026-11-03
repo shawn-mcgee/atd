@@ -22,14 +22,14 @@ static func record(game, cache: Dictionary) -> void:
 	var units: Dictionary = game.content.units
 	var map_radius := int(game.content.settings.map_radius)
 	if game._crowd.backend != null:
+		var structures: Array = game._crowd.backend.call("explore_actors", game.state.revealed, game.state.actors, units, map_radius)
+		if structures.is_empty(): return
 		var observers := PackedInt64Array()
-		observers.resize(game.state.actors.size() * 4)
+		observers.resize(structures.size() * 4)
 		var used := 0
-		for actor in game.state.actors:
-			if int(actor.hp) <= 0: continue
+		for actor in structures:
 			var caps: Dictionary = units[actor.definition].capabilities
-			if not caps.has("perception"): continue
-			var position: Array = actor.position if caps.has("move") else Geo.center(game, actor)
+			var position := Geo.center(game, actor)
 			observers[used] = int(actor.owner); observers[used + 1] = int(position[0]); observers[used + 2] = int(position[2])
 			observers[used + 3] = int(round(float(caps.perception.radius) * Hex.SCALE))
 			used += 4

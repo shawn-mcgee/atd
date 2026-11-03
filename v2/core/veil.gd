@@ -19,25 +19,32 @@ static func perceives(game, owner: int, point: Array) -> bool:
 static func tick(game) -> void:
 	var veil: Dictionary = game.state.veil
 	var alive: Dictionary = {}
-	var occupied: Dictionary = {}
-	for cell in game.content.settings.get("terrain", []): occupied[Hex.key(cell)] = [0]
-	var lights: Dictionary = game.illumination_cells()
+	var sources: Array = []
+	var growth_due := false
 	for actor in game.state.actors:
 		var caps: Dictionary = game.content.units[actor.definition].capabilities
-		# Mobile actors never obstruct the membrane, even while standing still.
 		if int(actor.hp) <= 0: continue
-		if not caps.has("move"):
+		if caps.has("veil_source"):
+			var id: String = str(actor.id)
+			alive[id] = true
+			sources.append(actor)
+			if not veil.sources.has(id):
+				veil.sources[id] = {"origin": Hex.from_point(Geo.center(game, actor)), "claimed": [], "next_growth_tick": int(game.state.tick)}
+			if int(game.state.tick) >= int(veil.sources[id].next_growth_tick): growth_due = true
+	for id in veil.sources.keys():
+		if not alive.has(id): veil.sources.erase(id)
+	# Footprints matter only on growth ticks; light matters only to live tissue
+	# or an attempted expansion. Neither field is needed in a membrane-free game.
+	var occupied: Dictionary = {}
+	if growth_due:
+		for cell in game.content.settings.get("terrain", []): occupied[Hex.key(cell)] = [0]
+		for actor in game.state.actors:
+			if int(actor.hp) <= 0 or not Geo.structure(game, actor): continue
 			for cell in Geo.cells(game, actor):
 				var key := Hex.key(cell)
 				if not occupied.has(key): occupied[key] = []
 				occupied[key].append(int(actor.id))
-		if caps.has("veil_source"):
-			var id: String = str(actor.id)
-			alive[id] = true
-			if not veil.sources.has(id):
-				veil.sources[id] = {"origin": Hex.from_point(Geo.center(game, actor)), "claimed": [], "next_growth_tick": int(game.state.tick)}
-	for id in veil.sources.keys():
-		if not alive.has(id): veil.sources.erase(id)
+	var lights: Dictionary = game.illumination_cells() if growth_due or not veil.cells.is_empty() else {}
 	# A surviving source maintains only membrane it has actually grown/claimed.
 	var damage_keys: Array = []
 	for key in veil.cells:
@@ -56,8 +63,7 @@ static func tick(game) -> void:
 			_damage(game, key, int(settings(game).light_damage_per_tick), "illumination", 0)
 		elif cell.sources.is_empty():
 			_damage(game, key, int(settings(game).decay_per_tick), "decay", 0)
-	for actor in game.state.actors:
-		if not alive.has(str(actor.id)): continue
+	for actor in sources:
 		var source: Dictionary = veil.sources[str(actor.id)]
 		if int(game.state.tick) >= int(source.next_growth_tick):
 			_grow(game, actor, source, occupied, lights)
@@ -221,6 +227,10 @@ static func set_stance(game, actor: Dictionary, stance: String, point: Array) ->
 
 static func _adopt_stances(game) -> void:
 	var veil: Dictionary = game.state.veil
+	if veil.cells.is_empty():
+		for actor in game.state.actors:
+			if not actor.veil_networks.is_empty(): actor.veil_networks = []
+		return
 	for actor in game.state.actors:
 		actor.veil_networks = networks_at(veil, int(actor.owner), actor.position)
 		if not game.content.units[actor.definition].capabilities.has("move") or actor.veil_networks.is_empty(): continue

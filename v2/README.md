@@ -723,22 +723,27 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 2.791 ms | 4.045 ms | 4.750 ms |
-| Web export (release, headless Edge) | 7.456 ms | 12.500 ms | 14.900 ms |
+| Windows editor/headless (debug) | 2.525 ms | 3.885 ms | 4.440 ms |
+| Web export (release, headless Edge) | 7.163 ms | 11.400 ms | 19.700 ms |
 
 Both probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
 GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows means split into 2.046 ms simulation and 0.737 ms packed
-checkpoint work, plus 0.134 ms on scheduled hash ticks. Web means are 5.521 ms,
-1.915 ms for mixed checkpoint work and 0.300 ms hashing retained bytes on hash
+The latest Windows means split into 1.739 ms simulation and 0.779 ms packed
+checkpoint work, plus 0.127 ms on scheduled hash ticks. Web means are 5.161 ms,
+1.990 ms for mixed checkpoint work and 0.133 ms hashing retained bytes on hash
 ticks. Snapshot encoding at hash boundaries is included in checkpoint work.
 Packed snapshots are 22,400 bytes in this scenario; Web retains dictionary
 snapshots on ordinary ticks and packed bytes at hash boundaries. Both produce
 the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
 Timing varies with competing work; re-measure before comparing platforms.
+Mobile perception now reads actor data in a native batch and shares bounded
+unknown-tile envelopes across observers. Structure centers still use shared
+footprint geometry. Veil builds obstruction data only when growth is due and
+skips light and connection work when no membrane needs it. Both paths preserve
+the same state hashes, live content edits and restore behavior.
 Packed restoration uses the compiled decoder when available. A separate Windows
 probe measured 1.123 ms mean / 1.623 ms peak versus 4.769 ms mean for dictionary
 restoration, preserving the same final JSON state hash. This one-time restore
