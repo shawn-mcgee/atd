@@ -25,10 +25,15 @@ def main():
     for name, options in commands:
         if name == "foundation" and args.require_native:
             options = [*options, "--", "--require-native"]
-        result = subprocess.run([str(args.godot.resolve()), "--headless", "--path", str(root / "v2"), *options],
-                                cwd=root, capture_output=True, text=True, timeout=120)
-        output = result.stdout + result.stderr
-        (logs / (name + ".log")).write_text(output, encoding="utf-8")
+        log = logs / (name + ".log")
+        try:
+            with log.open("w", encoding="utf-8") as sink:
+                result = subprocess.run([str(args.godot.resolve()), "--headless", "--path", str(root / "v2"), *options],
+                                        cwd=root, stdout=sink, stderr=subprocess.STDOUT, text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            print(f"FAIL {name} (timeout): partial output saved to {log}")
+            return 1
+        output = log.read_text(encoding="utf-8", errors="replace")
         errors = [line for line in output.splitlines() if "SCRIPT ERROR:" in line or line.startswith("ERROR:")]
         if result.returncode or errors:
             print(f"FAIL {name} (exit {result.returncode}): see {logs / (name + '.log')}")

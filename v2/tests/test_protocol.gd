@@ -29,6 +29,13 @@ func _initialize() -> void:
 	session._message(1, {"type": "prepare", "descriptor": {"protocol": -1}})
 	_check(not session.error.is_empty() and session.rollback == null, "invalid handshake rejected before simulation")
 	session.close()
+	session.start_local(content.data, 42, "human")
+	var older: Dictionary = session.descriptor.duplicate(true)
+	older.protocol = 22
+	session.close(); session = Session.new(); session.own_id = 1
+	session._message(1, {"type": "prepare", "descriptor": older})
+	_check(session.error == "Invalid match descriptor" and session.rollback == null, "JSON-hash protocol 22 peers are rejected before starting an ATD1 session")
+	session.close()
 	session = Session.new()
 	session.transport.hosting = true
 	session.roster = {1: {"id": 1, "faction": "human", "controller": "human"}}

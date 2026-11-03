@@ -143,7 +143,7 @@ func _web_test_action(arguments: Array) -> void:
 		info.confirmed = session.rollback.confirmed_tick
 		info.hashes = session.rollback.hashes
 		if str(arguments[0]) == "checkpoint":
-			info.snapshot = session.rollback.checkpoints.get(int(str(arguments[1])), {})
+			info.snapshot = session.rollback.checkpoint_state(int(str(arguments[1])))
 			info.frames = session.rollback.frames
 	JavaScriptBridge.eval("window.atdLiveState = " + JSON.stringify(info))
 

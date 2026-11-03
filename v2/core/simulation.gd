@@ -7,6 +7,7 @@ const Steering = preload("res://core/steering.gd")
 const Rally = preload("res://core/rally.gd")
 const Navigation = preload("res://core/navigation.gd")
 const Canonical = preload("res://core/canonical.gd")
+const StateCodec = preload("res://core/state_codec.gd")
 const Hex = preload("res://core/hex_cells.gd")
 const Veil = preload("res://core/veil.gd")
 const Chyme = preload("res://core/chyme.gd")
@@ -21,6 +22,7 @@ const SCALE := 1024
 var content: Dictionary
 var state: Dictionary
 var accelerated := true # Implementation choice only; reference/native replay must agree.
+var packed_rollback := not OS.has_feature("web") # Web C-ABI traversal costs more than native deep copy.
 var _exploration_cache: Dictionary = {}
 var _illumination_cache: Dictionary = {}
 var _navigation_cache: Dictionary = {}
@@ -69,9 +71,39 @@ func initialize(definitions: Dictionary, players: Array, seed_value: int) -> voi
 func checkpoint() -> Dictionary:
 	return state.duplicate(true)
 
+func packed_state(value = null) -> PackedByteArray:
+	var source: Dictionary = state if value == null else value
+	if _crowd.backend != null:
+		var packed: PackedByteArray = _crowd.backend.call("state_pack", source)
+		if not packed.is_empty(): return packed
+	return StateCodec.pack(source)
+
+func rollback_checkpoint() -> Dictionary:
+	if not packed_rollback:
+		var saved := checkpoint()
+		return {"state": saved, "events": saved.events}
+	var packed := packed_state()
+	assert(not packed.is_empty(), "State cannot be encoded for rollback")
+	return {"packed": packed, "events": state.events.duplicate(true)}
+
+func rollback_hash(saved: Dictionary) -> String:
+	return StateCodec.hash_bytes(saved.packed if saved.has("packed") else packed_state(saved.state))
+
+func restore_rollback(saved: Dictionary) -> void:
+	if saved.has("state"):
+		restore(saved.state)
+		return
+	var decoded = StateCodec.unpack(saved.packed)
+	assert(decoded is Dictionary and decoded.get("content_hash") == state.content_hash, "Invalid rollback checkpoint")
+	state = decoded
+	_reset_derived()
+
 func restore(saved: Dictionary) -> void:
 	assert(saved.content_hash == state.content_hash, "Checkpoint content mismatch")
 	state = Canonical.normalize(saved)
+	_reset_derived()
+
+func _reset_derived() -> void:
 	Exploration.reset(_exploration_cache)
 	_illumination_cache.clear()
 	_navigation_cache.clear()
@@ -82,16 +114,9 @@ func restore(saved: Dictionary) -> void:
 	_inside_step = false
 
 func state_hash() -> String:
-	if _crowd.backend != null:
-		var bytes: PackedByteArray = _crowd.backend.call("state_bytes", state)
-		if not bytes.is_empty():
-			var digest := HashingContext.new()
-			digest.start(HashingContext.HASH_SHA256)
-			digest.update(bytes)
-			return digest.finish().hex_encode()
-	# State already contains integer scalars and string keys. Native sorted JSON
-	# preserves the wire hash without a second recursive copy/sort in GDScript.
-	return JSON.stringify(state, "", true, true).sha256_text()
+	var packed := packed_state()
+	assert(not packed.is_empty(), "State cannot be encoded for hashing")
+	return StateCodec.hash_bytes(packed)
 
 func step(commands: Array) -> void:
 	state.events = []

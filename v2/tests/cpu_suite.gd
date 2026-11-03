@@ -4,6 +4,7 @@ const Sim = preload("res://core/simulation.gd")
 const Geo = preload("res://core/geometry.gd")
 const Hex = preload("res://core/hex_cells.gd")
 const Canonical = preload("res://core/canonical.gd")
+const StateCodec = preload("res://core/state_codec.gd")
 const Exploration = preload("res://core/exploration.gd")
 const Nav = preload("res://core/navigation.gd")
 const Crowd = preload("res://core/crowd.gd")
@@ -12,6 +13,7 @@ var checks := 0
 var failures: Array[String] = []
 
 func run() -> Dictionary:
+	_state_codec()
 	_native_equivalence()
 	for bits in 63:
 		for offset in [-1, 0, 1]:
@@ -37,7 +39,7 @@ func run() -> Dictionary:
 	for tick in 220:
 		game.step([])
 		_check(game._navigation_searches <= 1, "group joins shared static route without per-unit searches")
-		if tick % 20 == 0: _check(game.state_hash() == Canonical.hash_of(game.state), "native state hash matches canonical wire hash")
+		if tick % 20 == 0: _check(game.state_hash() == StateCodec.hash_bytes(StateCodec.pack(game.state)), "native state hash matches reference canonical state bytes")
 	_check(game.entity(movers[0]).order.is_empty() and game.distance_squared(game.entity(movers[0]).position, Hex.point([4, 0])) <= Hex.SCALE * Hex.SCALE, "shared static group route still reaches destination around wall")
 	# Interleaved hostile movement exercises incremental obstacle updates.
 	game = Fixture.new()._game()
@@ -59,8 +61,58 @@ func run() -> Dictionary:
 	var expected: String = game.state_hash()
 	game.restore(JSON.parse_string(JSON.stringify(saved))) # Raw JSON includes integral floats.
 	for tick in 80: game.step([])
-	_check(game.state_hash() == expected and expected == Canonical.hash_of(game.state), "JSON restore reproduces local forces, obstacle snapshots and exact hashes")
+	_check(game.state_hash() == expected and expected == StateCodec.hash_bytes(StateCodec.pack(game.state)), "JSON restore reproduces local forces, obstacle snapshots and exact hashes")
 	return {"checks": checks, "failures": failures}
+
+func _state_codec() -> void:
+	_check(StateCodec.pack({}) == PackedByteArray([65, 84, 68, 1, 8]), "ATD1 empty dictionary has a fixed golden encoding")
+	_check(StateCodec.pack({"x": 0}) == PackedByteArray([65, 84, 68, 1, 6, 1, 1, 120, 80]), "ATD1 keyset and small integer have a fixed golden encoding")
+	_check(StateCodec.pack({"x": [{"a": true}, {"a": false}]}) == PackedByteArray([65, 84, 68, 1, 6, 1, 1, 120, 5, 2, 6, 1, 1, 97, 2, 7, 1, 1]), "ATD1 schema IDs follow sorted traversal and are local to each snapshot")
+	var game = Fixture.new()._game()
+	game.packed_rollback = true
+	var backend = game._crowd.backend
+	var samples: Array = [null, false, true, -9223372036854775807 - 1, 9223372036854775807, -65, -64, 175, 176, 1.25, 1.0, -0.0, "雪 ☃ 😀", "\"\\\n\v", &"named", [], {}, [{"a": 1}, {"a": 2}], {&"z": 2, "a": [false]}]
+	for value in samples:
+		var sample := {"value": value}
+		var packed := StateCodec.pack(sample)
+		var decoded = StateCodec.unpack(packed)
+		_check(decoded is Dictionary and Canonical.text(decoded) == Canonical.text(sample) and StateCodec.pack(decoded) == packed, "ATD1 preserves all scalar boundaries, Unicode, nulls, containers and normalized names/floats")
+		if backend != null:
+			_check(backend.call("state_pack", sample) == packed, "compiled ATD1 bytes match the independent reference encoder")
+	for size in [64, 65]:
+		var sample: Dictionary = {}
+		for i in size: sample["key_%03d" % i] = i - 70
+		var packed := StateCodec.pack(sample)
+		_check(StateCodec.unpack(packed) == sample, "ATD1 handles both sides of the small-keyset boundary")
+		if backend != null: _check(backend.call("state_pack", sample) == packed, "compiled large-map encoding matches reference")
+	if backend != null:
+		var nested: Dictionary = {}
+		for i in 65:
+			var child: Dictionary = {}
+			for j in (65 if i < 6 else 0): child["child_%d_%d" % [i, j]] = i + j
+			nested["parent_%d" % i] = child
+		for repeat in 2:
+			nested.parent_0.child_0_0 = repeat + 7
+			_check(backend.call("state_pack", nested) == StateCodec.pack(nested), "nested large-keyset eviction retains parent keys and reads live values without affecting wire bytes")
+	var valid := StateCodec.pack({"text": "雪", "array": [1, 2, 3]})
+	for length in valid.size(): _check(StateCodec.unpack(valid.slice(0, length)) == null, "truncated ATD1 snapshots are rejected")
+	for invalid in [PackedByteArray([65, 84, 68, 2, 8]), PackedByteArray([65, 84, 68, 1, 11]), PackedByteArray([65, 84, 68, 1, 7, 0]), PackedByteArray([65, 84, 68, 1, 6, 1, 1, 255, 80]), PackedByteArray([65, 84, 68, 1, 6, 1, 1, 0, 80]), valid + PackedByteArray([0])]:
+		_check(StateCodec.unpack(invalid) == null, "invalid versions, tags, schema IDs, UTF-8 and trailing data are rejected")
+	var frame: Dictionary = game.rollback_checkpoint()
+	var original: String = game.state_hash()
+	game.step([])
+	_check(StateCodec.hash_bytes(StateCodec.pack(StateCodec.unpack(frame.packed))) == original, "retained packed snapshots are independent of subsequent native encodes and ticks")
+	game.restore_rollback(frame)
+	_check(game.state_hash() == original, "packed rollback restores complete state and rebuilds derived caches")
+	game.packed_rollback = false
+	var plain: Dictionary = game.rollback_checkpoint()
+	_check(game.rollback_hash(plain) == game.rollback_hash(frame), "dictionary and packed checkpoint representations have identical canonical hashes")
+	game.step([]); game.restore_rollback(plain)
+	_check(game.state_hash() == original, "dictionary rollback retains the same complete state as packed rollback")
+	var reference = Sim.new(); reference.accelerated = false
+	var fixture = Fixture.new(); reference.initialize(fixture._definitions(), fixture._players(), 42)
+	reference.restore(game.checkpoint())
+	_check(reference.state_hash() == game.state_hash(), "reference and compiled sessions share the ATD1 hash format")
 
 func _native_equivalence() -> void:
 	var loaded := ClassDB.class_exists("ATDMovementKernel")

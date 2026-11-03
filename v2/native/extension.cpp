@@ -50,7 +50,7 @@ struct API {
     GDExtensionInterfaceClassdbRegisterExtensionClassMethod register_method;
 } api;
 GDExtensionClassLibraryPtr library;
-Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, method_names[14]{}, argument_names[7]{};
+Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, has_all_name{}, method_names[15]{}, argument_names[7]{};
 enum Field { ID, POSITION, FACING, VELOCITY, AVOIDANCE, NAVIGATION, WAIT, SIDE, PASS, DEVIATED, SETTLED_GOAL, PROGRESS_FOR, PROGRESS_BEST, PROGRESS_TICK, ORDER, KEY, PATH, DIRECT, BLOCKED, FIELD_COUNT };
 Storage field_names[FIELD_COUNT]{};
 GDExtensionMethodBindPtr notification;
@@ -58,7 +58,7 @@ GDExtensionPtrBuiltInMethod byte_resize;
 GDExtensionPtrBuiltInMethod int_resize;
 GDExtensionPtrBuiltInMethod array_resize;
 GDExtensionPtrBuiltInMethod dictionary_has_all;
-const char *names[] = {"prepare", "moved", "preferred", "contact", "pressure", "abi_version", "state_bytes", "query", "advance", "explore", "settle", "world", "static_clear", "point_move"};
+const char *names[] = {"prepare", "moved", "preferred", "contact", "pressure", "abi_version", "state_bytes", "query", "advance", "explore", "settle", "world", "static_clear", "point_move", "state_pack"};
 struct CachedKey {
     Storage value{};
     std::string text;
@@ -68,6 +68,7 @@ struct CachedKey {
 struct Schema {
     Storage keys{};
     std::vector<std::unique_ptr<CachedKey>> ordered;
+    mutable std::string signature;
     Schema(GDExtensionConstVariantPtr source, const std::vector<std::pair<const std::string *, int64_t>> &order) {
         api.to(GDEXTENSION_VARIANT_TYPE_ARRAY)(&keys, const_cast<void *>(source));
         for (const auto &entry : order) ordered.push_back(std::make_unique<CachedKey>(api.array_index(&keys, entry.second), *entry.first));
@@ -80,14 +81,17 @@ struct Kernel {
     atd::StaticWorld world;
     Storage world_hash{};
     std::vector<uint8_t> json;
+    std::vector<uint8_t> packed;
     std::unordered_map<uint32_t, std::vector<std::unique_ptr<CachedKey>>> keys;
     size_t key_count = 0;
     std::map<int64_t, std::vector<std::unique_ptr<Schema>>> schemas;
+    std::vector<std::shared_ptr<Schema>> large_schemas; // Four exact keysets, MRU last.
     Kernel() { api.nil(&world_hash); }
     ~Kernel() { api.destroy(&world_hash); }
 };
 int arity(uintptr_t op) { return op == 13 ? 6 : op == 12 ? 4 : op == 11 ? 3 : op == 10 ? 2 : op == 9 ? 3 : op == 8 ? 5 : op == 5 ? 0 : op == 2 ? 7 : op == 3 ? 3 : (op == 1 || op == 4) ? 2 : 1; }
 GDExtensionVariantType argument_type(uintptr_t op, int index) {
+    if (op == 14) return GDEXTENSION_VARIANT_TYPE_DICTIONARY;
     if (op == 11) return index == 0 ? GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY : index == 1 ? GDEXTENSION_VARIANT_TYPE_INT : GDEXTENSION_VARIANT_TYPE_STRING;
     if (op == 12) return (index == 1 || index == 2) ? GDEXTENSION_VARIANT_TYPE_VECTOR2I : GDEXTENSION_VARIANT_TYPE_INT;
     if (op == 13) return index == 0 ? GDEXTENSION_VARIANT_TYPE_DICTIONARY : index == 1 ? GDEXTENSION_VARIANT_TYPE_VECTOR2I : GDEXTENSION_VARIANT_TYPE_INT;
@@ -497,6 +501,8 @@ int64_t point_move(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::
     return moved ? 1 : 0;
 }
 
+#include "state_codec.hpp"
+
 void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtensionConstVariantPtr *args,
             GDExtensionInt count, GDExtensionVariantPtr result, GDExtensionCallError *error) {
     const auto op = reinterpret_cast<uintptr_t>(userdata);
@@ -512,7 +518,7 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
         }
     }
     if (op == 5 && count == 0) {
-        int64_t version = 8;
+        int64_t version = 9;
         api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &version);
         return;
     }
@@ -542,6 +548,7 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
         int64_t moved = point_move(*static_cast<Kernel *>(instance), args[0], point(args[1]), integer(args[2]), integer(args[3]), integer(args[4]), integer(args[5]));
         api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &moved); return;
     }
+    if (op == 14) { state_pack(*static_cast<Kernel *>(instance), args[0], result); return; }
     auto *kernel = &static_cast<Kernel *>(instance)->movement;
     if (op >= 1 && op <= 4) {
         int64_t id = integer(args[0]); auto p = point(args[1]);
@@ -624,13 +631,13 @@ void initialize(void *, GDExtensionInitializationLevel level) {
     GDExtensionClassCreationInfo6 info{};
     info.is_exposed = true; info.create_instance_func = create; info.free_instance_func = release;
     api.register_class(library, &class_name, &parent_name, &info);
-    for (uintptr_t i = 0; i < 14; ++i) {
+    for (uintptr_t i = 0; i < 15; ++i) {
         api.name(&method_names[i], names[i], false);
         GDExtensionPropertyInfo arguments[7];
         GDExtensionClassMethodArgumentMetadata metadata[7]{};
         for (int index = 0; index < arity(i); ++index)
             arguments[index] = {argument_type(i, index), (i == 0 || i >= 6) ? &data_name : &argument_names[index], &empty_name, 0, &empty_string, 6};
-        auto type = i == 2 ? GDEXTENSION_VARIANT_TYPE_VECTOR2I : (i == 3 || i == 8 || i == 10) ? GDEXTENSION_VARIANT_TYPE_BOOL : i == 6 ? GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY : i == 7 ? GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY : GDEXTENSION_VARIANT_TYPE_INT;
+        auto type = i == 2 ? GDEXTENSION_VARIANT_TYPE_VECTOR2I : (i == 3 || i == 8 || i == 10) ? GDEXTENSION_VARIANT_TYPE_BOOL : (i == 6 || i == 14) ? GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY : i == 7 ? GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY : GDEXTENSION_VARIANT_TYPE_INT;
         GDExtensionPropertyInfo returned{type, &empty_name, &empty_name, 0, &empty_string, 6};
         GDExtensionClassMethodInfo method_info{};
         method_info.name = &method_names[i]; method_info.method_userdata = reinterpret_cast<void *>(i);

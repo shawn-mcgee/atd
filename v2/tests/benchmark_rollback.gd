@@ -11,7 +11,7 @@ func _initialize() -> void:
 	session.initialize(content.data, players, 42, 0)
 	for index in 122:
 		session.simulation._spawn("marine" if index % 2 == 0 else "scavenger", 1 if index % 2 == 0 else 9, [index % 8 * 512 - 2048, 0, index / 8 * 128 - 1024])
-	session.checkpoints[0] = session.simulation.checkpoint()
+	session.checkpoints[0] = session.simulation.rollback_checkpoint()
 	for tick in 60:
 		for id in [1, 9]:
 			if id == 9 and tick == 5: continue

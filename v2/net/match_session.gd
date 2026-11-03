@@ -8,7 +8,7 @@ const Rules = preload("res://core/match_rules.gd")
 const Canonical = preload("res://core/canonical.gd")
 const Rollback = preload("res://net/rollback_session.gd")
 const Transport = preload("res://net/coordinator_transport.gd")
-const PROTOCOL := 22
+const PROTOCOL := 23
 var transport = Transport.new()
 var rollback
 var roster: Dictionary = {}
@@ -211,7 +211,7 @@ func _compare_hashes() -> void:
 		if tick > rollback.confirmed_tick + 1: continue
 		# Debug/diagnostic peers may request a retained non-periodic boundary.
 		if not rollback.hashes.has(tick) and rollback.checkpoints.has(tick):
-			rollback.hashes[tick] = JSON.stringify(rollback.checkpoints[tick], "", true, true).sha256_text()
+			rollback.hashes[tick] = rollback.simulation.rollback_hash(rollback.checkpoints[tick])
 		if rollback.hashes.has(tick) and rollback.hashes[tick] != message.hash:
 			_fail("DESYNC at confirmed tick %d" % tick)
 		remote_hashes.erase(key)

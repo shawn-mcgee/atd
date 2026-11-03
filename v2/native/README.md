@@ -17,12 +17,13 @@ and Veil discoveries are still applied by the core. These caches record only
 monotonic discovery between restores and are rebuilt with each new backend.
 
 `extension.cpp` is a small Godot C-ABI adapter with no godot-cpp dependency. It
-registers a `RefCounted` utility, not scene nodes or native physics. It also writes
-the exact sorted JSON UTF-8 bytes used by state hashing. ASCII string/name keys,
+registers a `RefCounted` utility, not scene nodes or native physics. Its legacy
+`state_bytes` diagnostic writes sorted JSON UTF-8 bytes. ASCII string/name keys,
 integers, booleans, strings, arrays, dictionaries and null are accelerated; other
-values return an empty buffer so the core uses Godot's serializer. Interned names
+values return an empty buffer. Interned names
 and ordinary string keys sort together by text. Serialization does not change
-state or the wire hash format.
+state. Protocol 23 uses the compact canonical encoder in `state_codec.hpp` for
+rollback snapshots and hashing; see [the ATD1 specification](STATE_CODEC.md).
 An immutable key-text cache avoids repeated UTF-8 conversion. Variant equality
 checks hash collisions. Small recurring keysets reuse sorted keys only after
 dictionary size and `has_all` prove an exact match; values are always read live.
@@ -34,7 +35,7 @@ Build from the repository root with `python tools/build-native-movement.py --god
 method hashes. The builder publishes complete, content-addressed libraries and
 the runtime descriptor atomically; all generated output stays out of Git.
 
-ABI 8 accepts frame records in a `PackedInt64Array`, seven integers per living
+ABI 9 accepts frame records in a `PackedInt64Array`, seven integers per living
 mobile body: `id, owner, radius, q, r, previous_vq, previous_vr`. IDs are unique,
 radii positive, and coordinates/speeds follow the core's validated map/content
 limits. Movement updates those bodies sequentially in actor order. Small per-unit

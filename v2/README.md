@@ -200,7 +200,7 @@ the cargo. Move/stop/attack commands can interrupt delivery. Full collectors wai
 for a player delivery order.
 Cargo, source schedules and delivery orders are checkpoint state; economic notices
 are emitted through confirmed events. Older presets can omit all chyme capabilities.
-State version is 16 and network protocol is 22; older peers must update before joining.
+State version is 16 and network protocol is 23; older peers must update before joining.
 
 These values and policies are prototype choices, not settled balance.
 
@@ -536,6 +536,7 @@ a new match.
 | Soft friendly avoidance and idle settling | `core/steering.gd` |
 | Typed local movement bodies and spatial queries | `core/crowd.gd` |
 | Compiled integer movement, static clearance, exploration and state bytes | `native/movement_kernel.hpp`, `native/static_world.hpp`, `native/exploration_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
+| Canonical packed rollback state and hashing | `core/state_codec.gd`, `native/state_codec.hpp`, [ATD1 format](native/STATE_CODEC.md) |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Flood-filled light field and blockers | `core/illumination.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
@@ -584,8 +585,9 @@ The rewrite runner imports first and rejects script errors even on exit zero.
 `--require-native` also verifies that compiled movement is actually loaded. Native
 and reference implementations are compared at every tick through collisions,
 large bodies, terrain routes, production, death and JSON restoration. Native state
-serialization preserves the existing sorted JSON bytes and SHA-256 hashes;
-unsupported Variant types use Godot's serializer.
+encoding matches the reference ATD1 bytes, including packed/JSON restoration and
+malformed-snapshot rejection. Protocol 23 hashes the packed snapshot with SHA-256;
+public JSON checkpoints retain state version 16. Older peers must update.
 Import/Web export use recovery mode to avoid native-extension DLL reload locks
 when the project is already open in a Windows editor; actual tests still load WebRTC.
 `--network` creates a temporary room on the deployed coordinator and tests two
@@ -698,17 +700,21 @@ for 128 sandbox actors. This is not a scale guarantee for later navigation or Ve
 Run `res://tests/benchmark_movement.gd` headlessly for deterministic crowded movement
 with 16/32/64 movers and the same number of hostile bodies. It reports the first
 ten ticks, the next fifty, overall p95 and peak for full ticks, including retained
-checkpoints and the scheduled 20-tick state hash. Step, copy and hash costs are
+rollback checkpoints and the scheduled 20-tick state hash. Step, snapshot and hash costs are
 also reported separately; elapsed time never enters gameplay. `-- --opposing --large`
 runs only the 64-per-side stress case. The CPU target is below 4 ms per full tick,
 including hash boundaries and command ticks; this remains an optimization target,
 not a verified performance guarantee. Add `--verify` to check hostile separation
-on every tick and replay from a JSON checkpoint, outside timed intervals.
+on every tick and replay from packed and JSON checkpoints, outside timed intervals.
 `--require-native` rejects a missing accelerator; `--reference` selects GDScript
 for comparison. Reports identify backend, platform and debug/release build.
 The headless wrapper and Web self-test both call `tests/movement_benchmark.gd`;
 add `--benchmark` to the browser harness command to save release-Web measurements
 in `test-results/movement-browser.json`. Both modes measure the same complete ticks.
+The probe uses the production rollback checkpoint and hash methods. Desktop
+reuses packed bytes; Web copies state and encodes at hash boundaries because
+native deep copy is faster there. Reports identify the format, packed size and the ordinary
+`state_json_hash` for gameplay comparisons across the protocol 23 hash transition.
 Timings are diagnostics, not guarantees; dense crowd work remains separate from
 static route searches and is reported explicitly by the opposing-group probe.
 
@@ -717,18 +723,25 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 5.193 ms | 6.542 ms | 10.946 ms |
-| Web export (release, headless Edge) | 12.105 ms | 18.600 ms | 21.700 ms |
+| Windows editor/headless (debug) | 4.427 ms | 6.346 ms | 10.530 ms |
+| Web export (release, headless Edge) | 11.880 ms | 17.900 ms | 18.500 ms |
 
 Both probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
 peaked at one search and nine expansions per tick; remaining work includes the
-GDScript actor-update path, checkpoint copies and state serialization. Re-measure
+GDScript actor-update path, spatial-index preparation and state serialization. Re-measure
 on the next workstation before comparing timings across changes.
-The latest Windows means split into 3.757 ms simulation and 1.350 ms checkpoint
-copying, plus 1.665 ms on scheduled hash ticks. Web means are 10.115 ms, 1.778 ms
-and 4.033 ms respectively. A separate retained-snapshot probe found built-in
-binary Variant encoding no faster than deep copies, so rollback keeps deep copies.
+The latest Windows means split into 3.656 ms simulation and 0.764 ms packed
+checkpoint work, plus 0.116 ms on scheduled hash ticks. Web means are 9.998 ms,
+1.733 ms for dictionary checkpoints and 2.733 ms on hash ticks. Desktop packed
+snapshots are 22,400 bytes in this scenario; Web's measured extension traversal
+cost exceeds native deep copy, so it retains dictionary snapshots. Both produce
+the same canonical hash and the unchanged JSON state hash `68da9959…ed46551`.
+Timing varies with competing work; repeated Windows release runs ranged from
+3.645 to 7.979 ms mean and all exceeded 4 ms at p95/peak.
+Packed restoration currently uses the reference decoder: a separate Windows
+probe measured 7.595 ms mean versus 5.085 ms for dictionary restoration. This
+one-time restore cost is outside normal tick timings and remains optimization work.
 
 Run `res://tests/benchmark_frames.gd` with a display to measure the 1280x800 view
 in a sandbox warmed for 600 ticks, with both factions visible. It reports paused
@@ -750,8 +763,11 @@ without rehashing state.
 point, exercising moving hostile obstacles and congestion; default mode leaves
 the opposing army stationary. It also reports maximum searches and node expansions
 per tick. `benchmark_simulation.gd` measures warmed gameplay, checkpoint copying
-and state hashing separately. State uses exact native sorted JSON hashing;
-checkpoint restoration normalizes JSON scalars once. `tests/cpu_suite.gd` checks
+and fresh state hashing separately. Desktop rollback stores canonical ATD1
+bytes plus an event copy; scheduled hashes reuse those bytes. Web retains native
+dictionary copies and encodes at hash boundaries. Packed restoration
+decodes fresh containers and clears derived caches; public JSON restoration
+normalizes scalars once. `tests/cpu_suite.gd` checks
 canonical hash equivalence, integer-root boundaries, exploration against exhaustive
 rasterization, shared static routes, hostile separation and restore/replay.
 
