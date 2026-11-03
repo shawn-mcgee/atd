@@ -40,7 +40,7 @@ var _epoch := 0
 func _init(accelerated: bool = true) -> void:
 	if accelerated and ClassDB.class_exists("ATDMovementKernel"):
 		var candidate = ClassDB.instantiate("ATDMovementKernel") as RefCounted
-		if int(candidate.call("abi_version")) == 4: backend = candidate
+		if int(candidate.call("abi_version")) == 7: backend = candidate
 
 @warning_ignore("integer_division")
 static func coordinate(value: int) -> int:

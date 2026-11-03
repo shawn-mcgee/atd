@@ -61,15 +61,17 @@ def main():
     resize = next(item for item in byte_array["methods"] if item["name"] == "resize")
     int_array = next(item for item in definitions["builtin_classes"] if item["name"] == "PackedInt64Array")
     int_resize = next(item for item in int_array["methods"] if item["name"] == "resize")
+    array = next(item for item in definitions["builtin_classes"] if item["name"] == "Array")
+    array_resize = next(item for item in array["methods"] if item["name"] == "resize")
     used = {"Variant", "String", "StringName", "PackedInt64Array", "PackedByteArray", "Array", "Dictionary"}
     for config in definitions["builtin_class_sizes"]:
         if any(item["size"] > 64 for item in config["sizes"] if item["name"] in used):
             raise RuntimeError("Godot builtin storage exceeds the movement adapter ABI")
     generated = api / "native_api.hpp"
-    generated.write_text(f'#define ATD_NOTIFICATION_HASH {notification["hash"]}ULL\n#define ATD_BYTE_RESIZE_HASH {resize["hash"]}ULL\n#define ATD_INT_RESIZE_HASH {int_resize["hash"]}ULL\n')
+    generated.write_text(f'#define ATD_NOTIFICATION_HASH {notification["hash"]}ULL\n#define ATD_BYTE_RESIZE_HASH {resize["hash"]}ULL\n#define ATD_INT_RESIZE_HASH {int_resize["hash"]}ULL\n#define ATD_ARRAY_RESIZE_HASH {array_resize["hash"]}ULL\n')
     digest = hashlib.sha256()
     digest.update(Path(__file__).read_bytes())
-    for path in [SOURCE / "movement_kernel.hpp", SOURCE / "extension.cpp", header, generated]:
+    for path in [*sorted(SOURCE.glob("*.hpp")), SOURCE / "extension.cpp", header, generated]:
         digest.update(path.read_bytes())
     tag = digest.hexdigest()[:16]
     common = ["-std=c++17", "-O3", "-fno-exceptions", "-fno-rtti", "-I", api, SOURCE / "extension.cpp"]

@@ -535,7 +535,7 @@ a new match.
 | Deterministic routing and clearance caches | `core/navigation.gd` |
 | Soft friendly avoidance and idle settling | `core/steering.gd` |
 | Typed local movement bodies and spatial queries | `core/crowd.gd` |
-| Compiled integer movement and canonical state-byte writer | `native/movement_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
+| Compiled integer movement, exploration and state-byte writer | `native/movement_kernel.hpp`, `native/exploration_kernel.hpp`, `native/extension.cpp`, [native build/ABI](native/README.md) |
 | Mother/Womb lifecycle and site validation | `core/construction.gd` |
 | Flood-filled light field and blockers | `core/illumination.gd` |
 | Remembered revealed ground | `core/exploration.gd` |
@@ -717,8 +717,8 @@ Measured on the development workstation on 2026-11-02 with the compiled backend,
 
 | Build | Mean tick | p95 | Peak |
 | --- | ---: | ---: | ---: |
-| Windows editor/headless (debug) | 9.465 ms | 12.766 ms | 19.232 ms |
-| Web export (release, headless Edge) | 23.675 ms | 30.400 ms | 60.100 ms |
+| Windows editor/headless (debug) | 8.841 ms | 13.777 ms | 20.153 ms |
+| Web export (release, headless Edge) | 18.855 ms | 27.400 ms | 37.800 ms |
 
 Both probes passed hostile separation and JSON restore/replay verification with
 the same final hash. These results do **not** meet the 4 ms target. Static routing
@@ -751,14 +751,19 @@ checkpoint restoration normalizes JSON scalars once. `tests/cpu_suite.gd` checks
 canonical hash equivalence, integer-root boundaries, exploration against exhaustive
 rasterization, shared static routes, hostile separation and restore/replay.
 
-Exploration shares shrinking unknown-tile envelopes between observers of the same
+Compiled exploration uses per-owner discovery bitsets and exact integer circle
+tests; restoring creates fresh derived discovery caches. The GDScript reference
+shares shrinking unknown-tile envelopes between observers of the same
 owner/radius in a hex; fully discovered envelopes require no further tile scans.
 Radius stencils and immutable tile-key tables are prepared once; rollback retains
 only those static tables and discards all observer/discovery cache entries.
 Movement shares ordered lists of live spatial buckets between nearby queries,
 invalidating them when a previously empty bucket gains a body. It uses integer-vector spatial bucket keys,
 scalar swept-circle contact math and cached static clearance certificates covering
-every steering direction in a tile; hostile contacts still run every movement tick.
+every steering direction in a tile. Certified open steps combine native integration,
+local steering and actor updates; idle settling uses the same certificate. Hostile
+contacts still run every movement tick. State serialization caches immutable key
+text, checking Variant equality on hash collisions, without caching state values.
 Illumination validates once at tick entry and
 invalidates on source/blocker movement, creation, death and transformation. Veil
 maintenance avoids per-cell filter allocations and sorts only tissue needing damage.

@@ -419,9 +419,22 @@ func _move(actor: Dictionary, destination: Array, target = null, reach: int = 0,
 	if waypoint.is_empty():
 		if actor.order.get("kind") == "move": actor.order = {}
 		return false
+	var speed := maxi(1, int(round(float(caps.move.speed) * SCALE / int(content.settings.tick_hz))))
+	var crowd := movement_crowd()
+	var body: Crowd.Body = crowd.bodies[int(actor.id)]
+	# A disk enclosing every possible local step certifies static clearance.
+	# The native call then performs integration, steering and hostile contacts
+	# together; near terrain/structures the general path retains per-step checks.
+	if crowd.backend != null and Navigation.center_clear(self, Hex.from_point(actor.position), body.radius + speed + SCALE + 4, Navigation.static_field(movement)):
+		var changed := bool(crowd.backend.call("advance", actor, Vector2i(int(waypoint[0]), int(waypoint[2])), speed, reach if point_order and waypoint == destination else 0, int(content.settings.tick_hz)))
+		if changed:
+			invalidate_unit_caches(int(actor.owner))
+			invalidate_light(actor)
+		update_friendly(actor)
+		if point_order and distance_squared(actor.position, destination) <= reach * reach: actor.order = {}; actor.navigation = {}; actor.avoidance = {"settled_goal": destination.duplicate()}
+		return true
 	_face(actor, waypoint)
 	var distance := integer_sqrt(distance_squared(actor.position, waypoint))
-	var speed := maxi(1, int(round(float(caps.move.speed) * SCALE / int(content.settings.tick_hz))))
 	var point: Array = actor.position.duplicate()
 	if distance <= speed: point = waypoint.duplicate()
 	else:

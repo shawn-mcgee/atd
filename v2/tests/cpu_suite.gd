@@ -81,6 +81,11 @@ func _native_equivalence() -> void:
 	_check(unsupported.is_empty(), "unsupported scalar types retain Godot's full serializer")
 	unsupported = encoder.call("state_bytes", {"雪": 1})
 	_check(unsupported.is_empty(), "arbitrary Unicode keys retain Godot's full serializer")
+	for tick in 16:
+		var changed := {&"named": tick, "a": [tick % 2 == 0, "changed %d" % tick], "extra_%d" % (tick % 3): tick * -3}
+		var bytes: PackedByteArray = encoder.call("state_bytes", changed)
+		_check(bytes == JSON.stringify(changed, "", true, true).to_utf8_buffer(), "cached key text never caches values or dictionary layouts")
+	_native_discovery()
 	for walls in [false, true]:
 		var game = Fixture.new()._game()
 		var humans: Array = []; var foes: Array = []
@@ -106,6 +111,27 @@ func _native_equivalence() -> void:
 		game.restore(JSON.parse_string(JSON.stringify(saved)))
 		for tick in 99: game.step([])
 		_check(game.state_hash() == expected, "compiled movement rebuilds derived bodies after JSON restore")
+
+func _native_discovery() -> void:
+	for radius in [0.0, 0.75, 9.25]:
+		var fixture = Fixture.new()
+		var data: Dictionary = fixture._definitions(); data.settings.map_radius = 4
+		for definition in data.units.values():
+			definition.capabilities.erase("perception"); definition.capabilities.erase("illumination")
+		data.units.engineer.capabilities.perception = {"radius": radius}
+		var game = Sim.new(); game.initialize(data, fixture._players(), 42)
+		var expected: Dictionary = game.state.revealed.duplicate(true)
+		var reach := int(round(radius * Hex.SCALE))
+		for tick in 40:
+			var actor = game.entity(2)
+			actor.owner = 1 if tick % 7 < 3 else 9
+			actor.position = [(tick * 359 % 8193) - 4096, 0, (tick * 733 % 8193) - 4096]
+			for q in range(-4, 5):
+				for r in range(-4, 5):
+					if absi(q + r) <= 4 and game.distance_squared(actor.position, Hex.point([q, r])) <= reach * reach: expected[str(actor.owner)][Hex.key([q, r])] = true
+			Exploration.record(game, game._exploration_cache)
+			_check(game.state.revealed == expected, "compiled discovery matches exhaustive map edges, zero/fractional/large radii and ownership changes")
+			if tick == 20: game.restore(game.checkpoint())
 
 func _crowd_windows() -> void:
 	var game = Fixture.new()._game()

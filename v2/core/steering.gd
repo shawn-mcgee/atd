@@ -42,6 +42,12 @@ static func _separate_native(game, actor: Dictionary, crowd: Crowd, body: Crowd.
 	var pressure := int(crowd.backend.call("pressure", body.id, Vector2i(body.q, body.r)))
 	if pressure == 0: return
 	var data: Dictionary = game.navigation_field()
+	if Nav.center_clear(game, Hex.from_point(actor.position), body.radius + distance + Hex.SCALE + 4, Nav.static_field(data)):
+		if bool(crowd.backend.call("settle", actor, int(game.content.settings.tick_hz))):
+			game.invalidate_unit_caches(body.owner)
+			game.invalidate_light(actor)
+			game.update_friendly(actor)
+		return
 	var best: Array = actor.position
 	for direction in 6:
 		var axis: Array = Hex.NEIGHBORS[(direction + body.id) % 6]

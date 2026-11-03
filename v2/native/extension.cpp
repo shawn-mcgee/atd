@@ -3,9 +3,11 @@
 #include "gdextension_interface.h"
 #include "native_api.hpp"
 #include "movement_kernel.hpp"
+#include "exploration_kernel.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string>
 
 namespace {
@@ -21,13 +23,20 @@ struct API {
     GDExtensionInterfaceVariantStringify stringify;
     GDExtensionInterfaceStringToUtf8Chars utf8;
     GDExtensionInterfaceArrayOperatorIndexConst array_index;
+    GDExtensionInterfaceArrayOperatorIndex array_write;
+    GDExtensionInterfaceVariantGetNamed get_named;
+    GDExtensionInterfaceVariantSetNamed set_named;
     GDExtensionInterfaceDictionaryOperatorIndexConst dictionary_index;
+    GDExtensionInterfaceDictionaryOperatorIndex dictionary_write;
     GDExtensionInterfacePackedByteArrayOperatorIndex byte_index;
     GDExtensionInterfacePackedInt64ArrayOperatorIndex int_index;
     GDExtensionInterfaceGetVariantFromTypeConstructor from;
     GDExtensionInterfaceGetVariantToTypeConstructor to;
     GDExtensionInterfaceVariantGetType type;
     GDExtensionInterfaceVariantNewNil nil;
+    GDExtensionInterfaceVariantNewCopy copy;
+    GDExtensionInterfaceVariantHash hash;
+    GDExtensionInterfaceVariantEvaluate evaluate;
     GDExtensionInterfaceVariantDestroy destroy;
     GDExtensionInterfaceVariantCall call;
     GDExtensionInterfacePackedInt64ArrayOperatorIndexConst index;
@@ -40,15 +49,33 @@ struct API {
     GDExtensionInterfaceClassdbRegisterExtensionClassMethod register_method;
 } api;
 GDExtensionClassLibraryPtr library;
-Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, method_names[8]{}, argument_names[7]{};
+Storage class_name{}, parent_name{}, object_name{}, notification_name{}, empty_name{}, empty_string{}, size_name{}, data_name{}, keys_name{}, resize_name{}, method_names[11]{}, argument_names[7]{};
+enum Field { ID, POSITION, FACING, VELOCITY, AVOIDANCE, NAVIGATION, WAIT, SIDE, PASS, DEVIATED, SETTLED_GOAL, FIELD_COUNT };
+Storage field_names[FIELD_COUNT]{};
 GDExtensionMethodBindPtr notification;
 GDExtensionPtrBuiltInMethod byte_resize;
 GDExtensionPtrBuiltInMethod int_resize;
-const char *names[] = {"prepare", "moved", "preferred", "contact", "pressure", "abi_version", "state_bytes", "query"};
-struct Kernel { atd::Movement movement; std::vector<uint8_t> json; };
-int arity(uintptr_t op) { return op == 5 ? 0 : op == 2 ? 7 : op == 3 ? 3 : (op == 1 || op == 4) ? 2 : 1; }
+GDExtensionPtrBuiltInMethod array_resize;
+const char *names[] = {"prepare", "moved", "preferred", "contact", "pressure", "abi_version", "state_bytes", "query", "advance", "explore", "settle"};
+struct CachedKey {
+    Storage value{};
+    std::string text;
+    CachedKey(GDExtensionConstVariantPtr key, std::string encoded) : text(std::move(encoded)) { api.copy(&value, key); }
+    ~CachedKey() { api.destroy(&value); }
+};
+struct Kernel {
+    atd::Movement movement;
+    atd::Exploration exploration;
+    std::vector<uint8_t> json;
+    std::unordered_map<uint32_t, std::vector<std::unique_ptr<CachedKey>>> keys;
+    size_t key_count = 0;
+};
+int arity(uintptr_t op) { return op == 10 ? 2 : op == 9 ? 3 : op == 8 ? 5 : op == 5 ? 0 : op == 2 ? 7 : op == 3 ? 3 : (op == 1 || op == 4) ? 2 : 1; }
 GDExtensionVariantType argument_type(uintptr_t op, int index) {
     if (op == 6) return GDEXTENSION_VARIANT_TYPE_DICTIONARY;
+    if (op == 8 && index == 0) return GDEXTENSION_VARIANT_TYPE_DICTIONARY;
+    if (op == 9) return index == 0 ? GDEXTENSION_VARIANT_TYPE_DICTIONARY : index == 1 ? GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY : GDEXTENSION_VARIANT_TYPE_INT;
+    if (op == 10) return index == 0 ? GDEXTENSION_VARIANT_TYPE_DICTIONARY : GDEXTENSION_VARIANT_TYPE_INT;
     if (op == 0 || op == 7) return GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY;
     if (index == 1 || (op == 2 && index == 2)) return GDEXTENSION_VARIANT_TYPE_VECTOR2I;
     if (op == 2 && index == 6) return GDEXTENSION_VARIANT_TYPE_BOOL;
@@ -59,6 +86,86 @@ int64_t integer(GDExtensionConstVariantPtr value) {
 }
 atd::Point point(GDExtensionConstVariantPtr value) {
     int32_t result[2]; api.to(GDEXTENSION_VARIANT_TYPE_VECTOR2I)(result, const_cast<void *>(value)); return {result[0], result[1]};
+}
+
+// Small owned Variants; dictionary writes retain Godot's normal shared-container
+// semantics, while position/velocity arrays are replaced rather than edited.
+struct Value {
+    Storage storage{};
+    Value() { api.nil(&storage); }
+    Value(GDExtensionConstVariantPtr parent, Field field) {
+        GDExtensionBool valid;
+        api.get_named(parent, &field_names[field], &storage, &valid);
+    }
+    ~Value() { api.destroy(&storage); }
+    Value(const Value &) = delete;
+    operator GDExtensionVariantPtr() { return &storage; }
+    operator GDExtensionConstVariantPtr() const { return &storage; }
+};
+void set_integer(GDExtensionVariantPtr parent, Field field, int64_t n) {
+    Storage value{}; api.from(GDEXTENSION_VARIANT_TYPE_INT)(&value, &n);
+    GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid); api.destroy(&value);
+}
+void set_bool(GDExtensionVariantPtr parent, Field field, GDExtensionBool b) {
+    Storage value{}; api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(&value, &b);
+    GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid); api.destroy(&value);
+}
+void set_point(GDExtensionVariantPtr parent, Field field, atd::Point point) {
+    Storage array{}; api.constructor(GDEXTENSION_VARIANT_TYPE_ARRAY, 0)(&array, nullptr);
+    int64_t size = 3, error = 0; const void *arguments[] = {&size}; array_resize(&array, arguments, &error, 1);
+    int64_t coordinates[] = {point.q, 0, point.r};
+    for (int i = 0; i < 3; ++i) {
+        auto element = api.array_write(&array, i); api.destroy(element);
+        api.from(GDEXTENSION_VARIANT_TYPE_INT)(element, &coordinates[i]);
+    }
+    Storage value{}; api.from(GDEXTENSION_VARIANT_TYPE_ARRAY)(&value, &array);
+    GDExtensionBool valid; api.set_named(parent, &field_names[field], &value, &valid);
+    api.destroy(&value); api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array);
+}
+int64_t field_integer(GDExtensionConstVariantPtr parent, Field field, int64_t fallback = 0) {
+    Value value(parent, field);
+    return api.type(value) == GDEXTENSION_VARIANT_TYPE_INT ? integer(value) : fallback;
+}
+void advance(Kernel &kernel, GDExtensionConstVariantPtr actor_value, atd::Point goal, int64_t speed, int64_t stop, int64_t hz, GDExtensionVariantPtr result) {
+    Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
+    Storage array{}; api.to(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array, position);
+    atd::Point origin{integer(api.array_index(&array, 0)), integer(api.array_index(&array, 2))};
+    api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array);
+    auto out = kernel.movement.advance(field_integer(actor_value, ID), goal, speed, stop, hz,
+        field_integer(avoidance, WAIT), field_integer(avoidance, SIDE, 1), field_integer(avoidance, PASS));
+    auto actor = const_cast<void *>(actor_value);
+    if (goal.q != origin.q || goal.r != origin.r) set_point(actor, FACING, {goal.q - origin.q, goal.r - origin.r});
+    if (out.stepped) set_integer(avoidance, PASS, out.pass);
+    if (out.write_wait) set_integer(avoidance, WAIT, out.wait);
+    if (out.write_side) set_integer(avoidance, SIDE, out.side);
+    atd::Point velocity{out.point.q - origin.q, out.point.r - origin.r};
+    set_point(actor, VELOCITY, velocity);
+    GDExtensionBool moved = velocity.q != 0 || velocity.r != 0;
+    if (moved && (out.point.q != out.intended.q || out.point.r != out.intended.r)) {
+        set_point(actor, FACING, velocity);
+        Value navigation(actor_value, NAVIGATION); set_bool(navigation, DEVIATED, true);
+    }
+    set_point(actor, POSITION, out.point);
+    api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(result, &moved);
+}
+atd::Point array_point(GDExtensionConstVariantPtr value) {
+    Storage array{}; api.to(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array, const_cast<void *>(value));
+    atd::Point result{integer(api.array_index(&array, 0)), integer(api.array_index(&array, 2))};
+    api.destructor(GDEXTENSION_VARIANT_TYPE_ARRAY)(&array); return result;
+}
+void settle(Kernel &kernel, GDExtensionConstVariantPtr actor_value, int64_t hz, GDExtensionVariantPtr result) {
+    Value position(actor_value, POSITION), avoidance(actor_value, AVOIDANCE);
+    Value goal(avoidance, SETTLED_GOAL);
+    bool bounded = api.type(goal) == GDEXTENSION_VARIANT_TYPE_ARRAY;
+    auto origin = array_point(position);
+    auto next = kernel.movement.settle(field_integer(actor_value, ID), hz, bounded, bounded ? array_point(goal) : atd::Point{});
+    GDExtensionBool changed = next.q != origin.q || next.r != origin.r;
+    if (changed) {
+        auto actor = const_cast<void *>(actor_value);
+        atd::Point velocity{next.q - origin.q, next.r - origin.r};
+        set_point(actor, VELOCITY, velocity); set_point(actor, FACING, velocity); set_point(actor, POSITION, next);
+    }
+    api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(result, &changed);
 }
 
 struct Builtin {
@@ -85,6 +192,18 @@ std::string utf8_value(GDExtensionConstVariantPtr value) {
     api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&string);
     return utf8;
 }
+const std::string &key_text(Kernel &kernel, GDExtensionConstVariantPtr value) {
+    auto &bucket = kernel.keys[api.hash(value)];
+    for (const auto &key : bucket) {
+        Storage result{}; GDExtensionBool valid, equal;
+        api.evaluate(GDEXTENSION_VARIANT_OP_EQUAL, &key->value, value, &result, &valid);
+        api.to(GDEXTENSION_VARIANT_TYPE_BOOL)(&equal, &result); api.destroy(&result);
+        if (valid && equal) return key->text;
+    }
+    bucket.push_back(std::make_unique<CachedKey>(value, utf8_value(value)));
+    ++kernel.key_count;
+    return bucket.back()->text;
+}
 void json_string_utf8(const std::string &utf8, std::vector<uint8_t> &out) {
     out.push_back('"');
     // Match Godot String::json_escape, including its vertical-tab escape.
@@ -103,7 +222,7 @@ void json_string_utf8(const std::string &utf8, std::vector<uint8_t> &out) {
     }
     out.push_back('"');
 }
-bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, unsigned depth = 0) {
+bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, Kernel &kernel, unsigned depth = 0) {
     if (depth > 128) return false;
     switch (api.type(value)) {
         case GDEXTENSION_VARIANT_TYPE_NIL: text(out, "null"); return true;
@@ -127,7 +246,7 @@ bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, uns
             int64_t count = count_of(value); out.push_back('[');
             for (int64_t i = 0; i < count; ++i) {
                 if (i) out.push_back(',');
-                if (!json_value(api.array_index(&array.storage, i), out, depth + 1)) return false;
+                if (!json_value(api.array_index(&array.storage, i), out, kernel, depth + 1)) return false;
             }
             out.push_back(']'); return true;
         }
@@ -137,7 +256,7 @@ bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, uns
             api.call(const_cast<void *>(value), &keys_name, nullptr, 0, &keys, &error);
             Builtin array(GDEXTENSION_VARIANT_TYPE_ARRAY, &keys);
             int64_t count = count_of(&keys);
-            std::vector<std::pair<std::string, int64_t>> ordered;
+            std::vector<std::pair<const std::string *, int64_t>> ordered;
             ordered.reserve(static_cast<size_t>(count));
             for (int64_t i = 0; i < count; ++i) {
                 auto key = api.array_index(&array.storage, i);
@@ -145,25 +264,25 @@ bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, uns
                 if (type != GDEXTENSION_VARIANT_TYPE_STRING && type != GDEXTENSION_VARIANT_TYPE_STRING_NAME) {
                     api.destroy(&keys); return false;
                 }
-                auto encoded = utf8_value(key);
+                const auto &encoded = key_text(kernel, key);
                 // State keys are ASCII. Retain Godot's serializer for arbitrary
                 // Unicode keys, including invalid-codepoint normalization cases.
                 if (std::any_of(encoded.begin(), encoded.end(), [](unsigned char c) { return c >= 128; })) {
                     api.destroy(&keys); return false;
                 }
-                ordered.emplace_back(std::move(encoded), i);
+                ordered.emplace_back(&encoded, i);
             }
             // JSON sorts key text, not Variant types. StringName and String keys
             // must interleave lexically, including after JSON restore.
-            std::sort(ordered.begin(), ordered.end());
+            std::sort(ordered.begin(), ordered.end(), [](const auto &a, const auto &b) { return *a.first < *b.first; });
             api.destroy(&keys); out.push_back('{');
             for (int64_t i = 0; i < count; ++i) {
                 auto key = api.array_index(&array.storage, ordered[i].second);
                 auto type = api.type(key);
                 if (type != GDEXTENSION_VARIANT_TYPE_STRING && type != GDEXTENSION_VARIANT_TYPE_STRING_NAME) return false;
                 if (i) out.push_back(',');
-                json_string_utf8(ordered[i].first, out); out.push_back(':');
-                if (!json_value(api.dictionary_index(&dictionary.storage, key), out, depth + 1)) return false;
+                json_string_utf8(*ordered[i].first, out); out.push_back(':');
+                if (!json_value(api.dictionary_index(&dictionary.storage, key), out, kernel, depth + 1)) return false;
             }
             out.push_back('}'); return true;
         }
@@ -172,7 +291,10 @@ bool json_value(GDExtensionConstVariantPtr value, std::vector<uint8_t> &out, uns
 }
 void state_bytes(GDExtensionConstVariantPtr value, Kernel &kernel, GDExtensionVariantPtr result) {
     auto &bytes = kernel.json; bytes.clear(); bytes.reserve(262144);
-    if (!json_value(value, bytes)) bytes.clear();
+    // Cache only immutable key text, never values or container identities. Cap
+    // retained keys between calls; hash collisions are checked with Variant ==.
+    if (kernel.key_count > 8192) { kernel.keys.clear(); kernel.key_count = 0; }
+    if (!json_value(value, bytes, kernel)) bytes.clear();
     Storage packed{}; api.constructor(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, 0)(&packed, nullptr);
     int64_t length = static_cast<int64_t>(bytes.size()), error = 0;
     const void *args[] = {&length}; byte_resize(&packed, args, &error, 1);
@@ -197,6 +319,34 @@ struct PackedInput {
     ~PackedInput() { api.destructor(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY)(&object); }
 };
 
+struct StringKey {
+    Storage string{}, value{};
+    explicit StringKey(const std::string &text) {
+        api.string(&string, text.c_str()); api.from(GDEXTENSION_VARIANT_TYPE_STRING)(&value, &string);
+    }
+    ~StringKey() { api.destroy(&value); api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&string); }
+};
+void explore(Kernel &kernel, GDExtensionConstVariantPtr revealed, const PackedInput &observers, int64_t radius) {
+    auto &exploration = kernel.exploration; exploration.prepare(radius);
+    for (int64_t i = 0; i < observers.size; i += 4) {
+        const auto *d = observers.data + i; exploration.observe(d[0], d[1], d[2], d[3]);
+    }
+    Builtin owners(GDEXTENSION_VARIANT_TYPE_DICTIONARY, revealed);
+    int64_t owner = -1; Storage known{}; bool has_known = false;
+    for (const auto &tile : exploration.additions) {
+        if (tile.owner != owner) {
+            if (has_known) api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&known);
+            StringKey key(std::to_string(tile.owner));
+            api.to(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&known, const_cast<void *>(api.dictionary_index(&owners.storage, &key.value)));
+            owner = tile.owner; has_known = true;
+        }
+        StringKey key(std::to_string(tile.q) + "," + std::to_string(tile.r));
+        auto value = api.dictionary_write(&known, &key.value); api.destroy(value);
+        GDExtensionBool yes = true; api.from(GDEXTENSION_VARIANT_TYPE_BOOL)(value, &yes);
+    }
+    if (has_known) api.destructor(GDEXTENSION_VARIANT_TYPE_DICTIONARY)(&known);
+}
+
 void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtensionConstVariantPtr *args,
             GDExtensionInt count, GDExtensionVariantPtr result, GDExtensionCallError *error) {
     const auto op = reinterpret_cast<uintptr_t>(userdata);
@@ -212,13 +362,22 @@ void method(void *userdata, GDExtensionClassInstancePtr instance, const GDExtens
         }
     }
     if (op == 5 && count == 0) {
-        int64_t version = 4;
+        int64_t version = 7;
         api.from(GDEXTENSION_VARIANT_TYPE_INT)(result, &version);
         return;
     }
     if (op == 6 && count == 1 && api.type(args[0]) == GDEXTENSION_VARIANT_TYPE_DICTIONARY) {
         state_bytes(args[0], *static_cast<Kernel *>(instance), result); return;
     }
+    if (op == 8) {
+        advance(*static_cast<Kernel *>(instance), args[0], point(args[1]), integer(args[2]), integer(args[3]), integer(args[4]), result); return;
+    }
+    if (op == 9) {
+        PackedInput observers(args[1]);
+        if (observers.size % 4 != 0) { error->error = GDEXTENSION_CALL_ERROR_INVALID_ARGUMENT; error->argument = 1; error->expected = GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY; api.nil(result); return; }
+        explore(*static_cast<Kernel *>(instance), args[0], observers, integer(args[2])); api.nil(result); return;
+    }
+    if (op == 10) { settle(*static_cast<Kernel *>(instance), args[0], integer(args[1]), result); return; }
     auto *kernel = &static_cast<Kernel *>(instance)->movement;
     if (op >= 1 && op <= 4) {
         int64_t id = integer(args[0]); auto p = point(args[1]);
@@ -289,25 +448,28 @@ void initialize(void *, GDExtensionInitializationLevel level) {
     api.name(&empty_name, "", false); api.string(&empty_string, "");
     api.name(&size_name, "size", false); api.name(&data_name, "data", false);
     api.name(&keys_name, "keys", false); api.name(&resize_name, "resize", false);
+    const char *fields[] = {"id", "position", "facing", "velocity", "avoidance", "navigation", "wait", "side", "pass_ticks", "deviated", "settled_goal"};
+    for (int i = 0; i < FIELD_COUNT; ++i) api.name(&field_names[i], fields[i], false);
     const char *labels[] = {"id", "point", "goal_or_reach", "speed", "stop_range", "tick_hz", "passing"};
     for (int i = 0; i < 7; ++i) api.name(&argument_names[i], labels[i], false);
     byte_resize = api.builtin_method(GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY, &resize_name, ATD_BYTE_RESIZE_HASH);
     int_resize = api.builtin_method(GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY, &resize_name, ATD_INT_RESIZE_HASH);
+    array_resize = api.builtin_method(GDEXTENSION_VARIANT_TYPE_ARRAY, &resize_name, ATD_ARRAY_RESIZE_HASH);
     GDExtensionClassCreationInfo6 info{};
     info.is_exposed = true; info.create_instance_func = create; info.free_instance_func = release;
     api.register_class(library, &class_name, &parent_name, &info);
-    for (uintptr_t i = 0; i < 8; ++i) {
+    for (uintptr_t i = 0; i < 11; ++i) {
         api.name(&method_names[i], names[i], false);
         GDExtensionPropertyInfo arguments[7];
         GDExtensionClassMethodArgumentMetadata metadata[7]{};
         for (int index = 0; index < arity(i); ++index)
             arguments[index] = {argument_type(i, index), (i == 0 || i >= 6) ? &data_name : &argument_names[index], &empty_name, 0, &empty_string, 6};
-        auto type = i == 2 ? GDEXTENSION_VARIANT_TYPE_VECTOR2I : i == 3 ? GDEXTENSION_VARIANT_TYPE_BOOL : i == 6 ? GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY : i == 7 ? GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY : GDEXTENSION_VARIANT_TYPE_INT;
+        auto type = i == 2 ? GDEXTENSION_VARIANT_TYPE_VECTOR2I : (i == 3 || i == 8 || i == 10) ? GDEXTENSION_VARIANT_TYPE_BOOL : i == 6 ? GDEXTENSION_VARIANT_TYPE_PACKED_BYTE_ARRAY : i == 7 ? GDEXTENSION_VARIANT_TYPE_PACKED_INT64_ARRAY : GDEXTENSION_VARIANT_TYPE_INT;
         GDExtensionPropertyInfo returned{type, &empty_name, &empty_name, 0, &empty_string, 6};
         GDExtensionClassMethodInfo method_info{};
         method_info.name = &method_names[i]; method_info.method_userdata = reinterpret_cast<void *>(i);
         method_info.call_func = method; method_info.method_flags = GDEXTENSION_METHOD_FLAG_NORMAL;
-        method_info.has_return_value = i >= 2;
+        method_info.has_return_value = i >= 2 && i != 9;
         method_info.return_value_info = &returned; method_info.return_value_metadata = GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
         method_info.argument_count = arity(i);
         method_info.arguments_info = arguments; method_info.arguments_metadata = metadata;
@@ -323,6 +485,7 @@ void deinitialize(void *, GDExtensionInitializationLevel level) {
     destroy(&object_name); destroy(&notification_name);
     destroy(&keys_name); destroy(&resize_name);
     for (auto &name : argument_names) destroy(&name);
+    for (auto &name : field_names) destroy(&name);
     api.destructor(GDEXTENSION_VARIANT_TYPE_STRING)(&empty_string);
 }
 } // namespace
@@ -343,13 +506,20 @@ extern "C" ATD_EXPORT GDExtensionBool atd_movement_init(GDExtensionInterfaceGetP
     LOAD(stringify, GDExtensionInterfaceVariantStringify, "variant_stringify");
     LOAD(utf8, GDExtensionInterfaceStringToUtf8Chars, "string_to_utf8_chars");
     LOAD(array_index, GDExtensionInterfaceArrayOperatorIndexConst, "array_operator_index_const");
+    LOAD(array_write, GDExtensionInterfaceArrayOperatorIndex, "array_operator_index");
+    LOAD(get_named, GDExtensionInterfaceVariantGetNamed, "variant_get_named");
+    LOAD(set_named, GDExtensionInterfaceVariantSetNamed, "variant_set_named");
     LOAD(dictionary_index, GDExtensionInterfaceDictionaryOperatorIndexConst, "dictionary_operator_index_const");
+    LOAD(dictionary_write, GDExtensionInterfaceDictionaryOperatorIndex, "dictionary_operator_index");
     LOAD(byte_index, GDExtensionInterfacePackedByteArrayOperatorIndex, "packed_byte_array_operator_index");
     LOAD(int_index, GDExtensionInterfacePackedInt64ArrayOperatorIndex, "packed_int64_array_operator_index");
     LOAD(from, GDExtensionInterfaceGetVariantFromTypeConstructor, "get_variant_from_type_constructor");
     LOAD(to, GDExtensionInterfaceGetVariantToTypeConstructor, "get_variant_to_type_constructor");
     LOAD(type, GDExtensionInterfaceVariantGetType, "variant_get_type");
     LOAD(nil, GDExtensionInterfaceVariantNewNil, "variant_new_nil");
+    LOAD(copy, GDExtensionInterfaceVariantNewCopy, "variant_new_copy");
+    LOAD(hash, GDExtensionInterfaceVariantHash, "variant_hash");
+    LOAD(evaluate, GDExtensionInterfaceVariantEvaluate, "variant_evaluate");
     LOAD(destroy, GDExtensionInterfaceVariantDestroy, "variant_destroy");
     LOAD(call, GDExtensionInterfaceVariantCall, "variant_call");
     LOAD(index, GDExtensionInterfacePackedInt64ArrayOperatorIndexConst, "packed_int64_array_operator_index_const");

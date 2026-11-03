@@ -26,6 +26,11 @@ inline Point scaled(I q, I r, I length) {
 }
 inline I bucket(I n) { return n >= 0 ? n / 2048 : (n + 1) / 2048 - 1; }
 struct Body { I id, owner, radius, q, r, vq, vr; };
+struct Advance {
+    Point point, intended;
+    I wait = 0, side = 0, pass = 0;
+    bool stepped = false, write_wait = false, write_side = false;
+};
 using Cell = std::pair<I, I>;
 struct Group {
     std::map<Cell, std::vector<size_t>> buckets;
@@ -91,6 +96,54 @@ class Movement {
         return metric(q - vq * t / 1048576, r - vr * t / 1048576);
     }
 public:
+    Point settle(I id, I hz, bool bounded, Point goal) const {
+        const Body *body = find(id);
+        if (!body) return {};
+        Point best{body->q, body->r};
+        I score = pressure(id, best.q, best.r);
+        if (!score) return best;
+        I distance = std::max<I>(1, 1024 / hz / 2);
+        static constexpr I axes[6][2] = {{1,0},{0,1},{-1,1},{-1,0},{0,-1},{1,-1}};
+        for (I direction = 0; direction < 6; ++direction) {
+            I axis = (direction + id) % 6;
+            Point offset = scaled(axes[axis][0], axes[axis][1], distance);
+            Point next{body->q + offset.q, body->r + offset.r};
+            if (bounded && metric(next.q - goal.q, next.r - goal.r) > 1024 * 1024) continue;
+            I candidate = pressure(id, next.q, next.r);
+            if (candidate < score && contact(id, next.q, next.r, body->radius + distance + 2)) { score = candidate; best = next; }
+        }
+        return best;
+    }
+    Advance advance(I id, Point goal, I speed, I stop, I hz, I wait, I side, I pass) const {
+        Advance out; out.wait = wait; out.side = side; out.pass = pass;
+        const Body *body = find(id);
+        if (!body) return out;
+        Point origin{body->q, body->r};
+        I q = goal.q - origin.q, r = goal.r - origin.r;
+        I distance = root(metric(q, r));
+        Point velocity = distance <= speed ? Point{q, r} : scaled(q, r, speed);
+        out.point = out.intended = {origin.q + velocity.q, origin.r + velocity.r};
+        I length = root(metric(velocity.q, velocity.r));
+        if (!length) return out;
+        out.stepped = true; out.pass = std::max<I>(0, pass - 1);
+        I reach = body->radius + length + 2;
+        Point proposed = preferred(id, velocity.q, velocity.r, goal.q, goal.r, speed, stop, hz, pass > 0);
+        if (contact(id, proposed.q, proposed.r, reach)) {
+            out.point = proposed; out.wait = 0; out.write_wait = true; return out;
+        }
+        if ((proposed.q != out.intended.q || proposed.r != out.intended.r) && contact(id, out.intended.q, out.intended.r, reach)) return out;
+        I direction = side ? side : 1;
+        Point perpendicular = scaled(-velocity.q - 2 * velocity.r, 2 * velocity.q + velocity.r, length);
+        for (I bend : {direction * 8, direction * 64, -direction * 8, -direction * 64}) {
+            Point delta = scaled(velocity.q * 4 + perpendicular.q * bend, velocity.r * 4 + perpendicular.r * bend, length);
+            if (std::llabs(bend) == 64) delta = {perpendicular.q * sign(bend), perpendicular.r * sign(bend)};
+            Point next{origin.q + delta.q, origin.r + delta.r};
+            if (!contact(id, next.q, next.r, reach)) continue;
+            out.point = next; out.side = sign(bend); out.wait = 0; out.write_wait = out.write_side = true; return out;
+        }
+        out.point = origin; out.wait = wait + 1; out.write_wait = true;
+        return out;
+    }
     std::vector<I> neighbors(I owner, I q, I r, I reach, I cap, I offset) const {
         std::vector<I> result;
         for (size_t index : query(owner, q, r, reach, cap, offset)) result.push_back(bodies[index].id);
