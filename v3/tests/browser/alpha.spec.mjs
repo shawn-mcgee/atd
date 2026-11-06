@@ -154,11 +154,15 @@ test('RTS controls: WASD, same-type selection, groups, build keys and Q',async({
 })
 
 test('real Trystero room: cross-origin clients, host orders and host loss',async()=>{
-  // Isolate two simultaneous Godot scenes from preceding software-GPU contexts.
-  const browser=await chromium.launch({...browserConfig.use.launchOptions,headless:true})
+  // Separate browser processes model separate players and isolate software-GPU
+  // and window lifetimes when the host closes. Incognito contexts share both.
+  const [hostBrowser,guestBrowser]=await Promise.all([
+    chromium.launch({...browserConfig.use.launchOptions,headless:true}),
+    chromium.launch({...browserConfig.use.launchOptions,headless:true})
+  ])
   try {
-  const hostContext=await browser.newContext({viewport:{width:1280,height:800}})
-  const guestContext=await browser.newContext({viewport:{width:1280,height:800}})
+  const hostContext=await hostBrowser.newContext({viewport:{width:1280,height:800}})
+  const guestContext=await guestBrowser.newContext({viewport:{width:1280,height:800}})
   const host=await hostContext.newPage(),guest=await guestContext.newPage()
   const hostErrors=await open(host)
   const guestErrors=await open(guest,url.replace('127.0.0.1:8080','localhost:8080'))
@@ -201,7 +205,7 @@ test('real Trystero room: cross-origin clients, host orders and host loss',async
   expect((await diagnostics(guest)).result).toContain('Host disconnected')
   expect([...hostErrors,...guestErrors]).toEqual([])
   await guestContext.close()
-  } finally {await browser.close()}
+  } finally {await Promise.allSettled([hostBrowser.close(),guestBrowser.close()])}
 })
 
 test('five real WebRTC peers exchange binary packets through Trystero',async({browser})=>{
