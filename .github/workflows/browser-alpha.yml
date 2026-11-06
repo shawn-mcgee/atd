@@ -28,8 +28,9 @@ jobs:
       - run: npm ci
       - run: python tools/setup-engine.py
       - run: npm run export:web
+      - run: python tools/export-legacy.py
       - run: python tools/package-web.py
-      - run: python tools/stage-site.py
+      - run: python tools/stage-site.py --v1-web build/legacy-web
       - uses: actions/upload-artifact@v4
         with:
           name: browser-alpha

@@ -4,7 +4,7 @@ The active Godot 4.7.2 browser alpha lives in v3/. Open v3/project.godot and run
 
 Keep simulation deterministic and independent of presentation. Gameplay commands pass through WorldState. Configuration lives in v3/config/; document new values and regenerate the configuration reference. Preserve existing script UID sidecars; do not regenerate caches or add @tool scripts without need.
 
-Run npm test, npm run export:web, and npm run test:browser from v3/ for relevant changes. The repository workflow stages the exported build at both / and /v3/ using v3/tools/stage-site.py. Do not deploy the legacy game at the root URL.
+Run npm test, npm run export:web, and npm run test:browser from v3/ for relevant changes. The repository workflow stages the exported build at both / and /v3/ using v3/tools/stage-site.py. CI also exports legacy v1 separately with v3/tools/export-legacy.py and stages it under /v1/. Do not deploy the legacy game at the root URL.
 
 v1/ is preserved legacy code. Its instructions are in v3/docs/legacy-project-instructions.md. Do not mix its tooling or assets into v3/.
 

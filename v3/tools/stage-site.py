@@ -20,7 +20,7 @@ def copy_export(source, destination, active=False):
             raise SystemExit(f"Missing export file: {source / name}")
     destination.mkdir(parents=True, exist_ok=True)
     for file in source.iterdir():
-        if file.is_file() and not file.name.endswith(".import"):
+        if file.is_file() and not file.name.endswith((".import", ".log")):
             shutil.copy2(file, destination / file.name)
 
 

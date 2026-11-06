@@ -104,11 +104,11 @@ The active project is `v3/project.godot`. Run all current npm and Python project
 
 `npm run export:web` writes `v3/build/web/`. `npm run stage:site` copies that export to the site root and its `/v3/` subdirectory, preserving relative Godot asset paths. GitHub Pages publishes `v3/build/site/`. Both public paths therefore serve the same current game; legacy content never replaces the root game. `npm run test:browser` stages the site automatically and exercises both paths.
 
-An optional already-exported legacy build can be included with `python tools/stage-site.py --v1-web <legacy-export-directory>`. That adds `/v1/`; it does not change `/` or `/v3/`. Legacy publication is disabled in the default workflow. The itch.io ZIP contains only the current game with `index.html` at its root.
+An optional already-exported legacy build can be included with `python tools/stage-site.py --v1-web <legacy-export-directory>`. That adds `/v1/`; it does not change `/` or `/v3/`. The deployment workflow exports `../v1/` with `python tools/export-legacy.py` and supplies `--v1-web build/legacy-web`, so `/v1/` is included in every publication. The itch.io ZIP contains only the current game with `index.html` at its root.
 
 ## Independent checks and deployment
 
-`browser-alpha.yml` handles main-branch and manual publication: install dependencies and the pinned engine, export v3, package the downloadable ZIP, stage root and `/v3/`, and deploy Pages. Export/compiler errors remain fatal. It does not install browsers or run the test suite.
+`browser-alpha.yml` handles main-branch and manual publication: install dependencies and the pinned engine, export v3 and legacy v1 independently, package the current-game ZIP, stage root and `/v3/` with legacy `/v1/`, and deploy Pages. Export/compiler errors remain fatal. It does not install browsers or run the test suite.
 
 `browser-checks.yml` runs simulation/interface and browser tests on pull requests or manual dispatch. It does not publish. Local validation remains `npm test` and `npm run test:browser` from v3/. Deployment retries can rerun the deploy job against its existing artifact without rebuilding or repeating tests.
 
