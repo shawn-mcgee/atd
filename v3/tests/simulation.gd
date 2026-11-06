@@ -36,6 +36,10 @@ func engineer(state: WorldState) -> Dictionary:
 
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	if "--ai-only" in OS.get_cmdline_user_args():
+		lightless_behavior_checks(); print("Lightless checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--movement-only" in OS.get_cmdline_user_args():
+		movement_checks(); print("Movement checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--config-only" in OS.get_cmdline_user_args():
 		var errors := ConfigRules.validate(settings)
 		for error in errors: printerr(error)
@@ -313,6 +317,8 @@ func run() -> void:
 	config_checks()
 	feedback_checks()
 	route_order_checks()
+	movement_checks()
+	lightless_behavior_checks()
 	print("Simulation checks: ", assertions, "; failures: ", failures.size())
 	quit(0 if failures.is_empty() else 1)
 
@@ -649,3 +655,155 @@ func route_order_checks() -> void:
 	config.controls.commands.attack = "V"
 	verify(ConfigRules.gameplay_hash(config) == ConfigRules.gameplay_hash(settings), "Local keybind changes do not split multiplayer gameplay compatibility")
 
+
+func ai_world() -> WorldState:
+	var w := world()
+	w.units.clear(); w.structures.clear(); w.gloom.clear()
+	for cell in w.tiles: w.tiles[cell].cliff = false
+	var anchor := w.add_structure("anchor", Vector2i(5, 0), 0)
+	w.players[0].anchor = anchor
+	var medusa := w.add_structure("medusa", Vector2i(-6, 0), -1)
+	w.structures[medusa].passive = -10000.0
+	w._rebuild_navigation(); w.update_visibility()
+	return w
+
+func lightless_behavior_checks() -> void:
+	var w := ai_world()
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	var scavenger := w.add_unit("scavenger", Vector2(-2, 0), -1)
+	var ally := w.add_unit("scavenger", Vector2(-2, 0.4), -1)
+	var original_health := float(anchor.hp)
+	advance(w, 15)
+	verify(float(anchor.hp) < original_health, "Scavengers cross an unopposed light perimeter and damage the known Anchor")
+	verify(w.units[scavenger].job.kind == "attack" and w.units[ally].job.kind == "attack", "Nearby probes commit together instead of accumulating outside illumination")
+
+	w = ai_world(); anchor = w.structures[int(w.players[0].anchor)]
+	for cell in HexGrid.disk(anchor.cell, 3):
+		if HexGrid.distance(cell, anchor.cell) == 3: w.add_structure("wall", cell, 0)
+	w._rebuild_navigation(); w.update_visibility()
+	scavenger = w.add_unit("scavenger", Vector2.ZERO, -1)
+	var unit: Dictionary = w.units[scavenger]
+	unit.job = {"kind": "attack"}; unit.target = anchor.id
+	advance(w, 5)
+	var obstruction: Dictionary = w.entity(int(unit.target))
+	verify(not obstruction.is_empty() and obstruction.kind == "wall" and float(obstruction.hp) < float(w.cfg.structures.wall.health), "Committed attackers damage the visible enclosing wall instead of idling against it")
+	verify(int(unit.job.get("objective", 0)) == int(anchor.id), "Attacking an obstruction preserves the original objective")
+	if not obstruction.is_empty() and obstruction.kind == "wall":
+		w._destroy(obstruction)
+		w._unit_step(unit, 0.05)
+		verify(int(unit.target) == int(anchor.id), "Attackers resume their objective after the blocking wall is destroyed")
+
+	w = ai_world()
+	var isolated := Vector2i(-2, 0)
+	var reachable := Vector2i(-5, 3)
+	for direction in HexGrid.DIRECTIONS: w.tiles[isolated + direction].cliff = true
+	w.gloom[isolated] = 20.0; w.gloom[reachable] = 20.0
+	w._rebuild_navigation(); w.update_visibility()
+	scavenger = w.add_unit("scavenger", HexGrid.world(Vector2i(0, -3)), -1)
+	unit = w.units[scavenger]; unit.hp = 15; unit.job = {"kind": "retreat"}
+	WorldState.LightlessTactics.retreat(w, unit)
+	verify(not unit.route.is_empty() and HexGrid.cell(unit.route.back()) == reachable, "Retreat chooses reachable Gloom rather than a closer isolated patch")
+	unit.route.clear(); unit.job.repath_remaining = 0.0
+	w._unit_step(unit, 0.05)
+	verify(not unit.route.is_empty(), "An interrupted retreat retries its route while wounded")
+
+	w = ai_world()
+	var scout := w.add_unit("scout", Vector2.ZERO, 0)
+	var passenger := w.add_unit("marine", Vector2(-0.2, 0), 0)
+	w.units[passenger].vehicle = scout; w.units[scout].passengers.append(passenger)
+	scavenger = w.add_unit("scavenger", Vector2(-1, 0), -1)
+	w._probe_step(w.units[scavenger], float(w.cfg.lightless.probeResistanceWindowSeconds) + 0.1)
+	verify(int(w.units[scavenger].target) == scout, "Probes target the vehicle rather than its protected passenger")
+	for seed_value in [472, 91]:
+		w = world(); w.reset(seed_value, 1); w.units.clear()
+		for structure in w.structures.values():
+			if structure.kind == "medusa": structure.passive = -10000.0
+		anchor = w.structures[int(w.players[0].anchor)]
+		original_health = float(anchor.hp)
+		for i in range(3): w.add_unit("scavenger", HexGrid.world(w.nearest_free(HexGrid.DIRECTIONS[i] * 3)), -1)
+		advance(w, 90)
+		verify(float(anchor.hp) < original_health, "Scavengers reach and pressure an undefended base across generated cliffs (seed %d)" % seed_value)
+
+	var first := ai_world()
+	var second := ai_world()
+	for state in [first, second]:
+		state.add_unit("scavenger", Vector2(-2, 0), -1)
+		state.add_unit("scavenger", Vector2(-2, 0.4), -1)
+		advance(state, 15)
+	verify(JSON.stringify(first.snapshot(0)) == JSON.stringify(second.snapshot(0)), "Lightless approach, pressure and combat decisions replay deterministically")
+
+func movement_world() -> WorldState:
+	var w := world(2)
+	w.units.clear(); w.structures.clear(); w.gloom.clear(); w.illuminated.clear()
+	for tile in w.tiles.values(): tile.cliff = false
+	w._rebuild_navigation()
+	return w
+
+func movement_checks() -> void:
+	var w := movement_world()
+	var id := w.add_unit("operator", Vector2(0.42, 0.12), 0)
+	var u: Dictionary = w.units[id]
+	var goal := Vector2(4.3, 1.13)
+	w.move_to(u, goal)
+	verify(u.route.size() == 1 and u.route[0] == goal, "Clear off-grid orders use one straight segment to the exact click")
+	var forward := true
+	for i in range(20):
+		var before: Vector2 = u.pos
+		w.move_to(u, goal)
+		w._move(u, 0.05)
+		if u.pos.distance_to(goal) >= before.distance_to(goal): forward = false
+	verify(forward, "Repeated orders keep advancing rather than returning to a tile center")
+	for i in range(100): w._move(u, 0.05)
+	verify(u.pos.distance_to(goal) < 0.00001, "Continuous routing preserves the exact off-grid destination")
+	u.pos = Vector2(0.3, 0.1); goal = Vector2(0.45, 0.2)
+	w.move_to(u, goal); w._move(u, 1)
+	verify(u.pos == goal, "A move inside the current hex never detours through its center")
+	u.pos = Vector2.ZERO; u.route = [Vector2(0.005, 0), Vector2(0.08, 0), Vector2(1, 0)]
+	w._move(u, 0.1)
+	verify(absf(u.pos.x - float(w.cfg.units.operator.speedTilesPerSecond) * 0.1) < 0.00001, "Movement spends its whole tick budget across short waypoints")
+
+	w = movement_world(); w.tiles[Vector2i.ZERO].cliff = true; w._rebuild_navigation()
+	id = w.add_unit("scout", Vector2(-1, 0), 0); u = w.units[id]
+	var driver := w.add_unit("operator", Vector2(-5, -5), 0)
+	u.driver = driver; w.units[driver].vehicle = id
+	goal = HexGrid.world(Vector2i(0, -1))
+	w.move_to(u, goal)
+	verify(u.route.size() > 1, "Wide vehicles route around a cliff corner that a center-point ray would clip")
+	var safe := true
+	for i in range(100):
+		w._move(u, 0.05)
+		for j in range(16):
+			var edge: Vector2 = u.pos + Vector2.from_angle(TAU * j / 16) * float(w.cfg.units.scout.collisionRadiusTiles)
+			if HexGrid.cell(edge) == Vector2i.ZERO: safe = false
+	verify(safe and u.pos.distance_to(goal) < 0.001, "Vehicle bodies clear the entire cliff corner and reach their destination")
+
+	w = movement_world()
+	id = w.add_unit("operator", Vector2(-4, 0), 0); u = w.units[id]
+	w.move_to(u, Vector2(4, 0))
+	w.add_structure("wall", Vector2i.ZERO, 0)
+	w._move(u, 10)
+	verify(u.pos.x < -0.5 and u.route.is_empty(), "A newly placed obstacle cannot be tunneled through by a long movement step")
+	var replica := movement_world()
+	replica.apply_snapshot(JSON.parse_string(JSON.stringify(w.snapshot(0))), 0)
+	verify(replica.blocked(Vector2i.ZERO), "JSON snapshots rebuild structure collision occupancy with normalized IDs")
+
+	w = movement_world()
+	var gate_id := w.add_structure("gate", Vector2i.ZERO, 0)
+	w.structures[gate_id].open = true; w._rebuild_navigation()
+	id = w.add_unit("operator", Vector2(-4, 0), 0); u = w.units[id]
+	w.move_to(u, Vector2(4, 0))
+	w.structures[gate_id].open = false; w.structures[gate_id].locked = true; w._rebuild_navigation()
+	w._move(u, 10)
+	verify(u.pos.x < -0.5 and not w.structures[gate_id].open, "A gate locked after route planning still stops a smoothed path")
+
+	w = movement_world()
+	w.illuminated[0] = {}
+	for cell in HexGrid.disk(Vector2i.ZERO, 1):
+		w.illuminated[0][cell] = true
+		w.dark_navigation.set_point_weight_scale(w.point_ids[cell], float(w.cfg.lightless.darkPathLightPenalty))
+	id = w.add_unit("scavenger", Vector2(-4, 0), -1); u = w.units[id]
+	w.move_to(u, Vector2(4, 0))
+	verify(u.route.size() > 1, "Smoothing retains a non-attacking Lightless detour around illumination")
+	u.job = {"kind": "attack"}
+	w.move_to(u, Vector2(4, 0))
+	verify(u.route.size() == 1, "Committed Lightless attacks can take a direct route across light")

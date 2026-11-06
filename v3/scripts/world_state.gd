@@ -25,9 +25,10 @@ var paused := false
 var speed := 1.0
 var next_id := 1
 var random := RandomNumberGenerator.new()
-var navigation := AStar2D.new()
-var dark_navigation := AStar2D.new()
+var navigation := MovementGraph.new()
+var dark_navigation := MovementGraph.new()
 var point_ids: Dictionary = {}
+var structure_cells: Dictionary = {}
 var corpse := Vector2i.ZERO
 var gloom_spread_time := 0.0
 
@@ -48,7 +49,7 @@ func reset(map_seed: int, count: int = 1) -> void:
 	medusa_dead = false
 	paused = false
 	speed = 1.0
-	for collection in [tiles, units, structures, players, visible, detected, illuminated, known, gloom, point_ids]: collection.clear()
+	for collection in [tiles, units, structures, players, visible, detected, illuminated, known, gloom, point_ids, structure_cells]: collection.clear()
 	for cell in HexGrid.disk(Vector2i.ZERO, radius):
 		tiles[cell] = {"cliff": random.randf() < float(cfg.map.cliffTileFraction), "resource": "", "amount": 0, "rock_health": float(cfg.map.cliffHealth)}
 	var inset := radius - int(cfg.map.anchorEdgeInsetTiles)
@@ -133,6 +134,9 @@ func add_structure(kind: String, cell: Vector2i, owner: int, built: bool = true,
 	structures[id].personnel_source = 0
 	structures[id].request_personnel = bool(cfg.personnel.personnelRequestDefaultEnabled)
 	structures[id].vehicle_assignments = {}
+	for occupied in footprint(structures[id]):
+		if not structure_cells.has(occupied): structure_cells[occupied] = []
+		structure_cells[occupied].append(id)
 	if owner >= 0 and kind in ["armory", "factory", "cradle"]:
 		var source := personnel_source(owner, cell)
 		if not source.is_empty(): structures[id].personnel_source = source.id
@@ -143,15 +147,24 @@ func footprint(s: Dictionary) -> Array[Vector2i]:
 
 func blocked(cell: Vector2i, ignore: int = 0) -> bool:
 	if not tiles.has(cell) or HexGrid.distance(cell) >= radius or tiles[cell].cliff: return true
-	for s in structures.values():
-		if s.id == ignore or not s.started: continue
+	for id in structure_cells.get(cell, []):
+		var s: Dictionary = structures.get(id, {})
+		if s.is_empty() or s.id == ignore or not s.started: continue
 		if s.kind == "gate" and s.open: continue
-		if cell in footprint(s): return true
+		return true
 	return false
 
+func _index_structures() -> void:
+	structure_cells.clear()
+	for structure in structures.values():
+		for cell in footprint(structure):
+			if not structure_cells.has(cell): structure_cells[cell] = []
+			structure_cells[cell].append(int(structure.id))
+
 func _rebuild_navigation() -> void:
-	navigation.clear()
-	dark_navigation.clear()
+	_index_structures()
+	navigation.clear(); navigation.edge_cache.clear()
+	dark_navigation.clear(); dark_navigation.edge_cache.clear()
 	point_ids.clear()
 	var id := 0
 	for cell in tiles:
@@ -179,47 +192,57 @@ func nearest_free(cell: Vector2i) -> Vector2i:
 			if not blocked(c): return c
 	return cell
 
-func move_to(u: Dictionary, destination: Vector2) -> void:
-	var start := nearest_free(HexGrid.cell(u.pos))
-	var finish := nearest_free(HexGrid.cell(destination))
-	u.route = []
-	if not point_ids.has(start) or not point_ids.has(finish): return
+func _route_path(u: Dictionary, start: Vector2i, finish: Vector2i, partial: bool = false) -> PackedVector2Array:
+	if not point_ids.has(start) or not point_ids.has(finish): return PackedVector2Array()
 	var graph := dark_navigation if u.owner < 0 and u.job.kind != "attack" else navigation
-	# Gates remain solid for collision and light. Temporarily admit only the owner's
-	# unlocked doors while calculating this route; restore the shared graph afterward.
 	var admitted: Array[int] = []
 	for gate in structures.values():
 		if gate.kind != "gate" or gate.owner != u.owner or not gate.built or gate.locked or gate.open: continue
 		for cell in footprint(gate):
 			if point_ids.has(cell): graph.set_point_disabled(point_ids[cell], false); admitted.append(point_ids[cell])
-	var path := graph.get_point_path(point_ids[start], point_ids[finish], true)
+	graph.query_world = weakref(self); graph.query_unit = u
+	graph.neighbor_filter_enabled = RouteNavigation.clearance(self, u) >= HexGrid.RADIUS * 0.5
+	var path := graph.get_point_path(point_ids[start], point_ids[finish], partial)
+	graph.neighbor_filter_enabled = false; graph.query_unit = {}; graph.query_world = null
 	for id in admitted: graph.set_point_disabled(id, true)
-	for p in path: u.route.append(p)
-	if not blocked(HexGrid.cell(destination)) and not u.route.is_empty() and HexGrid.cell(u.route.back()) == finish: u.route[u.route.size() - 1] = destination
+	return path
+
+func move_to(u: Dictionary, destination: Vector2) -> void:
+	var start := nearest_free(HexGrid.cell(u.pos))
+	var finish := nearest_free(HexGrid.cell(destination))
+	var path := _route_path(u, start, finish, true)
+	if not path.is_empty() and HexGrid.cell(path[path.size() - 1]) == finish and not blocked(HexGrid.cell(destination)) and RouteNavigation.clear_segment(self, u, destination, destination, true):
+		path[path.size() - 1] = destination
+	RouteNavigation.assign(self, u, path)
 
 func _move(u: Dictionary, delta: float) -> bool:
 	if u.vehicle != 0 or u.get("buried", false) or u.get("transition", "") != "": return false
 	if cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: return false
-	if u.route.is_empty(): return false
-	var goal: Vector2 = u.route[0]
-	for gate in structures.values():
-		if gate.kind != "gate" or gate.open or not gate.built or not HexGrid.cell(goal) in footprint(gate): continue
-		if gate.owner == u.owner and not gate.locked:
-			if not gate.has("opening_remaining"): gate.opening_remaining = float(cfg.construction.gateOpenSeconds); gate.auto_close = true
-			return false
-		u.route.clear(); return false
-	var distance: float = u.pos.distance_to(goal)
-	var step := float(cfg.units[u.kind].speedTilesPerSecond) * delta
-	if distance <= step:
-		if not blocked(HexGrid.cell(goal)): u.pos = goal
-		u.route.pop_front()
-	else:
-		var direction: Vector2 = (goal - u.pos).normalized()
-		u.heading = atan2(-direction.x, -direction.y)
-		var proposed: Vector2 = u.pos + direction * step
-		if not blocked(HexGrid.cell(proposed)): u.pos = proposed
-		else: u.route.clear()
-	return true
+	var budget := float(cfg.units[u.kind].speedTilesPerSecond) * delta
+	var moved := false
+	while budget > 0 and not u.route.is_empty():
+		var goal: Vector2 = u.route[0]
+		var distance: float = u.pos.distance_to(goal)
+		if distance <= float(cfg.movement.pathfinding.waypointToleranceTiles) and u.route.size() > 1:
+			u.route.pop_front(); continue
+		var travel := minf(budget, distance)
+		var proposed: Vector2 = u.pos.move_toward(goal, travel)
+		for gate in structures.values():
+			if gate.kind != "gate" or gate.open or not gate.built: continue
+			if RouteNavigation.hex_distance_squared(u.pos, proposed, gate.cell) >= pow(RouteNavigation.clearance(self, u), 2): continue
+			if gate.owner == u.owner and not gate.locked:
+				if not gate.has("opening_remaining"): gate.opening_remaining = float(cfg.construction.gateOpenSeconds); gate.auto_close = true
+				return moved
+			u.route.clear(); return moved
+		if not RouteNavigation.clear_segment(self, u, u.pos, proposed):
+			u.route.clear(); return moved
+		if distance > 0.00001:
+			var direction: Vector2 = goal - u.pos
+			u.heading = atan2(-direction.x, -direction.y)
+			u.pos = proposed; moved = true
+		budget -= travel
+		if travel >= distance: u.route.pop_front()
+	return moved
 
 func resources(owner: int) -> Dictionary:
 	return players[owner].resources
@@ -559,6 +582,7 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 		BurrowRules.request(self, u, true); return
 	if cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: return
 	u.cooldown = maxf(0, float(u.cooldown) - delta)
+	if u.owner < 0: u.job.repath_remaining = maxf(0, float(u.job.get("repath_remaining", 0)) - delta)
 	if u.owner < 0 and u.stance == "probe":
 		_probe_step(u, delta)
 		return
@@ -571,6 +595,7 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 			if d < distance: distance = d; target = s
 		if not target.is_empty(): u.target = target.id; u.job = {"kind": "attack"}
 	if u.job.kind in ["patrol", "escort"]: RouteOrders.update(self, u, delta)
+	if u.owner < 0 and u.job.kind == "attack": LightlessTactics.prepare_attack(self, u)
 	var weapon = BurrowRules.weapon(self, u)
 	if u.kind == "scout" and u.job.kind == "attack":
 		var target := entity(int(u.target))
@@ -671,28 +696,27 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 func _probe_step(u: Dictionary, delta: float) -> void:
 	if u.kind in ["mother", "father"]: return
 	if u.job.kind == "retreat":
+		if u.route.is_empty() and not gloom.has(HexGrid.cell(u.pos)) and float(u.job.get("repath_remaining", 0)) <= 0:
+			LightlessTactics.retreat(self, u)
 		_move(u, delta)
 		if u.route.is_empty() and float(u.hp) >= float(cfg.units[u.kind].health): u.job = {"kind": "idle"}
 		return
 	if u.job.kind == "attack":
+		LightlessTactics.prepare_attack(self, u)
 		if not _fire(u, str(cfg.units[u.kind].weapon), delta): _move(u, delta)
 		return
 	if u.job.kind == "idle": u.job = {"kind": "probe", "pressure": 0.0, "damage_tick": int(u.last_damage)}
 	if int(u.last_damage) > int(u.job.get("damage_tick", -999)):
 		u.job = {"kind": "retreat"}; u.target = 0; u.route.clear()
-		var destination := nearest_free(Vector2i.ZERO)
-		var distance := INF
-		for cell in gloom:
-			if blocked(cell) or is_lit(cell): continue
-			var d: float = u.pos.distance_to(HexGrid.world(cell))
-			if d < distance: distance = d; destination = cell
-		move_to(u, HexGrid.world(destination))
+		LightlessTactics.retreat(self, u)
 		return
+	var goal := LightlessTactics.known_anchor(self, u.pos)
+	if u.route.is_empty() and not goal.is_empty(): move_to(u, entity_position(goal))
 	var candidate: Dictionary = {}
 	var nearest := INF
 	var vision := flood(HexGrid.cell(u.pos), int(cfg.units[u.kind].visionRangeTiles))
 	for e in units.values() + structures.values():
-		if e.owner < 0: continue
+		if e.owner < 0 or int(e.get("vehicle", 0)) != 0: continue
 		var seen := vision.has(HexGrid.cell(entity_position(e)))
 		if e.has("cell"):
 			for cell in footprint(e):
@@ -700,6 +724,10 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		if not seen: continue
 		var d: float = u.pos.distance_to(entity_position(e))
 		if d < nearest: nearest = d; candidate = e
+	# The CPU already knows Anchor locations. A light perimeter must not create
+	# a permanent blind spot between its shorter vision and the Anchor's light.
+	if candidate.is_empty() and not goal.is_empty() and not u.route.is_empty() and is_lit(HexGrid.cell(u.route[0])):
+		candidate = goal
 	if not candidate.is_empty():
 		if int(u.target) != int(candidate.id): u.job.pressure = 0.0
 		u.target = candidate.id
@@ -707,18 +735,10 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		if float(u.job.pressure) >= float(cfg.lightless.probeResistanceWindowSeconds):
 			var target_id := int(candidate.id)
 			for other in units.values():
-				if other.owner < 0 and other.kind == "scavenger" and other.stance == "probe" and other.job.kind != "retreat" and other.pos.distance_to(u.pos) <= float(cfg.lightless.probePressureSignalRangeTiles):
+				if other.owner < 0 and other.kind == "scavenger" and other.stance == "probe" and other.job.kind in ["idle", "probe"] and other.pos.distance_to(u.pos) <= float(cfg.lightless.probePressureSignalRangeTiles):
 					other.target = target_id; other.job = {"kind": "attack"}; other.route.clear()
 			return
 	else: u.target = 0; u.job.pressure = 0.0
-	if u.route.is_empty():
-		var goal: Dictionary = {}
-		var distance := INF
-		for s in structures.values():
-			if s.kind != "anchor": continue
-			var d: float = u.pos.distance_to(entity_position(s))
-			if d < distance: distance = d; goal = s
-		if not goal.is_empty(): move_to(u, entity_position(goal))
 	# Probes test from the dark edge. Committed attacks may cross illumination.
 	if not u.route.is_empty() and not is_lit(HexGrid.cell(u.route[0])): _move(u, delta)
 
@@ -760,7 +780,7 @@ func _separate_units(delta: float) -> void:
 					var direction := offset.normalized() if offset.length() > 0.001 else Vector2.RIGHT * (1 if int(u.id) > int(id) else -1)
 					push += direction * (desired - offset.length())
 		var proposed: Vector2 = u.pos + push.limit_length(float(cfg.movement.separationTilesPerSecond) * delta)
-		if not blocked(HexGrid.cell(proposed)): u.pos = proposed
+		if push.length_squared() > 0.000001 and RouteNavigation.clear_segment(self, u, u.pos, proposed): u.pos = proposed
 
 func _deposit_cargo(u: Dictionary, depot: Dictionary) -> void:
 	var delivered := 0
@@ -1143,11 +1163,15 @@ func _fire(attacker: Dictionary, weapon_name: String, delta: float) -> bool:
 	var target_radius := int(cfg.structures[target.kind].footprintRadiusTiles) + float(cfg.combat.structureAimAllowanceTiles) if target.has("cell") else 0.0
 	if distance > float(weapon.rangeTiles) + target_radius:
 		if attacker.has("pos") and (attacker.job.kind == "attack" or attacker.stance in ["aggressive", "attack"] or (defensive and attacker.job.kind == "idle")):
-			if attacker.route.is_empty() and not attacker.get("buried", false): move_to(attacker, position)
+			if not attacker.get("buried", false):
+				if attacker.owner < 0: LightlessTactics.approach(self, attacker, target, weapon)
+				elif attacker.route.is_empty(): move_to(attacker, position)
 		return false
 	var line := HexGrid.line(HexGrid.cell(origin), HexGrid.cell(position))
 	for i in range(1, maxi(1, line.size() - 1)):
-		if blocks_sight(line[i]): return false
+		if blocks_sight(line[i]):
+			if attacker.has("pos") and attacker.owner < 0 and not attacker.get("buried", false): LightlessTactics.approach(self, attacker, target, weapon)
+			return false
 	if float(attacker.cooldown) > 0: return true
 	if attacker.has("heading"): attacker.heading = atan2(origin.x - position.x, origin.y - position.y)
 	attacker.cooldown = float(weapon.intervalSeconds)
@@ -1352,6 +1376,7 @@ func apply_snapshot(data: Dictionary, owner: int) -> void:
 	for d in data.structures:
 		d.cell = Vector2i(int(d.cell[0]), int(d.cell[1]))
 		structures[int(d.id)] = d
+	_index_structures()
 	detected[owner] = {}
 	for contact in data.get("contacts", []): detected[owner][Vector2i(int(contact[0]), int(contact[1]))] = true
 	known[owner] = {}
@@ -1376,6 +1401,178 @@ func apply_snapshot(data: Dictionary, owner: int) -> void:
 	if medusa_dead:
 		tiles[Vector2i.ZERO].resource = "nacre"
 
+
+class MovementGraph:
+	extends AStar2D
+	var query_world: WeakRef
+	var query_unit: Dictionary = {}
+	var edge_cache: Dictionary = {}
+
+	func _filter_neighbor(from_id: int, to_id: int) -> bool:
+		var world = query_world.get_ref() if query_world != null else null
+		if world == null: return false
+		# Adjacent free hex centers have at least this much corner clearance.
+		# Infantry need no extra graph filtering; larger bodies sometimes do.
+		var radius := RouteNavigation.clearance(world, query_unit)
+		if radius < HexGrid.RADIUS * 0.5: return false
+		var key := "%d:%s:%d:%d" % [query_unit.owner, radius, mini(from_id, to_id), maxi(from_id, to_id)]
+		if not edge_cache.has(key):
+			edge_cache[key] = not RouteNavigation.clear_segment(world, query_unit, get_point_position(from_id), get_point_position(to_id), true)
+		return bool(edge_cache[key])
+
+class RouteNavigation:
+	static var hex_polygons: Dictionary = {}
+	# Hexes choose topology; swept body clearance and string-pulling choose actual
+	# movement. This layer is shared by manual orders, work, combat and retreats.
+	static func clearance(world: RefCounted, unit: Dictionary) -> float:
+		return float(world.cfg.units[unit.kind].collisionRadiusTiles) + float(world.cfg.movement.pathfinding.clearancePaddingTiles)
+
+	static func hex_distance_squared(a: Vector2, b: Vector2, cell: Vector2i) -> float:
+		if not hex_polygons.has(cell):
+			var points := PackedVector2Array()
+			var center := HexGrid.world(cell)
+			for i in range(6): points.append(center + Vector2.from_angle(deg_to_rad(30.0 + i * 60.0)) * HexGrid.RADIUS)
+			hex_polygons[cell] = points
+		var polygon: PackedVector2Array = hex_polygons[cell]
+		if Geometry2D.is_point_in_polygon(a, polygon) or Geometry2D.is_point_in_polygon(b, polygon): return 0.0
+		var nearest := INF
+		for i in range(6):
+			var c: Vector2 = polygon[i]
+			var d: Vector2 = polygon[(i + 1) % 6]
+			if Geometry2D.segment_intersects_segment(a, b, c, d) != null: return 0.0
+			nearest = minf(nearest, c.distance_squared_to(Geometry2D.get_closest_point_to_segment(c, a, b)))
+			nearest = minf(nearest, a.distance_squared_to(Geometry2D.get_closest_point_to_segment(a, c, d)))
+			nearest = minf(nearest, b.distance_squared_to(Geometry2D.get_closest_point_to_segment(b, c, d)))
+		return nearest
+
+	static func clear_segment(world: RefCounted, unit: Dictionary, a: Vector2, b: Vector2, gates: bool = false, avoid_light: bool = false) -> bool:
+		var radius := clearance(world, unit)
+		var candidates: Dictionary = {}
+		# A conservative neighborhood covers offset endpoints and wide bodies;
+		# the exact capsule/hex test below rejects only actual intersections.
+		var neighborhood := 1 if HexGrid.cell(a) == HexGrid.cell(b) and radius < HexGrid.RADIUS else ceili(radius + HexGrid.RADIUS * 2)
+		for cell in HexGrid.line(HexGrid.cell(a), HexGrid.cell(b)):
+			for nearby in HexGrid.disk(cell, neighborhood): candidates[nearby] = true
+		for cell in candidates:
+			var solid: bool = world.blocked(cell)
+			var lit: bool = avoid_light and world.is_lit(cell)
+			if not solid and not lit: continue
+			var center := HexGrid.world(cell)
+			if center.distance_squared_to(Geometry2D.get_closest_point_to_segment(center, a, b)) > pow(radius + HexGrid.RADIUS, 2): continue
+			if lit and hex_distance_squared(a, b, cell) < 0.000001: return false
+			if not solid: continue
+			var distance := hex_distance_squared(a, b, cell)
+			if distance >= radius * radius - 0.000001: continue
+			var admitted := false
+			if gates:
+				for gate in world.structures.values():
+					if gate.kind == "gate" and gate.built and gate.owner == unit.owner and not gate.locked and cell in world.footprint(gate): admitted = true; break
+			if admitted: continue
+			# Steering or a newly placed obstacle may leave a body too close to an
+			# edge. Permit movement out of that overlap, never deeper through it.
+			var initial := hex_distance_squared(a, a, cell)
+			if initial > 0.000001 and distance >= initial - 0.000001 and hex_distance_squared(b, b, cell) > initial + 0.000001: continue
+			return false
+		return true
+
+	static func assign(world: RefCounted, unit: Dictionary, path: PackedVector2Array) -> void:
+		unit.route = []
+		if path.is_empty(): return
+		var dark: bool = unit.owner < 0 and unit.job.kind != "attack"
+		if path.size() > 1 and HexGrid.cell(path[0]) == HexGrid.cell(unit.pos) and clear_segment(world, unit, unit.pos, path[1], true, dark): path.remove_at(0)
+		var pins: Dictionary = {}
+		for gate in world.structures.values():
+			if gate.kind != "gate" or not gate.started: continue
+			for i in range(path.size()):
+				if HexGrid.cell(path[i]) != gate.cell: continue
+				for index in range(maxi(0, i - 1), mini(path.size(), i + 2)):
+					if index == 0 and HexGrid.cell(path[index]) == HexGrid.cell(unit.pos): continue
+					pins[index] = true
+		var origin: Vector2 = unit.pos
+		var index := 0
+		while index < path.size():
+			var limit := index
+			if world.cfg.movement.pathfinding.smoothingEnabled:
+				limit = path.size() - 1
+				for pin in range(index, path.size()):
+					if pins.has(pin): limit = pin; break
+			var chosen := index
+			for next in range(limit, index - 1, -1):
+				if clear_segment(world, unit, origin, path[next], true, dark): chosen = next; break
+			unit.route.append(path[chosen]); origin = path[chosen]; index = chosen + 1
+
+class LightlessTactics:
+	# Navigation and target decisions only; no renderer, input, or wall-clock state.
+	static func known_anchor(world: RefCounted, position: Vector2) -> Dictionary:
+		var result: Dictionary = {}
+		var nearest := INF
+		for structure in world.structures.values():
+			if structure.owner < 0 or structure.kind != "anchor": continue
+			var distance: float = position.distance_squared_to(world.entity_position(structure))
+			if distance < nearest: nearest = distance; result = structure
+		return result
+
+	static func clear_shot(world: RefCounted, origin: Vector2, target: Vector2) -> bool:
+		var line := HexGrid.line(HexGrid.cell(origin), HexGrid.cell(target))
+		for i in range(1, maxi(1, line.size() - 1)):
+			if world.blocks_sight(line[i]): return false
+		return true
+
+	static func prepare_attack(world: RefCounted, unit: Dictionary) -> void:
+		var target: Dictionary = world.entity(int(unit.target))
+		if target.is_empty() and unit.job.has("objective"):
+			target = world.entity(int(unit.job.objective))
+			if not target.is_empty(): unit.target = target.id; unit.route.clear(); unit.job.repath_remaining = 0.0
+		if target.is_empty(): return
+		var line := HexGrid.line(HexGrid.cell(unit.pos), HexGrid.cell(world.entity_position(target)))
+		for i in range(1, maxi(1, line.size() - 1)):
+			if not world.blocks_sight(line[i]): continue
+			# Only discovered obstructions can become targets. The first blocker
+			# is visible along this ray, but must also be within personal vision.
+			if HexGrid.distance(HexGrid.cell(unit.pos), line[i]) > int(world.cfg.units[unit.kind].visionRangeTiles): return
+			for structure in world.structures.values():
+				if structure.owner < 0 or not structure.kind in ["wall", "gate"] or not line[i] in world.footprint(structure): continue
+				if not unit.job.has("objective"): unit.job.objective = target.id
+				unit.target = structure.id; unit.route.clear(); unit.job.repath_remaining = 0.0
+				return
+			return
+
+	static func approach(world: RefCounted, unit: Dictionary, target: Dictionary, weapon: Dictionary) -> void:
+		var center: Vector2 = world.entity_position(target)
+		var radius := float(weapon.rangeTiles)
+		if target.has("cell"): radius += int(world.cfg.structures[target.kind].footprintRadiusTiles) + float(world.cfg.combat.structureAimAllowanceTiles)
+		if not unit.route.is_empty() and unit.route.back().distance_to(center) <= radius and clear_shot(world, unit.route.back(), center): return
+		if float(unit.job.get("repath_remaining", 0)) > 0: return
+		unit.route.clear()
+		unit.job.repath_remaining = float(world.cfg.lightless.combatRepathSeconds)
+		var start: Vector2i = world.nearest_free(HexGrid.cell(unit.pos))
+		if not world.point_ids.has(start): return
+		var candidates := HexGrid.disk(HexGrid.cell(center), ceili(radius) + 1)
+		candidates.sort_custom(func(a: Vector2i, b: Vector2i): return unit.pos.distance_squared_to(HexGrid.world(a)) < unit.pos.distance_squared_to(HexGrid.world(b)))
+		for cell in candidates:
+			var point := HexGrid.world(cell)
+			if world.blocked(cell) or point.distance_to(center) > radius or not clear_shot(world, point, center): continue
+			if not world.point_ids.has(cell): continue
+			# Partial paths are not attack positions: accepting one recreates the
+			# stationary crowd at an unreachable endpoint outside a base.
+			var path: PackedVector2Array = world._route_path(unit, start, cell)
+			if path.is_empty(): continue
+			RouteNavigation.assign(world, unit, path)
+			return
+
+	static func retreat(world: RefCounted, unit: Dictionary) -> void:
+		unit.job.repath_remaining = float(world.cfg.lightless.retreatRepathSeconds)
+		var start: Vector2i = world.nearest_free(HexGrid.cell(unit.pos))
+		if not world.point_ids.has(start): return
+		var candidates: Array = world.gloom.keys()
+		candidates.sort_custom(func(a: Vector2i, b: Vector2i): return unit.pos.distance_squared_to(HexGrid.world(a)) < unit.pos.distance_squared_to(HexGrid.world(b)))
+		for cell in candidates:
+			if world.blocked(cell) or world.is_lit(cell) or not world.point_ids.has(cell): continue
+			var path: PackedVector2Array = world._route_path(unit, start, cell)
+			if path.is_empty(): continue
+			unit.route.clear()
+			RouteNavigation.assign(world, unit, path)
+			return
 
 class TargetRules:
 	extends RefCounted
@@ -1511,8 +1708,11 @@ class GateRules:
 			var cells: Array = world.footprint(gate)
 			for unit in world.units.values():
 				if int(unit.vehicle) != 0: continue
-				if HexGrid.cell(unit.pos) in cells: occupied = true; break
+				if RouteNavigation.hex_distance_squared(unit.pos, unit.pos, gate.cell) < pow(RouteNavigation.clearance(world, unit), 2): occupied = true; break
 				if unit.owner != gate.owner: continue
+				# Smoothing can make the next waypoint distant. Preserve the old
+				# two-cell traffic window rather than holding doors for remote units.
+				if HexGrid.distance(HexGrid.cell(unit.pos), gate.cell) > 2: continue
 				for point in unit.route.slice(0, 2):
 					if HexGrid.cell(point) in cells: occupied = true; break
 			if occupied: gate.close_remaining = float(world.cfg.construction.gateCloseDelaySeconds)
@@ -1592,11 +1792,4 @@ class RouteOrders:
 		if unit.pos.distance_to(goal) <= float(rules.arrivalRadiusTiles): unit.route.clear(); return
 		if float(unit.job.repath) <= 0 and (unit.route.is_empty() or unit.route.back().distance_to(goal) > float(rules.arrivalRadiusTiles)):
 			world.move_to(unit, goal)
-			# A moving target causes frequent replans. Returning to the current hex's
-			# center on each one can trap a follower in a tiny back-and-forth loop.
-			if unit.route.size() > 1 and HexGrid.cell(unit.route[0]) == HexGrid.cell(unit.pos):
-				var clear := true
-				for fraction in [0.25, 0.5, 0.75]:
-					if world.blocked(HexGrid.cell(unit.pos.lerp(unit.route[1], fraction))): clear = false; break
-				if clear: unit.route.pop_front()
 			unit.job.repath = float(rules.repathSeconds)

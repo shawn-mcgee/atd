@@ -236,6 +236,8 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `lightless.defendRadiusTiles` | number | `5` |
 | `lightless.probePressureSignalRangeTiles` | number | `6` |
 | `lightless.probeResistanceWindowSeconds` | number | `3` |
+| `lightless.combatRepathSeconds` | number | `0.75` |
+| `lightless.retreatRepathSeconds` | number | `1` |
 | `lightless.probePressureDamageThreshold` | number | `0` |
 | `lightless.postMedusaChymeGrant` | number | `500` |
 | `lightless.postMedusaWombSpawnRateMultiplier` | number | `2` |
@@ -577,6 +579,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `weapons.lance_laser.mechanism` | string | `"unit_target"` |
 | `weapons.lance_laser.requiresUnobstructedShot` | boolean | `true` |
 | `weapons.scavenger_bite.damagePerHit` | number | `3` |
+| `weapons.scavenger_bite.bonusDamageAgainstStructures` | number | `3` |
 | `weapons.scavenger_bite.intervalSeconds` | number | `0.75` |
 | `weapons.scavenger_bite.rangeTiles` | number | `0.75` |
 | `weapons.scavenger_bite.mechanism` | string | `"unit_target"` |
@@ -959,6 +962,9 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | --- | --- | --- |
 | `movement.separationTilesPerSecond` | number | `1.2` |
 | `movement.formationSpacingTiles` | number | `0.55` |
+| `movement.pathfinding.smoothingEnabled` | boolean | `true` |
+| `movement.pathfinding.clearancePaddingTiles` | number | `0.02` |
+| `movement.pathfinding.waypointToleranceTiles` | number | `0.01` |
 | `movement.routeOrders.arrivalRadiusTiles` | number | `0.3` |
 | `movement.routeOrders.escortDistanceTiles` | number | `1.3` |
 | `movement.routeOrders.repathSeconds` | number | `0.4` |

@@ -300,6 +300,8 @@
     "defendRadiusTiles": 5,
     "probePressureSignalRangeTiles": 6,
     "probeResistanceWindowSeconds": 3,
+    "combatRepathSeconds": 0.75,
+    "retreatRepathSeconds": 1,
     "probePressureDamageThreshold": 0,
     "postMedusaChymeGrant": 500,
     "postMedusaWombSpawnRateMultiplier": 2,
@@ -724,6 +726,7 @@
     },
     "scavenger_bite": {
       "damagePerHit": 3,
+      "bonusDamageAgainstStructures": 3,
       "intervalSeconds": 0.75,
       "rangeTiles": 0.75,
       "mechanism": "unit_target",
@@ -1226,6 +1229,11 @@
   "movement": {
     "separationTilesPerSecond": 1.2,
     "formationSpacingTiles": 0.55,
+    "pathfinding": {
+      "smoothingEnabled": true,
+      "clearancePaddingTiles": 0.02,
+      "waypointToleranceTiles": 0.01
+    },
     "routeOrders": {
       "arrivalRadiusTiles": 0.3,
       "escortDistanceTiles": 1.3,

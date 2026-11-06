@@ -8,6 +8,10 @@ The current art pass combines procedural industrial models, basic procedural ani
 
 ## Single-player interaction pass
 
+Routes now start from each unit's actual position and simplify clear terrain into straight segments. Repeated orders no longer route through the current tile center. Movement preserves valid off-grid endpoints, spends the whole tick budget across waypoints, and checks swept body clearance against obstacles and gates. Larger vehicles use clearance-aware graph edges; non-attacking Lightless retain dark detours. See [navigation behavior and tuning](navigation.md).
+
+Scavenger probes now commit across an unopposed light perimeter using the CPU's existing knowledge of Anchor locations. Committed attackers engage visible blocking walls and resume their original objective after breaching them. Attack positions and retreat destinations require complete paths; interrupted retreats retry reachable Gloom. A configurable structure bonus lets basic Scavenger bites chip unshielded Anchors. See [Lightless behavior and tuning](lightless-ai.md).
+
 The scene now includes distinct infantry and structure silhouettes, continuous textured ground, fractured cliffs, filtered fog edges, warm work lights, walking/work/recoil motion, impact effects, a clickable fog-aware tactical map, mission stages, health/cargo bars, route lines, command markers, construction previews, production progress, grid load, and an end-of-mission panel. The command deck uses bundled typography, resource readouts, and technical portraits. Damage numbers are optional and off by default. Selection, orders, combat, mining, and completion have audio cues, with a sound toggle and ambient drone.
 
 Engineers repair completed structures and vehicles using Ore over time. The Anchor heals nearby biological units. Right-clicking an Anchor or Depot with loaded carriers redirects their delivery; full storage retains the remaining cargo. **X** stops selected units without discarding cargo, and **Home** centers the camera on the Anchor. Defensive units enforce their home leash, concealed targets stop receiving new shots, and a spatial separation pass reduces unit overlap.

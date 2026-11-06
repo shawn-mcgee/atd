@@ -59,7 +59,7 @@ class ConfigRules:
 			if not config.get(section) is Dictionary: errors.append(section + ": required object is missing")
 		if not errors.is_empty(): return errors
 		_check_numbers(config, "", errors)
-		for path in ["match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "targeting.refreshIntervalTicks"]:
+		for path in ["match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "targeting.refreshIntervalTicks", "lightless.combatRepathSeconds", "lightless.retreatRepathSeconds"]:
 			var value = at_path(config, path)
 			if not (value is float or value is int) or float(value) <= 0: errors.append(path + ": must be a positive number")
 		if float(config.map.get("anchorEdgeInsetTiles", 0)) >= float(config.map.get("radiusTiles", 0)): errors.append("map.anchorEdgeInsetTiles: must be less than map.radiusTiles")
@@ -135,6 +135,12 @@ class ConfigRules:
 				errors.append("presentation.creatureScales.%s: expected three scale values" % kind); continue
 			for value in scale_by:
 				if not (value is float or value is int) or float(value) <= 0: errors.append("presentation.creatureScales.%s: scales must be positive numbers" % kind)
+		if not config.movement.get("pathfinding") is Dictionary: errors.append("movement.pathfinding: required object"); return errors
+		if not config.movement.pathfinding.get("smoothingEnabled") is bool: errors.append("movement.pathfinding.smoothingEnabled: required boolean")
+		for key in ["clearancePaddingTiles", "waypointToleranceTiles"]:
+			var number = config.movement.pathfinding.get(key)
+			if not (number is int or number is float) or not is_finite(float(number)) or float(number) < 0 or (key == "waypointToleranceTiles" and float(number) == 0):
+				errors.append("movement.pathfinding.%s: expected a %s number" % [key, "nonnegative" if key == "clearancePaddingTiles" else "positive"])
 		if not config.movement.get("routeOrders") is Dictionary: errors.append("movement.routeOrders: required object"); return errors
 		for key in ["arrivalRadiusTiles", "escortDistanceTiles", "repathSeconds"]:
 			if float(config.movement.routeOrders.get(key, 0)) <= 0: errors.append("movement.routeOrders.%s: must be positive" % key)

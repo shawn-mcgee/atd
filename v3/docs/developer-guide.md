@@ -16,6 +16,8 @@ The presence of a definition does not implement a feature. Check [implementation
 | --- | --- | --- |
 | Config loading, validation, hash, test patches | `scripts/settings.gd`, `ConfigRules` | `validate` returns errors, `merged` returns a deep copy, gameplay hash omits camera/metadata/presentation. |
 | Entities, commands, simulation ordering | `scripts/world_state.gd` | Host-owned mutable state; no scene nodes, input, audio, or wall-clock calls. |
+| Continuous routes and body clearance | `WorldState._route_path`, `MovementGraph`, `RouteNavigation` | Coarse hex topology, actual-position starts, clearance-aware shortcuts, swept collision and full movement budgets. See [navigation](navigation.md). |
+| Lightless probes, obstruction targets, attack/retreat paths | `WorldState._probe_step`, `LightlessTactics` | Uses known Anchors and personal vision; full routes, simulation-time retries, preserved attack objectives. See [Lightless AI](lightless-ai.md). |
 | Eligibility, concealment, armor and damage | `WorldState.TargetRules` | Query functions shared by simulation, snapshots, rendering and inspector. |
 | Feedback events and weapon profiles | `WorldState.emit_feedback`, `feedback_for`, `FeedbackRules` | Bounded, audience-filtered events; renderer/audio/HUD consume independent serial cursors. |
 | Radar contacts | `WorldState.RadarSystem` | Mutates `detected[owner]`, containing occupied tile coordinates only. |
