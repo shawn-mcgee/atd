@@ -13,6 +13,8 @@ func _ready() -> void:
 	icon = null
 
 func _draw() -> void:
+	if toggle_mode and button_pressed:
+		draw_rect(Rect2(1, 1, 4, size.y - 2), Color("c6d79a"))
 	var tint := Color(0.65, 0.67, 0.59) if disabled else Color("d6d5bd")
 	if glyph != null: draw_texture_rect(glyph, Rect2(9, 8, 24, 24), false, Color(0.6, 0.6, 0.6) if disabled else Color.WHITE)
 	var title := text.split("\n")[0]

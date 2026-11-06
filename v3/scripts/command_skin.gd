@@ -18,6 +18,8 @@ static func affordable(world: WorldState, owner_id: int, cost: Dictionary) -> bo
 	return true
 
 static func description(world: WorldState, e: Dictionary) -> String:
+	if e.get("remembered", false):
+		return "LAST SEEN %.1fs AGO\nLAST RECORDED HEALTH %d / %d\nCurrent condition unknown. Scout this location to update it.\nRight click to move to the last-known location." % [maxf(0, world.time_seconds - float(e.get("last_seen_seconds", 0))), ceili(e.hp), int(world.cfg.structures[e.kind].health)]
 	if e.has("pos"):
 		var d: Dictionary = world.cfg.units[e.kind]
 		var armor := int(d.armor) + (int(world.cfg.upgrades.fabricatorArmor.armorPerPurchase) if e.owner >= 0 and world.players[e.owner].upgrades.has(e.kind) else 0)
@@ -43,6 +45,7 @@ static func description(world: WorldState, e: Dictionary) -> String:
 		if e.get("transition", "") != "": text += "%s: %.1fs remaining\n" % [str(e.transition).to_upper(), float(e.transition_remaining)]
 		elif e.get("buried", false): text += "BURIED: stationary; requires detection to target\n"
 		text += "ORDER: %s  /  %s" % [str(e.job.kind).to_upper(), str(e.stance).to_upper()]
+		if e.job.get("automatic", false): text += "\nAUTOMATIC: nearby structure maintenance"
 		if e.job.kind == "patrol": text += "\nPATROL: alternating between two waypoints"
 		if e.job.kind == "escort":
 			var escorted := world.entity(int(e.job.target))
@@ -63,8 +66,11 @@ static func description(world: WorldState, e: Dictionary) -> String:
 	text += "GRID %d DEMAND / %d CAPACITY  ·  %s\n" % [int(e.get("grid_demand", 0)), int(e.get("grid_capacity", 0)), "OFF" if not e.enabled else "BLACKOUT" if e.blackout else "BROWNOUT" if e.brownout else "ONLINE" if e.powered else "UNPOWERED"]
 	var shield := WorldState.TargetRules.shield_bonus(world, e)
 	if shield > 0: text += "RAMPART: +%d ARMOR (included above)\n" % shield
+	if e.kind == "relay": text += "RELAY %s · RANGE %d · NO POWER CONSUMED\nSwitch off to disconnect its downstream links.\n" % ["ON" if e.enabled else "OFF", world.electrical_reach("relay")]
 	if e.kind == "gate": text += "%s / %s\nUnlocked gates open only for friendly routed passage.\n" % ["OPEN" if e.open else "CLOSED", "LOCKED" if e.locked else "AUTOMATIC"]
 	if e.kind == "radar": text += "DETECTION RANGE %d TILES\nContacts reveal occupied tiles only. Shades evade radar.\nSelect a turret and right click a contact to override its target.\n" % int(d.detectionRangeBeyondFootprintTiles)
+	if e.kind == "floodlight": text += "VISION %d TILES · LIGHT %d\nUnpowered vision: %d tiles.\n" % [world.structure_vision_range(e), int(d.illuminationRangeBeyondFootprintTiles) if e.powered and e.enabled and not e.blackout else 0, int(d.unpoweredVisionRangeBeyondFootprintTiles)]
+	if e.kind == "womb": text += "BROOD: %s\n" % str(e.get("unit_type", "scavenger")).to_upper()
 	if e.kind == "rampart": text += "SHIELD: +%d ARMOR, RANGE %d\nProtects friendly structures. Overlapping shields do not stack.\n" % [world.cfg.combat.rampartArmorBonus, world.cfg.combat.rampartRangeBeyondFootprintTiles]
 	if d.has("weapon"):
 		var weapon: Dictionary = world.cfg.weapons[d.weapon]

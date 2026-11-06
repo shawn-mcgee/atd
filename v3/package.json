@@ -8,6 +8,7 @@
     "export:web": "node tools/export-web.mjs",
     "serve": "node tools/serve.mjs",
     "test": "node --test tests/*.test.mjs",
+    "profile:cpu": "node tools/profile-core.mjs",
     "test:browser": "python tools/stage-site.py && playwright test",
     "check:project": "node tools/project.mjs",
     "config:check": "node tools/check-config.mjs",

@@ -25,10 +25,12 @@ Five Commonwealth players maximum; one Anchor per player; 100 starting Ore and G
 
 ## Core defaults
 
+`construction.idleEngineerSearchRangeTiles` defaults to 6 tiles beyond a target structure's footprint. `construction.idleEngineerSearchIntervalSeconds` defaults to 0.5 simulation seconds between idle work searches. Both must be positive. Automatic construction adds no blueprint fee; automatic repairs use the existing repair cost and cycle settings.
+
 | Setting group | Initial choice | Purpose |
 | --- | --- | --- |
 | Simulation | 20 steps/second; speed 1 | Deterministic simulation-time basis. |
-| Map | Hex radius 36; inset 6 | Room for five corner starts and a central nest. |
+| Map | Hex radius 36; inset 6 | One random corner reserved for the Medusa; up to five separate player corners. The inset applies to all six starts. |
 | Deposits | 10,000 units per Ore/Gas patch | Finite, rich sources. |
 | Extra fields | 6 Ore and 4 Gas fields per player | Additional contested deposits beyond starting fields. |
 | Depot | +200 capacity of selected resource; 5-second reconfiguration | Early storage expansion is inexpensive and explicit. |

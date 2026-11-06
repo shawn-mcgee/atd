@@ -36,7 +36,16 @@ var start_button: Button
 var build_panel: PanelContainer
 var selection_box: ColorRect
 var paused_button: Button
-var depot_type: OptionButton
+var depot_resource := "ore"
+var depot_panel: PanelContainer
+var depot_buttons: Dictionary = {}
+var minimap_dragging := false
+var wall_dragging := false
+var wall_start := Vector2i.ZERO
+var wall_end := Vector2i.ZERO
+var queue_modifier := false
+var cursor_action := ""
+var action_cursors: Dictionary = {}
 var tactical: TacticalOverlay
 var mission_label: Label
 var detail_label: Label
@@ -76,6 +85,7 @@ func _ready() -> void:
 	renderer.hide()
 	camera = RTSCamera.new()
 	add_child(camera)
+	renderer.view_camera = camera
 	camera.bounds = state.radius
 	_focus_anchor()
 	network = NetworkSession.new()
@@ -250,9 +260,6 @@ func _build_ui() -> void:
 	build_column.add_child(_label("CONSTRUCTION / %s TO CLOSE" % _binding("build"), 16, Color("d0cab0")))
 	build_hint = _label("Select a type, then a revealed site.\nGreen: clear site. Red: blocked or unaffordable.", 11, Color("94a49b"))
 	build_column.add_child(build_hint)
-	depot_type = OptionButton.new()
-	for resource in ["ore", "gas", "alloy", "polymer", "crystal"]: depot_type.add_item(resource.capitalize())
-	build_column.add_child(depot_type)
 	var grid := GridContainer.new()
 	grid.columns = 3
 	build_column.add_child(grid)
@@ -271,6 +278,20 @@ func _build_ui() -> void:
 		button.custom_minimum_size.x = 108
 		button.tooltip_text = "%s\n%s\nPower draw: %d   Grid capacity: %d" % [str(kind).capitalize(), _cost_text(recipe.cost), int(recipe.powerDemand), int(recipe.powerCapacity)]
 	build_panel.visible = false
+	depot_panel = PanelContainer.new()
+	depot_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	depot_panel.offset_left = -380; depot_panel.offset_right = -14; depot_panel.offset_top = 85
+	depot_panel.add_theme_stylebox_override("panel", CommandSkin.panel())
+	hud.add_child(depot_panel)
+	var depot_column := VBoxContainer.new(); depot_panel.add_child(depot_column)
+	depot_column.add_child(_label("DEPOT / CHOOSE STORAGE CAPACITY", 15))
+	var resources := GridContainer.new(); resources.columns = 3; depot_column.add_child(resources)
+	for resource in Settings.data.controls.depotHotkeys:
+		var button := CommandCard.new(); button.text = str(resource).capitalize()
+		button.hotkey = str(Settings.data.controls.depotHotkeys[resource]); button.glyph = CommandSkin.icon("depot")
+		button.focus_mode = Control.FOCUS_NONE; button.pressed.connect(func(): _choose_depot_resource(str(resource)))
+		resources.add_child(button); depot_buttons[resource] = button
+	depot_panel.hide()
 	_create_control_ui()
 	menu = PanelContainer.new()
 	menu.theme = theme
@@ -294,10 +315,10 @@ func _build_ui() -> void:
 	panel.add_child(_label("Establish a foothold. Hold the light.", 16))
 	panel.add_child(_label("DEPLOYMENT SEED", 10, Color("9a9f8d")))
 	seed_edit = LineEdit.new()
-	seed_edit.text = "472"
-	seed_edit.placeholder_text = "Map seed"
+	seed_edit.placeholder_text = "Map seed (blank: random)"
+	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout."
 	panel.add_child(seed_edit)
-	var deploy := _button("DEPLOY EXPEDITION", func(): _start_game(int(seed_edit.text), 1), panel)
+	var deploy := _button("DEPLOY EXPEDITION", func(): _start_game(_deployment_seed(), 1), panel)
 	deploy.add_theme_font_size_override("font_size", 20)
 	deploy.add_theme_color_override("font_color", Color("1c2829"))
 	deploy.add_theme_stylebox_override("normal", _style(Color("c4b48a"), Color("c4b48a")))
@@ -343,8 +364,13 @@ func _focus_anchor() -> void:
 		camera.focus = Vector3(p.x, 0, p.y)
 		camera._update_transform()
 
+func _deployment_seed() -> int:
+	var text := seed_edit.text.strip_edges()
+	return int(randi()) if text.is_empty() else int(text)
+
 func _start_game(map_seed: int, count: int) -> void:
 	state.reset(map_seed, count)
+	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout.\nLast deployed seed: %d" % map_seed
 	sequence = 0
 	snapshot_timer = 0
 	pending_orders.clear()
@@ -353,6 +379,8 @@ func _start_game(map_seed: int, count: int) -> void:
 	roster_signature = ""
 	resource_cell = Vector2i(99999, 99999)
 	build_kind = ""; build_panel.hide(); selecting = false; interaction_mode = ""; mining_mode = false; attack_mode = false
+	depot_panel.hide(); minimap_dragging = false; queue_modifier = false
+	wall_dragging = false; renderer.show_wall_line([])
 	result_shown = false; result_panel.hide(); paused_button.text = "Pause"
 	tactical.owner_id = local_owner; tactical.reset()
 	resource_strip.owner_id = local_owner
@@ -388,7 +416,7 @@ func _launch_hosted() -> void:
 	if network.role != "host": return
 	local_owner = 0
 	match_id = "%s-%s" % [network.invitation, str(Time.get_ticks_msec())]
-	_start_game(int(seed_edit.text), accepted_peers.size() + 1)
+	_start_game(_deployment_seed(), accepted_peers.size() + 1)
 	for index in range(accepted_peers.size()):
 		var peer := accepted_peers[index]
 		peer_owners[peer] = index + 1
@@ -449,6 +477,8 @@ func _network_event(event: Dictionary) -> void:
 
 func _issue(order: Dictionary) -> void:
 	if not active: return
+	if order.get("action", "") == "depot_type" and Settings.data.controls.depotHotkeys.has(str(order.get("resource", ""))): depot_resource = str(order.resource)
+	if not order.has("queued") and str(order.get("action", "")) in ["move", "attack", "mine", "repair", "deposit", "work", "equip", "board", "load_cargo", "excavate", "patrol", "escort", "unload"]: order.queued = queue_modifier or Input.is_physical_key_pressed(KEY_SHIFT)
 	audio.cue("order")
 	if not order.has("ids"): order.ids = selection.duplicate()
 	if order.get("ids", []).size() > 128: return
@@ -465,6 +495,7 @@ func _physics_process(delta: float) -> void:
 			for fragment in ["not enough", "cannot", "invalid", "requires", "unavailable", "must", "select", "full", "unfinished"]:
 				if status_label.text.to_lower().contains(fragment): audio.cue("error"); break
 		pending_orders.clear()
+		_refresh_action_signature()
 		state.step(delta * state.speed)
 		snapshot_timer += delta
 		if network.role == "host" and snapshot_timer >= 0.1:
@@ -477,16 +508,17 @@ func _physics_process(delta: float) -> void:
 		_update_hud()
 
 func _process(delta: float) -> void:
+	_update_cursor()
 	renderer.selection = selection
 	tactical.selected = selection
 	tactical.hovered = _pick(get_viewport().get_mouse_position()) if active and get_viewport().gui_get_hovered_control() == null else 0
 	if active: renderer.refresh_entities()
 	if active: audio.update(state, local_owner, delta)
 	camera.enabled = active
-	camera.pointer_captured = get_viewport().gui_get_hovered_control() != null
-	camera.letter_pan_blocked = build_panel.visible
+	camera.pointer_captured = minimap_dragging or wall_dragging or tactical.minimap_rect().has_point(get_viewport().get_mouse_position()) or get_viewport().gui_get_hovered_control() != null
+	camera.letter_pan_blocked = build_panel.visible or depot_panel.visible
 	camera.keyboard_pan_blocked = controls_panel.visible
-	group_bar.visible = not build_panel.visible
+	group_bar.visible = not build_panel.visible and not depot_panel.visible
 	placement_strip.visible = build_kind != ""
 	if selecting:
 		var rect := Rect2(drag_start, Vector2.ZERO).expand(get_viewport().get_mouse_position())
@@ -498,21 +530,30 @@ func _process(delta: float) -> void:
 	if build_kind != "":
 		var p := camera.ground(get_viewport().get_mouse_position())
 		var cell := HexGrid.cell(Vector2(p.x, p.z))
+		if wall_dragging: wall_end = _wall_cell(get_viewport().get_mouse_position())
 		tactical.placement_kind = build_kind; tactical.placement_cell = cell
 		var issue := state.placement_issue(local_owner, build_kind, cell)
 		renderer.show_preview(cell, true, build_kind, issue == "")
-		placement_text.text = "PLACING %s  /  %s\n%s  /  SHIFT: repeat   ESC: cancel" % [build_kind.to_upper(), _cost_text(Settings.data.structures[build_kind].cost), "CLEAR SITE" if issue == "" else issue]
+		placement_text.text = "PLACING %s  /  %s\n%s  /  SHIFT: queue + repeat   ESC: cancel" % [(depot_resource + " depot" if build_kind == "depot" else build_kind).to_upper(), _cost_text(Settings.data.structures[build_kind].cost), "CLEAR SITE" if issue == "" else issue]
 		placement_text.modulate = Color("abcdb8") if issue == "" else Color("e0a18b")
 		build_hint.text = "%s · %s\n%s" % [build_kind.capitalize(), _cost_text(Settings.data.structures[build_kind].cost), "Clear site · click to place" if issue == "" else issue]
 	else: renderer.show_preview(Vector2i.ZERO, false); tactical.placement_kind = ""
+	if wall_dragging:
+		var plan := state.wall_line_plan(local_owner, wall_start, wall_end)
+		renderer.show_preview(Vector2i.ZERO, false); renderer.show_wall_line(plan.sites)
+		placement_text.text = "WALL LINE / %d CLEAR / %s\nRELEASE: place   SHIFT: append + repeat   ESC / RIGHT CLICK: cancel" % [plan.count, _cost_text(plan.cost)]
+	elif build_kind == "wall":
+		renderer.show_wall_line([])
+		placement_text.text += "  /  DRAG: wall line"
+	else: renderer.show_wall_line([])
 	diagnostic_timer += delta
-	if diagnostic_timer >= 0.25:
+	if diagnostic_timer >= 0.25 and network.diagnostics_enabled:
 		diagnostic_timer = 0
 		var own: Array = []
 		for u in state.units.values():
 			if u.owner == local_owner:
 				var screen := camera.unproject_position(Vector3(u.pos.x, 0.4, u.pos.y))
-				own.append({"id": u.id, "kind": u.kind, "x": u.pos.x, "z": u.pos.y, "screen": [screen.x, screen.y], "job": u.job.kind, "cargo": u.cargo})
+				own.append({"id": u.id, "kind": u.kind, "x": u.pos.x, "z": u.pos.y, "screen": [screen.x, screen.y], "job": u.job.kind, "cargo": u.cargo, "stance": u.stance, "queued": u.get("orders", []).size()})
 		var fields: Array = []
 		for cell in state.visible.get(local_owner, {}):
 			if state.tiles[cell].resource != "" and not state.tiles[cell].cliff:
@@ -520,7 +561,7 @@ func _process(delta: float) -> void:
 				var screen := camera.unproject_position(Vector3(p.x, 0, p.y))
 				fields.append({"q": cell.x, "r": cell.y, "kind": state.tiles[cell].resource, "screen": [screen.x, screen.y]})
 		var structures: Array = []
-		for s in state.structures.values():
+		for s in state.observed_structures(local_owner):
 			if s.owner != local_owner: continue
 			var p := state.entity_position(s)
 			var screen := camera.unproject_position(Vector3(p.x, 0.4, p.y))
@@ -579,19 +620,20 @@ func _update_hud() -> void:
 	elif state.players[local_owner].extracting: status_label.text = "EXTRACTION  %.1fs  |  Hold the Anchor" % float(state.players[local_owner].remaining)
 	var valid: Array = []
 	for id in selection:
-		if not state.entity(int(id)).is_empty():
-			var candidate := state.entity(int(id))
+		if not _observed_entity(int(id)).is_empty():
+			var candidate := _observed_entity(int(id))
 			if candidate.owner == local_owner and int(candidate.get("vehicle", 0)) != 0:
 				var vehicle_id := int(candidate.vehicle)
 				if not vehicle_id in valid: valid.append(vehicle_id)
 			elif candidate.has("cell") or WorldState.TargetRules.identifiable(state, candidate, local_owner):
 				if not id in valid: valid.append(id)
 	if valid != selection: selection = valid; _refresh_actions()
-	var inspected_kind := str(state.entity(int(selection[0])).get("kind", "")) if not selection.is_empty() else ""
-	var hint_signature := JSON.stringify(selection) + "/" + inspected_kind
+	var inspected_kind := str(_observed_entity(int(selection[0])).get("kind", "")) if not selection.is_empty() else ""
+	var remembered_selection: bool = selection.size() == 1 and _observed_entity(int(selection[0])).get("remembered", false)
+	var hint_signature := JSON.stringify(selection) + "/" + inspected_kind + "/" + str(remembered_selection)
 	if hint_signature != selection_hint_signature:
 		selection_hint_signature = hint_signature
-		if not state.ended and not state.players[local_owner].extracting: status_label.text = _selection_hint(inspected_kind) if state.players[local_owner].alive else "Eliminated. You can inspect remaining assets but cannot issue orders."
+		if not state.ended and not state.players[local_owner].extracting: status_label.text = ("Last-seen structure. Scout this location to refresh its information." if remembered_selection else _selection_hint(inspected_kind)) if state.players[local_owner].alive else "Eliminated. You can inspect remaining assets but cannot issue orders."
 	if state.ended and not result_shown:
 		result_shown = true
 		result_label.text = "%s\n\nNacre delivered: %d" % [state.result, int(inventory.get("nacre", 0))]
@@ -600,7 +642,7 @@ func _update_hud() -> void:
 	portrait.kind = ""; portrait.serial = 0; portrait.group_size = 0
 	selection_progress.visible = false
 	if selection.size() == 1:
-		var e := state.entity(int(selection[0]))
+		var e := _observed_entity(int(selection[0]))
 		portrait.kind = str(e.kind); portrait.serial = int(e.id); portrait.structure = e.has("cell")
 		selection_label.text = "%s   |   %d HP" % [str(e.kind).capitalize(), int(e.hp)]
 		if e.has("cell"):
@@ -629,9 +671,10 @@ func _update_hud() -> void:
 	elif selection.size() > 1: selection_label.text = "%d units selected" % selection.size()
 	else: selection_label.text = "Select an Engineer, Marine, or structure"
 	if selection.size() == 1:
-		var inspected := state.entity(int(selection[0]))
+		var inspected := _observed_entity(int(selection[0]))
 		selection_label.text = "%s / %02d" % [str(inspected.kind).to_upper(), int(inspected.id)]
 		detail_label.text = CommandSkin.description(state, inspected)
+		if inspected.get("remembered", false): selection_label.text += " / LAST SEEN"
 		queue_view.target_id = int(inspected.id) if inspected.has("cell") and inspected.owner == local_owner else 0
 	else:
 		queue_view.target_id = 0
@@ -645,22 +688,22 @@ func _update_hud() -> void:
 	if selection.size() > 1:
 		var types: Dictionary = {}; var health := 0.0; var maximum := 0.0; var cargo := 0
 		for id in selection:
-			var unit := state.entity(int(id))
+			var unit := _observed_entity(int(id))
 			if unit.is_empty(): continue
 			var definition: Dictionary = Settings.data.units[unit.kind] if unit.has("pos") else Settings.data.structures[unit.kind]
 			types[unit.kind] = int(types.get(unit.kind, 0)) + 1; health += float(unit.hp); maximum += float(definition.health)
 			if unit.has("cargo"): cargo += state.cargo_amount(unit)
 		detail_label.text = "TOTAL HEALTH %d / %d\nCARGO %d · %d SPECIALIZATIONS\nClick a role to select that subgroup." % [ceili(health), ceili(maximum), cargo, types.size()]
 		if types.size() == 1:
-			portrait.kind = str(types.keys()[0]); portrait.group_size = selection.size(); portrait.structure = state.entity(int(selection[0])).has("cell")
-		if state.entity(int(selection[0])).has("cell"): detail_label.text += "\nProduction controls act on the primary structure."
+			portrait.kind = str(types.keys()[0]); portrait.group_size = selection.size(); portrait.structure = _observed_entity(int(selection[0])).has("cell")
+		if _observed_entity(int(selection[0])).has("cell"): detail_label.text += "\nProduction controls act on the primary structure."
 		var group_signature := JSON.stringify([selection, types])
 		if roster_signature != group_signature:
 			roster_signature = group_signature
 			for child in group_roster.get_children(): group_roster.remove_child(child); child.queue_free()
 			for kind in types:
 				var button := _button("%s ×%d" % [str(kind).capitalize(), types[kind]], func():
-					selection = selection.filter(func(id): return state.entity(int(id)).get("kind", "") == kind); _selection_feedback(), group_roster)
+					selection = selection.filter(func(id): return _observed_entity(int(id)).get("kind", "") == kind); _selection_feedback(), group_roster)
 				button.icon = CommandSkin.icon(kind); button.expand_icon = true; button.add_theme_constant_override("icon_max_width", 20)
 				button.add_theme_font_size_override("font_size", 12); button.custom_minimum_size = Vector2(104, 40)
 	_refresh_action_signature()
@@ -671,12 +714,14 @@ func _update_hud() -> void:
 			button.disabled = not bool(button.get_meta("available")) or not CommandSkin.affordable(state, local_owner, button.get_meta("cost"))
 	portrait.queue_redraw()
 
-func _command(title: String, icon: String, order: Dictionary, cost: Dictionary = {}, available: bool = true, reason: String = "") -> Button:
+func _command(title: String, icon: String, order: Dictionary, cost: Dictionary = {}, available: bool = true, reason: String = "") -> CommandCard:
 	var button := _button(title, func(): _issue(order), actions) as CommandCard
 	button.glyph = CommandSkin.icon(icon); button.cost = cost
 	button.add_theme_font_size_override("font_size", 12); button.custom_minimum_size = Vector2(108, 50)
 	button.disabled = not available or not CommandSkin.affordable(state, local_owner, cost)
 	button.set_meta("cost", cost); button.set_meta("available", available)
+	var production_kind := str(order.get("kind", "")) if str(order.get("action", "")) in ["kit", "vehicle"] else "operator" if order.get("action", "") == "operator" else ""
+	if Settings.data.controls.productionHotkeys.has(production_kind): button.hotkey = str(Settings.data.controls.productionHotkeys[production_kind])
 	button.tooltip_text = title + "\n" + _cost_text(cost) + "\n" + (reason if reason != "" else "Paid immediately. Unstarted queued orders can be canceled for a refund." if not cost.is_empty() else "Select to issue this command.")
 	return button
 
@@ -685,17 +730,21 @@ func _refresh_actions() -> void:
 		for child in parent.get_children(): parent.remove_child(child); child.queue_free()
 	if selection.is_empty(): return
 	if state.ended or not state.players[local_owner].alive: return
-	var e := state.entity(int(selection[0]))
+	var e := _observed_entity(int(selection[0]))
 	if e.has("pos"):
 		for id in selection:
-			var candidate := state.entity(int(id))
+			var candidate := _observed_entity(int(id))
 			if candidate.get("kind", "") == "engineer": e = candidate; break
 	if e.is_empty() or e.owner != local_owner: return
 	if e.has("pos"):
 		if Settings.data.units[e.kind].weapon != null or e.kind == "scout":
 			for stance in ["neutral", "defensive", "aggressive"]:
 				var button := _command(str(stance).capitalize(), stance, {"action": "stance", "stance": stance}, {}, true, "Neutral: manual attacks only. Defensive: defend your intended position. Aggressive: pursue enemies.")
-				if e.stance == stance: button.add_theme_stylebox_override("normal", _style(Color("394739"), Color("b7bd8d")))
+				button.hotkey = str(Settings.data.controls.stanceHotkeys[stance]); button.toggle_mode = true
+				button.set_meta("stance", stance); button.set_pressed_no_signal(e.stance == stance)
+				button.pressed.connect(func(): button.set_pressed_no_signal(true))
+				if e.stance == stance:
+					for style in ["normal", "hover", "pressed", "hover_pressed"]: button.add_theme_stylebox_override(style, _style(Color("394739"), Color("b7bd8d")))
 		if e.kind in ["operator", "engineer", "marine", "flamer", "lancer"]:
 			var board := _button("Board [%s]" % _binding("board"), func(): _target_interaction("board"), actions) as CommandCard
 			board.glyph = CommandSkin.icon("ranger"); board.custom_minimum_size = Vector2(108, 50)
@@ -721,23 +770,20 @@ func _refresh_actions() -> void:
 		_command("Stop [%s]" % _binding("stop"), "stop", {"action": "stop"}, {}, true, "Stop current orders. Carried resources are retained.")
 		return
 	if e.kind == "depot" and not e.started or e.kind == "depot" and e.built:
-		var choices := OptionButton.new()
-		for resource in ["ore", "gas", "alloy", "polymer", "crystal"]:
-			choices.add_item(resource.capitalize()); if resource == e.depot_type: choices.select(choices.item_count - 1)
-		choices.disabled = float(e.configuration_remaining) > 0
-		choices.item_selected.connect(func(index): _issue({"action": "depot_type", "target": e.id, "resource": ["ore", "gas", "alloy", "polymer", "crystal"][index]}))
-		choices.tooltip_text = "Capacity type only; every Depot accepts ordinary resources. Changing a completed Depot removes its old capacity immediately; new capacity arrives after configuration."
-		personnel_controls.add_child(choices)
+		for resource in Settings.data.controls.depotHotkeys:
+			var button := _command(str(resource).capitalize(), "depot", {"action": "depot_type", "target": e.id, "resource": resource}, {}, float(e.configuration_remaining) <= 0 and e.depot_type != resource, "Change capacity type. Every Depot still accepts all ordinary resources.")
+			button.hotkey = str(Settings.data.controls.depotHotkeys[resource]); button.set_meta("depot_resource", resource)
+			button.toggle_mode = true; button.set_pressed_no_signal(e.depot_type == resource)
 	if not e.built:
 		_command("Cancel site", "cancel", {"action": "cancel_build", "target": e.id}, {}, true, "Full refund before construction starts. No refund after work starts."); return
+	var toggle := CheckButton.new(); toggle.text = "+ Operator [%s] · ALL" % _binding("togglePersonnel"); toggle.button_pressed = state.players[local_owner].request_personnel
+	toggle.tooltip_text = "Global setting: include a separately paid Operator with future kits and vehicles at every facility. Existing queues are unchanged."
+	toggle.toggled.connect(func(value): _issue({"action": "global_personnel", "enabled": value})); personnel_controls.add_child(toggle)
 	if e.kind in ["anchor", "cradle", "armory", "factory"]:
-		var toggle := CheckButton.new(); toggle.text = "+ Operator"; toggle.button_pressed = e.request_personnel
-		toggle.tooltip_text = "Include and request a new Operator with each kit or vehicle. The Operator is a separate production order."
-		toggle.toggled.connect(func(value): _issue({"action": "personnel_settings", "target": e.id, "enabled": value})); personnel_controls.add_child(toggle)
 		if e.kind in ["armory", "factory"]:
 			var source := OptionButton.new()
 			source.add_item("Select source", 0)
-			for building in state.structures.values():
+			for building in state.observed_structures(local_owner):
 				if building.owner != local_owner or not building.built or not building.kind in ["anchor", "cradle"]: continue
 				source.add_item("%s #%d" % [str(building.kind).capitalize(), int(building.id)], int(building.id))
 				if int(building.id) == int(e.personnel_source): source.select(source.item_count - 1)
@@ -758,23 +804,30 @@ func _refresh_actions() -> void:
 	if e.kind == "fabricator":
 		for kind in Settings.data.upgrades.fabricatorArmor.types:
 			var queued := false
-			for facility in state.structures.values():
+			for facility in state.observed_structures(local_owner):
 				if facility.owner == local_owner:
 					for item in facility.upgrades:
 						if item.kind == kind: queued = true
 			_command(str(kind).capitalize() + " armor", "upgrade", {"action": "upgrade", "kind": kind, "target": e.id}, Settings.data.upgrades.fabricatorArmor.costPerType, not state.players[local_owner].upgrades.has(kind) and not queued, "Already queued. Assign Engineers to work the Fabricator." if queued else "Permanent +1 armor to this specialization. Engineers must work the Fabricator to complete it.")
 	if e.kind == "anchor": _command("Extract", "extract", {"action": "extract", "target": e.id}, {}, int(state.resources(local_owner).get("nacre", 0)) >= int(Settings.data.match.extractionMinimumNacre), "Requires %d delivered Nacre. Hold the Anchor for %ds." % [Settings.data.match.extractionMinimumNacre, Settings.data.match.extractionSeconds])
-	if int(Settings.data.structures[e.kind].powerDemand) > 0: _command("Power off" if e.enabled else "Power on", "power", {"action": "toggle", "target": e.id}, {}, true, "Disable this structure to reduce grid demand.")
+	if e.kind == "relay": _command("Switch off" if e.enabled else "Switch on", "power", {"action": "toggle", "target": e.id}, {}, true, "Relays consume no power. Switching off disconnects their electrical footprint and any downstream grid that depends on this link.")
+	elif int(Settings.data.structures[e.kind].powerDemand) > 0: _command("Power off" if e.enabled else "Power on", "power", {"action": "toggle", "target": e.id}, {}, true, "Disable this structure to reduce grid demand.")
 	if e.kind == "gate":
 		_command("Close" if e.open else "Open", "gate", {"action": "gate", "target": e.id})
 		_command("Unlock" if e.locked else "Lock", "gate", {"action": "gate_lock", "target": e.id}, {}, true, "Locked gates ignore automatic opening and closing. Manual controls still work.")
 
+func _observed_entity(id: int) -> Dictionary:
+	return state.observed_entity(id, local_owner)
+
 func _pick(screen: Vector2) -> int:
+	var model := renderer.pick_model(camera.project_ray_origin(screen), camera.project_ray_normal(screen))
+	if model != 0: return model
 	var best := 0
 	var distance := 28.0
-	for e in state.units.values() + state.structures.values():
+	for e in state.units.values() + state.observed_structures(local_owner):
 		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
 		var p := state.entity_position(e)
+		if camera.is_position_behind(Vector3(p.x, 0.4, p.y)): continue
 		var projected := camera.unproject_position(Vector3(p.x, 0.4, p.y))
 		var d := projected.distance_to(screen)
 		if d < distance: best = e.id; distance = d
@@ -782,6 +835,7 @@ func _pick(screen: Vector2) -> int:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not active: return
+	if _minimap_input(event): get_viewport().set_input_as_handled(); return
 	if _text_entry_focused(): return
 	if controls_panel.visible:
 		if event is InputEventKey and event.pressed and _key_is(event, "cancel"): controls_panel.hide()
@@ -794,21 +848,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	var cell := HexGrid.cell(Vector2(p.x, p.z))
 	if event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			if tactical.minimap_rect().has_point(event.position):
-				var position := tactical.minimap_world(event.position)
-				camera.focus = Vector3(position.x, 0, position.y); camera._update_transform()
-				return
 			if build_kind != "":
+				if build_kind == "wall":
+					wall_start = _wall_cell(event.position); wall_end = wall_start; wall_dragging = true; selecting = false
+					return
 				var issue := state.placement_issue(local_owner, build_kind, cell)
 				if issue != "": status_label.text = issue; return
-				var types := ["ore", "gas", "alloy", "polymer", "crystal"]
-				_issue({"action": "build", "kind": build_kind, "q": cell.x, "r": cell.y, "depot_type": types[depot_type.selected]})
-				if not Input.is_physical_key_pressed(KEY_SHIFT): build_kind = ""; build_panel.hide()
+				_issue({"action": "build", "kind": build_kind, "q": cell.x, "r": cell.y, "depot_type": depot_resource, "queued": event.shift_pressed})
+				if not event.shift_pressed: _cancel_modes()
 				return
 			if mining_mode or attack_mode or interaction_mode != "":
-				_context_order(event.position, cell, p)
-				mining_mode = false
-				attack_mode = false
+				_dispatch_context(event.position, cell, p, -1, event.shift_pressed)
 				return
 			if event.double_click:
 				_select_same_type(_pick(event.position), event.shift_pressed); selecting = false; return
@@ -832,25 +882,105 @@ func _unhandled_input(event: InputEvent) -> void:
 			selection = selection.slice(0, int(Settings.data.controls.selectionLimit))
 			_selection_feedback()
 	elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-		if build_kind != "" or mining_mode or attack_mode or interaction_mode != "":
-			build_kind = ""; interaction_mode = ""; mining_mode = false; attack_mode = false; build_panel.hide(); status_label.text = "Targeting canceled"; return
-		_context_order(event.position, cell, p)
+		if build_kind != "" or depot_panel.visible or mining_mode or attack_mode or interaction_mode != "":
+			_cancel_modes(); status_label.text = "Targeting canceled"; return
+		_dispatch_context(event.position, cell, p, -1, event.shift_pressed)
 
-func _context_order(screen: Vector2, cell: Vector2i, point: Vector3) -> void:
+func _input(event: InputEvent) -> void:
+	if active and wall_dragging:
+		if event is InputEventMouseMotion:
+			wall_end = _wall_cell(event.position); get_viewport().set_input_as_handled(); return
+		if event is InputEventMouseButton:
+			if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+				_cancel_modes(); get_viewport().set_input_as_handled(); return
+			if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+				_finish_wall_line(event.position, event.shift_pressed); get_viewport().set_input_as_handled(); return
+	if active and _minimap_input(event): get_viewport().set_input_as_handled()
+
+func _wall_cell(screen: Vector2) -> Vector2i:
+	var ground := camera.ground(screen)
+	var point := Vector2(ground.x, ground.z)
+	var cell := HexGrid.cell(point)
+	while HexGrid.distance(cell) >= state.radius:
+		point *= float(state.radius - 1) / float(HexGrid.distance(cell) + 1)
+		cell = HexGrid.cell(point)
+	return cell
+
+func _finish_wall_line(screen: Vector2, queued: bool) -> void:
+	wall_end = _wall_cell(screen)
+	_issue({"action": "build_line", "q": wall_start.x, "r": wall_start.y, "end_q": wall_end.x, "end_r": wall_end.y, "queued": queued})
+	wall_dragging = false; renderer.show_wall_line([])
+	if not queued: _cancel_modes()
+
+func _pan_minimap(screen: Vector2) -> void:
+	var rect := tactical.minimap_rect().grow(-12)
+	var clamped := screen.clamp(rect.position, rect.end)
+	var position := tactical.minimap_world(clamped)
+	var distance := HexGrid.distance(HexGrid.cell(position))
+	if distance > state.radius: position *= float(state.radius) / distance
+	camera.focus = Vector3(position.x, 0, position.y); camera._update_transform()
+
+func _minimap_pick(screen: Vector2) -> int:
+	var result := 0; var best := 7.0
+	for e in state.units.values() + state.observed_structures(local_owner):
+		if e.has("pos") and (int(e.get("vehicle", 0)) != 0 or not WorldState.TargetRules.identifiable(state, e, local_owner)): continue
+		var distance: float = tactical.map_point(state.entity_position(e)).distance_to(screen)
+		if distance < best: result = int(e.id); best = distance
+	return result
+
+func _minimap_input(event: InputEvent) -> bool:
+	if not active or controls_panel.visible: minimap_dragging = false; return false
+	if event is InputEventMouseMotion and minimap_dragging:
+		_pan_minimap(event.position); return true
+	if not event is InputEventMouseButton: return false
+	if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and minimap_dragging:
+		minimap_dragging = false; return true
+	if not event.pressed or not tactical.minimap_rect().has_point(event.position): return false
+	if event.button_index not in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]: return false
+	if event.button_index == MOUSE_BUTTON_LEFT and not (attack_mode or mining_mode or interaction_mode != ""):
+		minimap_dragging = true; selecting = false; _pan_minimap(event.position); return true
+	var point := tactical.minimap_world(event.position)
+	_dispatch_context(event.position, HexGrid.cell(point), Vector3(point.x, 0, point.y), _minimap_pick(event.position), event.shift_pressed)
+	return true
+
+func _dispatch_context(screen: Vector2, cell: Vector2i, point: Vector3, target: int, queued: bool) -> void:
+	var modes := [interaction_mode, attack_mode, mining_mode]
+	queue_modifier = queued
+	_context_order(screen, cell, point, target)
+	queue_modifier = false
+	interaction_mode = str(modes[0]) if queued else ""
+	attack_mode = bool(modes[1]) if queued else false
+	mining_mode = bool(modes[2]) if queued else false
+
+func _context_order(screen: Vector2, cell: Vector2i, point: Vector3, target_override: int = -1) -> void:
 	if selection.is_empty(): status_label.text = "Select units before issuing an order"; return
 	tactical.mark(Vector2(point.x, point.z), Color("ef8a92") if attack_mode else Color("85e4cd"))
-	var target := _pick(screen)
+	var target := _pick(screen) if target_override < 0 else target_override
+	var observed := _observed_entity(target)
+	if mining_mode:
+		if observed.has("cell") and observed.owner == local_owner and observed.kind in ["extractor", "foundry", "refinery", "synthesizer"]:
+			_issue({"action": "mine", "q": observed.cell.x, "r": observed.cell.y, "facility": target})
+		elif state.known.get(local_owner, {}).has(cell) and state.tiles.has(cell) and state.tiles[cell].resource != "": _issue({"action": "mine", "q": cell.x, "r": cell.y})
+		else: status_label.text = "Choose a revealed resource patch or production facility"; audio.cue("error")
+		return
+	if observed.get("remembered", false) and interaction_mode != "patrol":
+		if attack_mode or interaction_mode != "":
+			status_label.text = "Rediscover this structure before targeting it"; audio.cue("error")
+		else:
+			var last_position := state.entity_position(observed)
+			_issue({"action": "move", "x": last_position.x, "z": last_position.y})
+		interaction_mode = ""; return
 	if interaction_mode != "":
 		if interaction_mode == "patrol": _issue({"action": "patrol", "x": point.x, "z": point.z})
 		else: _issue({"action": interaction_mode, "target": target})
 		interaction_mode = ""; return
 	if target:
-		var e := state.entity(target)
+		var e := _observed_entity(target)
 		if not attack_mode and e.has("pos") and Settings.data.units[e.kind].has("driverSeats"):
 			var can_enter := false
 			var cargo_workers := false
 			for id in selection:
-				var unit := state.entity(int(id))
+				var unit := _observed_entity(int(id))
 				if unit.has("pos") and state.can_board(unit, target): can_enter = true
 				if unit.get("kind", "") in ["operator", "engineer"] and state.cargo_amount(unit) > 0: cargo_workers = true
 			if cargo_workers and e.owner == local_owner and int(Settings.data.units[e.kind].cargoCapacity) > 0:
@@ -862,7 +992,7 @@ func _context_order(screen: Vector2, cell: Vector2i, point: Vector3) -> void:
 		var has_cargo := false
 		var has_engineer := false
 		for id in selection:
-			var unit := state.entity(int(id))
+			var unit := _observed_entity(int(id))
 			if unit.has("cargo") and state.cargo_amount(unit) > 0: has_cargo = true
 			if unit.get("kind", "") == "engineer": has_engineer = true
 		if e.has("cell") and e.kind in ["anchor", "depot"] and has_cargo: _issue({"action": "deposit", "target": target}); return
@@ -879,7 +1009,7 @@ func _context_order(screen: Vector2, cell: Vector2i, point: Vector3) -> void:
 				_issue({"action": "attack_tile", "q": cell.x, "r": cell.y}); return
 	if state.tiles.has(cell) and state.tiles[cell].cliff and state.known.get(local_owner, {}).has(cell):
 		for id in selection:
-			if state.entity(int(id)).get("kind", "") == "excavator":
+			if _observed_entity(int(id)).get("kind", "") == "excavator":
 				_issue({"action": "excavate", "q": cell.x, "r": cell.y}); return
 	if state.tiles.has(cell) and state.tiles[cell].resource != "" and state.known.get(local_owner, {}).has(cell):
 		_issue({"action": "mine", "q": cell.x, "r": cell.y})
@@ -895,10 +1025,11 @@ func _selection_hint(kind: String) -> String:
 		"radar": return "Amber markers show unidentified enemy tiles. Select a turret and right click a contact."
 		"rampart": return "Shield coverage adds armor to friendly structures while powered. Bonuses do not stack."
 		"sentry", "torch", "lance": return "Right click an eligible enemy or radar contact to override automatic targeting."
+		"relay": return "Coverage and dashed lines show grid links. Switch off disconnects this Relay and dependent grids; switching on reconnects them. Relays consume no power."
 		"factory": return "Queue a vehicle; enable + Operator to request its driver from the selected personnel source."
 		"gate": return "Unlocked gates open for friendly routes. Manual opening and locking are separate controls."
 		"scout", "ranger", "excavator", "reaper", "cremator", "javelin": return "Vehicles require a driver. Unload releases passengers first, then the driver."
-		"engineer": return "Right click to gather or work. %s: build. Use Repair to fix a vehicle instead of boarding it." % _binding("build")
+		"engineer": return "Idle: build or repair nearby structures. %s: build; drag to place a wall line. Use Repair to fix vehicles." % _binding("build")
 		"operator": return "Right click to gather or collect a kit. Choose Board vehicle or Load cargo for vehicle work."
 		"depot": return "All Depots accept ordinary resources. Capacity type affects storage limits; Nacre goes to the Anchor."
 		"": return "Select a unit or structure. Right click to issue a context order."
@@ -906,6 +1037,55 @@ func _selection_hint(kind: String) -> String:
 
 func _binding(action: String) -> String:
 	return str(Settings.data.controls.commands[action])
+
+func _matches_key(event: InputEventKey, binding: String) -> bool:
+	var code := event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
+	if code != OS.find_keycode_from_string(binding): return false
+	camera.suppressed_pan_keys[code] = true
+	return true
+
+func _selection_shortcut(event: InputEventKey) -> bool:
+	if selection.is_empty() or state.ended or not state.players[local_owner].alive: return false
+	var e := _observed_entity(int(selection[0]))
+	if e.is_empty() or e.owner != local_owner: return false
+	if e.has("cell") and _key_is(event, "togglePersonnel"):
+		_issue({"action": "global_personnel", "enabled": not bool(state.players[local_owner].request_personnel)}); return true
+	if e.has("pos"):
+		for stance in Settings.data.controls.stanceHotkeys:
+			if _matches_key(event, str(Settings.data.controls.stanceHotkeys[stance])):
+				_issue({"action": "stance", "stance": stance}); return true
+	for button in actions.get_children():
+		if button is CommandCard and button.hotkey != "" and _matches_key(event, button.hotkey):
+			if not button.disabled: button.pressed.emit()
+			else: status_label.text = "Command unavailable: " + button.text; audio.cue("error")
+			return true
+	return false
+
+func _cursor_mode() -> String:
+	if not active or controls_panel.visible: return ""
+	if minimap_dragging: return "pan"
+	if build_kind != "": return "build"
+	if attack_mode: return "attack"
+	if mining_mode: return "mine"
+	return interaction_mode
+
+func _update_cursor() -> void:
+	var mode := _cursor_mode()
+	if get_viewport().gui_get_hovered_control() != null and not tactical.minimap_rect().has_point(get_viewport().get_mouse_position()): mode = ""
+	if mode == cursor_action: return
+	cursor_action = mode
+	if mode == "": Input.set_custom_mouse_cursor(null); return
+	if not action_cursors.has(mode):
+		var paths := {"attack": '<circle cx="22" cy="22" r="7"/><path d="M22 12v5m0 10v5M12 22h5m10 0h5"/>', "mine": '<path d="M15 17q8-7 15 1M23 16l-7 15"/>', "repair": '<path d="M29 14l-4 5-4-4 4-4q-10-2-8 8l-6 8 4 4 8-8q10 2 6-9z"/>', "patrol": '<path d="M13 19h17l-5-5m5 12H13l5 5"/>', "escort": '<circle cx="25" cy="18" r="4"/><circle cx="17" cy="27" r="4"/>', "board": '<path d="M22 13h9v18h-9m-10-9h15l-4-4m4 4-4 4"/>', "load_cargo": '<path d="M16 20h14v11H16zm7-9v12m-4-4 4 4 4-4"/>', "build": '<path d="M15 30l11-15m-8-1 9 7 4-5-9-7z"/>', "pan": '<path d="M22 12v20M12 22h20m-14-6 4-4 4 4m-8 12 4 4 4-4"/>'}
+		var glyph: String = paths.get(mode, paths.attack)
+		var color := "#ed9473" if mode == "attack" else "#e8c78a"
+		var svg := '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><path d="M3 3v22l6-6 5 9 4-2-5-9h9z" fill="#e3e7d5" stroke="#071014" stroke-width="2"/><g fill="none" stroke="#071014" stroke-width="5" stroke-linejoin="round">%s</g><g fill="none" stroke="%s" stroke-width="2" stroke-linejoin="round">%s</g></svg>' % [glyph, color, glyph]
+		var icon_image := Image.new(); icon_image.load_svg_from_string(svg)
+		action_cursors[mode] = ImageTexture.create_from_image(icon_image)
+	Input.set_custom_mouse_cursor(action_cursors[mode], Input.CURSOR_ARROW, Vector2(3, 3))
+
+func _exit_tree() -> void:
+	Input.set_custom_mouse_cursor(null)
 
 func _key_is(event: InputEventKey, action: String) -> bool:
 	var code := event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
@@ -916,12 +1096,14 @@ func _text_entry_focused() -> bool:
 	return focused is LineEdit or focused is TextEdit
 
 func _cancel_modes() -> void:
+	wall_dragging = false; renderer.show_wall_line([])
 	build_kind = ""; mining_mode = false; attack_mode = false; interaction_mode = ""; build_panel.hide(); placement_strip.hide()
+	depot_panel.hide()
 
 func _toggle_build() -> void:
 	var eligible := false
 	for id in selection:
-		var unit := state.entity(int(id))
+		var unit := _observed_entity(int(id))
 		if unit.get("kind", "") == "engineer" and unit.owner == local_owner and int(unit.get("vehicle", 0)) == 0: eligible = true
 	if not eligible: status_label.text = "Select an Engineer to build"; audio.cue("error"); return
 	var opening := not build_panel.visible
@@ -929,14 +1111,24 @@ func _toggle_build() -> void:
 	status_label.text = "Choose a structure by its letter. Arrow keys, edge scroll and middle drag still pan." if opening else "Construction catalogue closed"
 
 func _choose_build(kind: String) -> void:
-	_cancel_modes(); build_kind = kind
+	_cancel_modes()
+	if kind == "depot":
+		build_kind = "depot"; depot_panel.show()
+		group_bar.hide()
+		status_label.text = "Place %s Depot now, or choose O Ore / G Gas / A Alloy / P Polymer / C Crystal." % depot_resource.capitalize(); return
+	build_kind = kind
 	status_label.text = "Place %s. WASD pans; Shift repeats placement; Esc cancels." % kind.capitalize()
 	audio.cue("order")
+
+func _choose_depot_resource(resource: String) -> void:
+	if not Settings.data.controls.depotHotkeys.has(resource): return
+	_cancel_modes(); depot_resource = resource; build_kind = "depot"
+	status_label.text = "Place %s Depot. Shift queues construction and repeats placement." % resource.capitalize()
 
 func _begin_attack() -> void:
 	var eligible := false
 	for id in selection:
-		var unit := state.entity(int(id))
+		var unit := _observed_entity(int(id))
 		if unit.is_empty() or unit.owner != local_owner: continue
 		if (unit.has("pos") and (Settings.data.units[unit.kind].weapon != null or unit.kind == "scout")) or (unit.has("cell") and Settings.data.structures[unit.kind].has("weapon")): eligible = true
 	if not eligible: status_label.text = "Select an armed unit or turret"; audio.cue("error"); return
@@ -944,10 +1136,14 @@ func _begin_attack() -> void:
 
 func _handle_key(event: InputEventKey) -> bool:
 	if _key_is(event, "cancel"):
-		if build_panel.visible or build_kind != "" or mining_mode or attack_mode or interaction_mode != "": _cancel_modes()
+		if build_panel.visible or depot_panel.visible or build_kind != "" or mining_mode or attack_mode or interaction_mode != "": _cancel_modes()
 		else: selection.clear(); _refresh_actions()
 		return true
 	if _key_is(event, "build"): _toggle_build(); return true
+	if depot_panel.visible or build_kind == "depot":
+		for resource in Settings.data.controls.depotHotkeys:
+			if _matches_key(event, str(Settings.data.controls.depotHotkeys[resource])): _choose_depot_resource(str(resource)); return true
+		if depot_panel.visible: return false
 	if build_panel.visible:
 		var code := event.physical_keycode if event.physical_keycode != KEY_NONE else event.keycode
 		for kind in Settings.data.controls.buildHotkeys:
@@ -961,6 +1157,7 @@ func _handle_key(event: InputEventKey) -> bool:
 		else: _recall_group(slot)
 		return true
 	if event.ctrl_pressed or event.alt_pressed or event.meta_pressed: return false
+	if _selection_shortcut(event): return true
 	if _key_is(event, "pause"): _pause(); return true
 	if _key_is(event, "focusAnchor"): _focus_anchor(); return true
 	if _key_is(event, "focusSelection"): _focus_selection(); return true
@@ -972,17 +1169,17 @@ func _handle_key(event: InputEventKey) -> bool:
 	if _key_is(event, "loadCargo"): _target_interaction("load_cargo"); return true
 	if _key_is(event, "mine"):
 		for id in selection:
-			if state.entity(int(id)).get("kind", "") in ["operator", "engineer"]:
+			if _observed_entity(int(id)).get("kind", "") in ["operator", "engineer"]:
 				_cancel_modes(); mining_mode = true; status_label.text = "Choose a revealed resource patch or production facility"; return true
 		status_label.text = "Select an Operator or Engineer to gather"; audio.cue("error"); return true
 	return false
 
 func _select_same_type(id: int, additive: bool) -> void:
-	var exemplar := state.entity(id)
+	var exemplar := _observed_entity(id)
 	if exemplar.is_empty(): return
 	if not additive: selection.clear()
 	var viewport := get_viewport().get_visible_rect()
-	for candidate in state.units.values() + state.structures.values():
+	for candidate in state.units.values() + state.observed_structures(local_owner):
 		if candidate.owner != local_owner or candidate.kind != exemplar.kind or not renderer.bodies.has(candidate.id) or not renderer.bodies[candidate.id].visible: continue
 		var position := state.entity_position(candidate)
 		var world_point := Vector3(position.x, 0.4, position.y)
@@ -998,21 +1195,21 @@ func _focus_selection() -> void:
 	var center := Vector2.ZERO
 	var count := 0
 	for id in selection:
-		var entity_data := state.entity(int(id))
+		var entity_data := _observed_entity(int(id))
 		if entity_data.is_empty(): continue
 		center += state.entity_position(entity_data); count += 1
 	if count > 0: camera.focus = Vector3(center.x / count, 0, center.y / count); camera._update_transform()
 
 func _assign_group(slot: int, merge: bool = false) -> void:
-	var members: Array = control_groups.get(slot, []).filter(func(id): return not state.entity(int(id)).is_empty() and state.entity(int(id)).owner == local_owner) if merge else []
+	var members: Array = control_groups.get(slot, []).filter(func(id): return not _observed_entity(int(id)).is_empty() and _observed_entity(int(id)).owner == local_owner) if merge else []
 	for id in selection:
-		if state.entity(int(id)).get("owner", -1) == local_owner and not id in members: members.append(id)
+		if _observed_entity(int(id)).get("owner", -1) == local_owner and not id in members: members.append(id)
 	if members.is_empty(): return
 	control_groups[slot] = members.slice(0, int(Settings.data.controls.selectionLimit))
 	_refresh_group_bar(); status_label.text = "Group %d assigned: %d assets" % [slot, control_groups[slot].size()]; audio.cue("order")
 
 func _recall_group(slot: int) -> void:
-	var members: Array = control_groups.get(slot, []).filter(func(id): return not state.entity(int(id)).is_empty() and state.entity(int(id)).owner == local_owner)
+	var members: Array = control_groups.get(slot, []).filter(func(id): return not _observed_entity(int(id)).is_empty() and _observed_entity(int(id)).owner == local_owner)
 	if members.is_empty(): status_label.text = "Group %d is empty. Ctrl+%d or Shift+%d assigns the selection." % [slot, slot, slot]; return
 	control_groups[slot] = members
 	_cancel_modes(); selection = members; _selection_feedback(); _update_hud()
@@ -1023,7 +1220,7 @@ func _recall_group(slot: int) -> void:
 
 func _refresh_group_bar() -> void:
 	for slot in group_buttons:
-		var members: Array = control_groups.get(slot, []).filter(func(id): return not state.entity(int(id)).is_empty() and state.entity(int(id)).owner == local_owner)
+		var members: Array = control_groups.get(slot, []).filter(func(id): return not _observed_entity(int(id)).is_empty() and _observed_entity(int(id)).owner == local_owner)
 		var button: Button = group_buttons[slot]
 		button.text = "%d/%s" % [slot, "99+" if members.size() > 99 else str(members.size())] if not members.is_empty() else str(slot)
 		button.modulate = Color.WHITE if not members.is_empty() else Color("6e7d78")
@@ -1052,7 +1249,26 @@ func _create_control_ui() -> void:
 	controls_panel.add_theme_stylebox_override("panel", CommandSkin.panel()); hud.add_child(controls_panel)
 	var column := VBoxContainer.new(); controls_panel.add_child(column)
 	column.add_child(_label("FIELD CONTROLS", 22, Color("cfbd8f")))
-	var text := _label("WASD / arrows: pan   Middle drag: pan   Wheel: zoom\nDouble click: owned units/structures of that type on screen\nShift click/drag: modify selection   %s: focus selection\n\n%s: attack target   %s: stop   %s: patrol   %s: escort\n%s: mine   %s: board   %s: load cargo   %s: repair   %s: unload\n\n%s: construction catalogue, then its displayed letter\nWASD pauses while choosing a type; arrows still pan.\nAfter choosing a blueprint, WASD pans normally.\nShift places more of the same structure; Escape cancels.\n\n1-9: recall group; double tap: focus\nCtrl+number or Shift+number: assign (Shift works in browsers)\nCtrl+Shift+number: add selection to an existing group\n%s: Anchor   %s: pause single player" % [_binding("focusSelection"), _binding("attack"), _binding("stop"), _binding("patrol"), _binding("escort"), _binding("mine"), _binding("board"), _binding("loadCargo"), _binding("repair"), _binding("unload"), _binding("build"), _binding("focusAnchor"), _binding("pause")], 15)
+	var help: Array[String] = [
+		"WASD / arrows: pan   Middle drag: pan   Wheel: zoom",
+		"Left click / drag: select   Shift: add/remove selection",
+		"Double click: matching owned units/structures in view",
+		"Minimap: left-drag camera; right-click context order",
+		"Shift + order: append plan; ordinary order: replace; X: stop",
+		"%s: attack   %s: mine   %s: patrol   %s: escort" % [_binding("attack"), _binding("mine"), _binding("patrol"), _binding("escort")],
+		"%s: board   %s: cargo   %s: repair   %s: unload" % [_binding("board"), _binding("loadCargo"), _binding("repair"), _binding("unload")],
+		"Stance: %s neutral / %s defensive / %s aggressive" % [Settings.data.controls.stanceHotkeys.neutral, Settings.data.controls.stanceHotkeys.defensive, Settings.data.controls.stanceHotkeys.aggressive],
+		"Structures: %s toggles global Operator requests" % _binding("togglePersonnel"),
+		"Production and kit keys are shown on their command cards.",
+		"%s: build catalogue; choose its displayed letter" % _binding("build"),
+		"Depot: B, D arms the remembered type (initially Ore).",
+		"Place immediately or choose its resource button/key.",
+		"Shift repeats and queues construction; Escape cancels.",
+		"1-9: recall group; double-tap: focus",
+		"Ctrl/Shift + number: assign; Ctrl+Shift + number: add",
+		"%s: focus selection   %s: Anchor   %s: pause" % [_binding("focusSelection"), _binding("focusAnchor"), _binding("pause")]
+	]
+	var text := _label("\n".join(help), 14)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; column.add_child(text)
 	_button("Close", func(): controls_panel.hide(), column); controls_panel.hide()
 
@@ -1073,9 +1289,9 @@ func ghost_model_visible() -> bool:
 func _refresh_action_signature() -> void:
 	# Include every selected role so kit transformations and crew changes update a
 	# mixed group's commands. Exclude ordinary income/HP to keep open menus stable.
-	var parts: Array = [state.ended, state.players[local_owner].alive, int(state.resources(local_owner).get("nacre", 0)) >= int(Settings.data.match.extractionMinimumNacre), state.players[local_owner].upgrades]
+	var parts: Array = [state.ended, state.players[local_owner].alive, state.players[local_owner].get("request_personnel", true), int(state.resources(local_owner).get("nacre", 0)) >= int(Settings.data.match.extractionMinimumNacre), state.players[local_owner].upgrades]
 	for id in selection:
-		var e := state.entity(int(id))
+		var e := _observed_entity(int(id))
 		parts.append([id, e.get("kind", ""), e.get("stance", ""), e.get("enabled", true), e.get("open", false), e.get("locked", false), e.get("built", true), e.get("driver", 0), e.get("passengers", []).size(), e.get("buried", false), e.get("transition", ""), e.get("request_personnel", false), e.get("personnel_source", 0), e.get("kits", []).size(), e.get("operators", []).size(), e.get("vehicles", []).size(), e.get("upgrades", []).map(func(item): return item.kind), e.get("configuration_remaining", 0) > 0, e.get("depot_type", "")])
 	var signature := JSON.stringify(parts)
 	if signature != action_signature: action_signature = signature; _refresh_actions()

@@ -9,11 +9,13 @@ var host_id := ""
 var invitation := ""
 var available := false
 var terminal := false
+var diagnostics_enabled := false
 
 func _ready() -> void:
 	if OS.has_feature("web"):
 		bridge = JavaScriptBridge.get_interface("ATDNetwork")
 		available = bridge != null
+		if available: diagnostics_enabled = bool(bridge.diagnosticsEnabled)
 
 func start(mode: String, code: String = "") -> String:
 	if not available: return "Network play requires the browser export"

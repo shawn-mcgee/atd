@@ -8,6 +8,16 @@ The current art pass combines procedural industrial models, basic procedural ani
 
 ## Single-player interaction pass
 
+The Medusa now reserves one seeded random inset corner, with players placed at separate corners. Its starting Scavengers, bounded Gloom and guaranteed approach routes follow that nest. The nest stays hidden until scouted. Death creates Nacre at the actual Medusa cell; explored-cell snapshots synchronize the resource type without disclosing an undiscovered corpse location.
+
+Idle Engineers seek reachable friendly construction within a configurable six-tile footprint search radius, then repair nearby structures with the ordinary Ore charge. Checks run every half second while idle; player jobs and queued orders take priority. Walls support a full-line drag preview, budget-aware partial placement, and Shift queue/repeat through an authoritative `build_line` command. Models are full-tile hexagonal prisms. Construction checks cover payment, interruptions, ownership and unreachable sites; the native `--walls` fixture checks real pointer dragging and captures the preview.
+
+The CPU pass batches overlapping sight propagation, caches unchanged visibility, indexes sight obstruction, updates only affected terrain/dark-path weights, retains navigation graph topology, and reduces mesh picking, silhouette and material work. Production sessions skip test diagnostics. A bounded benchmark and its limits are documented in [CPU performance](performance.md); the sub-4-ms target remains unmet in active combat.
+
+Terrain presentation now includes fragmented stratified basalt cliffs, sparse instanced scree, gravel surface normals, eroded gas vents with visible-only vapor, soft contact shadows, and warm service-light spill from operating facilities. These do not change collision, resource supply, vision, or simulation illumination.
+
+Fog of war has an animated black smoke fringe with curled tendrils and a translucent veil over remembered terrain. Current-vision interiors stay clear, and deep unexplored space remains black. This is a configurable presentation shader; simulation visibility and concealment are unchanged.
+
 Routes now start from each unit's actual position and simplify clear terrain into straight segments. Repeated orders no longer route through the current tile center. Movement preserves valid off-grid endpoints, spends the whole tick budget across waypoints, and checks swept body clearance against obstacles and gates. Larger vehicles use clearance-aware graph edges; non-attacking Lightless retain dark detours. See [navigation behavior and tuning](navigation.md).
 
 Scavenger probes now commit across an unopposed light perimeter using the CPU's existing knowledge of Anchor locations. Committed attackers engage visible blocking walls and resume their original objective after breaching them. Attack positions and retreat destinations require complete paths; interrupted retreats retry reachable Gloom. A configurable structure bonus lets basic Scavenger bites chip unshielded Anchors. See [Lightless behavior and tuning](lightless-ai.md).
@@ -20,9 +30,17 @@ Scavengers now begin by probing rather than immediately attacking the Anchor. Un
 
 ## Command interface and mechanics
 
+Relay previews and selected-Relay coverage now explicitly include zero-demand grid participants at both ends of links. They show neighboring electrical footprints, candidate endpoint rings, link counts and off-state potential links. Selected Relays expose Switch off/on; switching recomputes downstream supply and visibility immediately without advancing paused simulation.
+
+The minimap supports captured left-drag camera movement, right-click context commands and armed-order targeting. Shift appends bounded per-unit orders, including paid-immediately blueprint work; replacement orders and Stop clear pending plans. Owned plans survive snapshots and display queued waypoints. Visible units occluded by structures receive silhouettes without exposing concealed units. Targeting modes have distinct cursors, stance controls refresh after accepted changes, and contextual shortcuts cover stances, personnel, kits, vehicles and Depot resources. Automatic Operator requests now use one player-wide setting, including future facilities. Depot placement defaults to Ore, remembers the last type and offers optional resource buttons rather than a mandatory dropdown.
+
+Commonwealth facilities now have distinct industrial silhouettes, an open Factory assembly bay, visible kit cases and queued personnel capsules, warm operating lamps, production machinery/process windows, and power/fuel warning indicators. Cold ambient lighting, darker terrain and weathered metal strengthen the night-time industrial setting. These presentation changes read existing simulation state; queue props are owner-only and do not reveal hidden production. See [art direction and visual review captures](art-direction.md).
+
+Clicks now hit the bounds of visible model parts, including raised geometry and the outer parts of large structures. The nearest intersected model takes priority; small entities retain the existing center-click tolerance. Hidden models and hidden parts do not participate, and remembered structures remain selectable using their displayed models.
+
 The command interface now separates inspection, queues, and actions. It uses textured metal panels, original SVG command icons, visible resource costs, full unit combat/cargo stats, structure power and recipe details, and click-to-select role subgroups. Deposits can be selected to inspect remaining supply. Queue chips show progress or readiness and expose cancellation/refund rules in their tooltips. Controls update affordability without rebuilding open personnel menus.
 
-New mechanics in this pass: completed Depot reconfiguration removes old capacity immediately and adds the new type after its cooldown, with stored-inventory checks; unstarted Depot blueprints can change type; personnel requests use the selected source and can be toggled per structure; Operator queues can be canceled; Fabricator armor upgrades require powered Engineer work, support multiple Engineers, retain progress, and survive Fabricator destruction after completion. Specialized units can no longer pick up a different specialization kit.
+New mechanics in this pass: completed Depot reconfiguration removes old capacity immediately and adds the new type after its cooldown, with stored-inventory checks; unstarted Depot blueprints can change type; personnel requests use each facility's selected source and one player-wide toggle; Operator queues can be canceled; Fabricator armor upgrades require powered Engineer work, support multiple Engineers, retain progress, and survive Fabricator destruction after completion. Specialized units can no longer pick up a different specialization kit.
 
 ## Running locally
 
@@ -55,7 +73,7 @@ The ZIP appears at `build/atd-0.1.0-web.zip`, with `index.html` at its root. No 
 - Right click issues a context order: movement, attack, resource collection, kit pickup, or work on an unfinished structure.
 - **M** followed by clicking a patch assigns individual worker mining. Full vehicle-assisted expeditions are not implemented yet.
 - **B** opens construction. Select a structure type, then left click a revealed site. Escape cancels placement mode; select an unfinished building to cancel it.
-- The Depot dropdown selects its blueprint resource-capacity type.
+- B then D arms the last-selected Depot capacity type, initially Ore. Place immediately or choose a resource with the five buttons and O/G/A/P/C hotkeys. Depot reconfiguration uses the same five actions.
 - Construction previews cover the entire footprint and turn red for blocked, unrevealed, or unaffordable sites. Hold Shift when placing to keep the current type selected.
 - Right click a damaged friendly structure with an Engineer to repair it. Right click an Anchor/Depot with loaded carriers to deposit cargo. **X** stops orders; **Home** centers the Anchor; click the tactical map to pan.
 - Boarding moves selection onto the occupied vehicle; selection guidance is contextual and does not overwrite order feedback on income updates. The selection panel offers unit stances, Operator requests, Engineer/infantry kits, extraction, construction cancellation, and applicable structure toggles.
@@ -71,7 +89,7 @@ The ZIP appears at `build/atd-0.1.0-web.zip`, with `index.html` at its root. No 
 - Space pauses single-player simulation. Camera and order input remain available while paused. Speed selection affects single player only.
 - Browser rooms use **Host**, share/paste the full invitation, **Join**, then let the host launch.
 
-All listed Commonwealth construction buttons are now available, including Radar and Rampart. Lightless construction and automated mining expeditions remain pending.
+All listed Commonwealth construction buttons are now available, including Radar and Rampart. CPU Mother/Womb construction is implemented; human Lightless construction controls and automated mining expeditions remain pending.
 
 ## Coverage
 
@@ -85,8 +103,8 @@ All listed Commonwealth construction buttons are now available, including Radar 
 | Production | Operator queues and cancellations, separate kit queues, five-kit accounting including finished kits, request toggles/configured personnel sources, queue inspection and cancellation UI, kit collection, buffers and recipes. Factory vehicle queues, optional Operator requests, and automatic driver assignment are implemented. |
 | Power | Footprint-connected grids, fuel cycles, active-production demand, fixed brownout rates, blackout latching/recovery, enabled toggles. Detailed Relay loss behavior and all coverage edge cases need further testing. Unlocked friendly Gates open for routed passage and close after traffic clears; manual opening and locking are separate controls. |
 | Combat | Target attacks, flat armor, configurable minimum damage, flame cones, obstruction checks, turret engagement, defensive leash, concealment checks, healing/repairs and Fabricator armor upgrades. Radar/vision/illumination targeting rules, buried-area immunity, Thresher transitions, nonstacking powered Rampart armor, and turret contact overrides are implemented. Full stance edge cases and Lightless upgrades remain incomplete. |
-| Visibility and Gloom | Vision/illumination flood fills, personal vision without light, remembered terrain, visible entity filtering, Gloom frontier spread, illumination damage, unsupported withering and regeneration. Powered Radar and driven Scout detection expose unidentified occupied-tile contacts on the battlefield/minimap. Enemy identities are filtered consistently in rendering and snapshots; shared illumination remains separate from vision. Gloom communication and accurate hidden-structure memory remain pending. |
-| Lightless | Starting Medusa/Scavengers, free Medusa spawning, initial probe/pressure/retreat behavior and dark-route preference. Full Gather/Defend coordination, Wombs, manual spawns, Glands, Fathers, recruitment, and testing control remain to implement. |
+| Visibility and Gloom | Vision/illumination flood fills, personal vision without light, remembered terrain, visible entity filtering, Gloom frontier spread, illumination damage, unsupported withering and regeneration. Powered Radar and driven Scout detection expose unidentified occupied-tile contacts on the battlefield/minimap. Enemy identities are filtered consistently in rendering and snapshots; shared illumination remains separate from vision. Per-viewer last-seen structure records freeze hidden state and are cleared on rediscovery. Gloom communication remains pending. |
+| Lightless | Starting Chyme and Medusa income; CPU-paid Mother queues; reachable paid Womb blueprints, Mother transformation and health-based gestation; typed Womb caps/unlocks and free spawning; parallel paid queues with manual-first shared caps; retained capped/locked progress; post-Medusa Womb acceleration. Stalkers, Ravagers, Threshers and Shades now enter normal play through Wombs. Gather/Defend coordination, combat Chyme delivery, Glands, Father recruitment, human Lightless controls and post-Medusa CPU expansion remain pending. |
 | Vehicles | Factory production; drivers and passenger limits; passenger-first unloading; empty-vehicle commandeering; protected occupants; destruction/elimination unloading; driver-dependent vision/light; forward headlight cones; Scout passenger weapons following the Scout stance; manual worker-to-vehicle cargo transfer; Excavator cliff clearing and rubble. Automated convoy execution remains pending. |
 | Combat/work feedback | Bounded audience-filtered events survive frame/snapshot skips; weapon profiles drive tracers, flashes, recoil and sound. Hit/shield/death feedback, health trails, grouped damage labels, ready/delivery cues, working machinery, and visible Scout passengers are implemented. Effect budgets and look/audio values are configurable. See [feedback](feedback.md). |
 | Extraction | Medusa death exposes Nacre; Anchor delivery, 500/1,000 thresholds, 90-second timer, and elimination outcomes are implemented at state level. Full end-to-end balance and match acceptance remain unverified; boss stays disabled. |
@@ -94,6 +112,8 @@ All listed Commonwealth construction buttons are now available, including Radar 
 | Release and persistence | Web packaging and build/test CI. Public deployment, saved Nacre wallet, account/cross-origin persistence policy, and final release verification remain pending. |
 
 ## Verification
+
+The controls pass passed the headless suite, focused order/interface checks, and a native viewport-input check for minimap capture and Shift commands. Its combined software-rendered browser input check hit a 90-second total budget before completion; full browser verification of the new controls remains incomplete. No repeat multiplayer suite was run for this pass.
 
 ```sh
 npm test
@@ -114,7 +134,7 @@ The `?test=1` URL parameter enables a narrow browser test-command queue and diag
 
 1. Complete movement/steering, source/destination recovery, and construction/repair edge cases, and vehicle arrival/unloading edge cases.
 2. Implement the documented mining expedition state machine and its interruption/cargo invariants.
-3. Complete remaining combat/stance edge cases, Lightless upgrades/economy/Gloom coordination, and Fathers. Connect the new Thresher capability to future Womb production; the current CPU still spawns Scavengers only.
+3. Complete remaining combat/stance edge cases, combat Chyme delivery, Glands, Gloom coordination, Father recruitment, human Lightless controls and post-Medusa CPU expansion. Typed Womb production now connects the other combat units, including Threshers, to ordinary matches.
 4. Build out the ordinary extraction assault, persistence policy, browser lobby polish, and full-match acceptance.
 5. Validate real hosted Pages/itch.io rooms, different-network/TURN behavior, frame-time budgets, and the full five-player match before publishing an alpha as complete.
 

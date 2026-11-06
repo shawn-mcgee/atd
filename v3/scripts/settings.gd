@@ -59,7 +59,26 @@ class ConfigRules:
 			if not config.get(section) is Dictionary: errors.append(section + ": required object is missing")
 		if not errors.is_empty(): return errors
 		_check_numbers(config, "", errors)
-		for path in ["match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "targeting.refreshIntervalTicks", "lightless.combatRepathSeconds", "lightless.retreatRepathSeconds"]:
+		var terrain_style = config.presentation.get("terrain", {})
+		for key in ["scatterDensity", "contactShadowOpacity", "rockStrataStrength", "gasVaporOpacity", "groundNormalStrength"]:
+			var value = terrain_style.get(key) if terrain_style is Dictionary else null
+			if not (value is int or value is float) or not is_finite(float(value)) or float(value) < 0 or float(value) > 1: errors.append("presentation.terrain." + key + ": expected a number from 0 to 1")
+		var fog = config.presentation.get("fog", {})
+		if not fog is Dictionary or not fog.get("enabled") is bool: errors.append("presentation.fog.enabled: expected a boolean")
+		for key in ["memoryOpacity", "edgeOpacity", "edgeReachTiles", "driftSpeed", "noiseScale", "heightTiles"]:
+			var value = fog.get(key) if fog is Dictionary else null
+			if not (value is int or value is float) or not is_finite(float(value)) or float(value) < 0: errors.append("presentation.fog." + key + ": expected a finite nonnegative number")
+			elif key in ["memoryOpacity", "edgeOpacity"] and float(value) > 1: errors.append("presentation.fog." + key + ": expected a number from 0 to 1")
+			elif key in ["edgeReachTiles", "noiseScale"] and float(value) == 0: errors.append("presentation.fog." + key + ": must be positive")
+		var lighting = config.presentation.get("lighting", {})
+		var wash_opacity = lighting.get("serviceLightWashOpacity") if lighting is Dictionary else null
+		if not (wash_opacity is int or wash_opacity is float) or not is_finite(float(wash_opacity)) or float(wash_opacity) < 0 or float(wash_opacity) > 1: errors.append("presentation.lighting.serviceLightWashOpacity: expected a number from 0 to 1")
+		for key in ["ambientEnergy", "keyLightEnergy", "workLightEnergy", "groundBrightness"]:
+			var value = lighting.get(key) if lighting is Dictionary else null
+			if not (value is int or value is float) or not is_finite(float(value)) or float(value) < 0: errors.append("presentation.lighting." + key + ": expected a finite nonnegative number")
+		var memory_tint = config.presentation.get("structureMemoryTintStrength", 0.75)
+		if not (memory_tint is int or memory_tint is float) or not is_finite(float(memory_tint)) or float(memory_tint) < 0 or float(memory_tint) > 1: errors.append("presentation.structureMemoryTintStrength: expected a number from 0 to 1")
+		for path in ["match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "construction.idleEngineerSearchRangeTiles", "construction.idleEngineerSearchIntervalSeconds", "targeting.refreshIntervalTicks", "lightless.combatRepathSeconds", "lightless.retreatRepathSeconds", "lightless.medusaPassiveScavengerSeconds", "lightless.medusaChymeCycleSeconds", "lightless.brainDecisionIntervalSeconds", "lightless.cpuExpansionIntervalSeconds", "lightless.structureGestationSeconds", "lightless.postMedusaWombSpawnRateMultiplier"]:
 			var value = at_path(config, path)
 			if not (value is float or value is int) or float(value) <= 0: errors.append(path + ": must be a positive number")
 		if float(config.map.get("anchorEdgeInsetTiles", 0)) >= float(config.map.get("radiusTiles", 0)): errors.append("map.anchorEdgeInsetTiles: must be less than map.radiusTiles")
@@ -72,6 +91,12 @@ class ConfigRules:
 				for key in ["health", "armor"]:
 					if not d.get(key) is float and not d.get(key) is int: errors.append(path + "." + key + ": required number")
 				if float(d.get("health", 0)) <= 0: errors.append(path + ".health: must be positive")
+				if table == "units" and d.has("manualSpawnSeconds"):
+					for key in ["manualSpawnSeconds", "wombPassiveSpawnSeconds"]:
+						if not (d.get(key) is int or d.get(key) is float) or float(d.get(key, 0)) <= 0: errors.append(path + "." + key + ": must be positive")
+				if table == "structures" and d.has("unpoweredVisionRangeBeyondFootprintTiles"):
+					var value = d.unpoweredVisionRangeBeyondFootprintTiles
+					if not (value is int or value is float) or float(value) < 0 or float(value) != floorf(float(value)) or float(value) > float(d.get("visionRangeBeyondFootprintTiles", 0)): errors.append(path + ".unpoweredVisionRangeBeyondFootprintTiles: expected a whole number from zero to the powered vision range")
 				for key in ["weapon", "buriedWeapon"]:
 					if d.get(key) != null and not config.weapons.has(d[key]): errors.append(path + "." + key + ": unknown weapon " + str(d[key]))
 				if d.has("driverSeats"):
@@ -158,9 +183,9 @@ class ConfigRules:
 			for binding in str(config.camera.panBindings[direction]).split("|"):
 				if OS.find_keycode_from_string(binding) == KEY_NONE: errors.append("camera.panBindings.%s: unknown key" % direction)
 				pan_keys.append(binding.to_upper())
-		for key in ["commands", "buildHotkeys"]:
+		for key in ["commands", "buildHotkeys", "stanceHotkeys", "productionHotkeys", "depotHotkeys"]:
 			if not controls.get(key) is Dictionary: errors.append("controls.%s: required object" % key); return errors
-		for action in ["build", "mine", "attack", "stop", "patrol", "escort", "board", "loadCargo", "repair", "unload", "focusSelection", "focusAnchor", "pause", "cancel"]:
+		for action in ["build", "mine", "attack", "stop", "patrol", "escort", "board", "loadCargo", "repair", "unload", "focusSelection", "focusAnchor", "pause", "cancel", "togglePersonnel"]:
 			if not controls.commands.get(action) is String: errors.append("controls.commands.%s: required key name" % action)
 		if not controls.get("buildOrder") is Array: errors.append("controls.buildOrder: required array"); return errors
 		for kind in controls.buildOrder:
@@ -180,6 +205,18 @@ class ConfigRules:
 			if used.has(binding) or binding == str(controls.commands.build).to_upper() or binding == str(controls.commands.cancel).to_upper(): errors.append("controls.buildHotkeys.%s: duplicate or reserved key" % kind)
 			used[binding] = true
 		if int(controls.get("selectionLimit", 0)) < 1 or int(controls.get("selectionLimit", 0)) > 128: errors.append("controls.selectionLimit: must be between 1 and 128")
+		for group in ["stanceHotkeys", "productionHotkeys", "depotHotkeys"]:
+			for action in controls[group]:
+				if not controls[group][action] is String or OS.find_keycode_from_string(str(controls[group][action])) == KEY_NONE: errors.append("controls." + group + "." + action + ": expected a valid key name")
+		var contexts := [["stanceHotkeys", ["neutral", "defensive", "aggressive"]], ["depotHotkeys", ["ore", "gas", "alloy", "polymer", "crystal"]], ["productionHotkeys", ["operator", "engineer"]], ["productionHotkeys", ["marine", "flamer", "lancer"]], ["productionHotkeys", ["scout", "ranger", "excavator", "reaper", "cremator", "javelin"]]]
+		for context in contexts:
+			var seen: Dictionary = {}
+			for action in context[1]:
+				var binding := str(controls[context[0]].get(action, "")).to_upper()
+				if binding == "" or seen.has(binding): errors.append("controls." + str(context[0]) + ": missing or duplicate contextual key for " + str(action))
+				seen[binding] = true
+		var queue_limit = config.movement.get("orderQueueLimit", 0)
+		if not (queue_limit is int or queue_limit is float) or float(queue_limit) != floorf(float(queue_limit)) or int(queue_limit) < 1 or int(queue_limit) > 128: errors.append("movement.orderQueueLimit: expected a whole number from 1 to 128")
 		if int(controls.get("controlGroupCount", 0)) < 1 or int(controls.get("controlGroupCount", 0)) > 9: errors.append("controls.controlGroupCount: must be between 1 and 9")
 		return errors
 

@@ -11,7 +11,7 @@
     "version": "0.26.0"
   },
   "applicationId": "github.shawn-mcgee.atd",
-  "gameProtocolVersion": 1,
+  "gameProtocolVersion": 2,
   "liveness": {
     "heartbeatIntervalMs": 1000,
     "peerTimeoutMs": 10000

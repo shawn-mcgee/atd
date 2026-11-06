@@ -8,7 +8,7 @@ The engine is **Godot**, using **3D presentation**, GDScript, Compatibility rend
 
 ## Included
 
-- A configurable, seeded hexagonal map with cliffs, rich resource fields, a central Medusa, and up to five separated Commonwealth corner starts.
+- A configurable, seeded hexagonal map with cliffs, rich resource fields, a randomly chosen Medusa corner, and up to five separate Commonwealth corner starts. The Medusa must be scouted.
 - Continuous unit movement, hex-aligned construction, collision, Walls, controlled Gates, multiple-hex structures, and Excavator clearing.
 - Single-player CPU Lightless and player-hosted Trystero/WebRTC multiplayer competition in the browser, with pause/orders during pause and speed changes in single player, and lobby-selected speed in multiplayer.
 - Every currently named unit, vehicle, structure, and resource in the README, including Glands and Chyme Glands.
@@ -71,7 +71,9 @@ The boundary wall cannot be cleared. Ordinary cliffs can be cleared by an Excava
 
 ### Map generation
 
-Use an axial-coordinate hex disk. Inset candidate corners by the configured buffer. Choose the subset with the greatest minimum pairwise distance, then greatest total pairwise distance, using seeded randomness for equally good layouts. Place the Medusa centrally before generating remaining obstructions.
+The deployment seed is blank by default and chooses a fresh random seed outside the simulation. Entering an explicit seed reproduces the layout. The host distributes its chosen seed to guests; the seed-field tooltip retains the last deployed value for replay.
+
+Use an axial-coordinate hex disk. Inset all six candidate corners by `map.anchorEdgeInsetTiles`. Reserve one corner for the Medusa using the seeded random generator. Among the remaining five, choose the player subset with the greatest minimum pairwise distance, then greatest total pairwise distance, using seeded randomness for equally good layouts. Place the initial Scavengers relative to the Medusa and fill its initial Gloom radius, clipped to map tiles. Its corner starts undiscovered. On death, the Nacre deposit occupies the Medusa's actual cell; snapshots synchronize resource types only for explored cells, without publishing an undiscovered corpse coordinate.
 
 Starting fields must fit within their Anchor's unblocked vision and remain reachable without excavation. They override obstruction placement. Validate a reachable route from every starting area to a work/attack position around the Medusa. Retry or carve only enough cliffs to satisfy that guarantee. Other fields may remain obstructed or unreachable. Use the seed for field-size selection and other random choices so the same settings and seed reproduce a map.
 

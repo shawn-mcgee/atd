@@ -14,6 +14,7 @@ var visible: Dictionary = {}
 var detected: Dictionary = {}
 var illuminated: Dictionary = {}
 var known: Dictionary = {}
+var structure_memory: Dictionary = {}
 var gloom: Dictionary = {}
 var shots: Array = []
 var feedback_events: Array = []
@@ -29,36 +30,54 @@ var navigation := MovementGraph.new()
 var dark_navigation := MovementGraph.new()
 var point_ids: Dictionary = {}
 var structure_cells: Dictionary = {}
-var corpse := Vector2i.ZERO
+var corpse: Variant = null
 var gloom_spread_time := 0.0
+var lightless_chyme := 0
+var lightless_brain_time := 0.0
+var lightless_expansion_time := 0.0
+var lightless_income_time := 0.0
+var _sight_blockers: Dictionary = {}
+var _sight_areas: Dictionary = {}
+var _sight_topology_valid := false
+var _sight_unions: Array = []
+var _opponents: Dictionary = {}
+const SEPARATION_OFFSETS: Array[Vector2i] = [Vector2i(-1, -1), Vector2i(-1, 0), Vector2i(-1, 1), Vector2i(0, -1), Vector2i.ZERO, Vector2i(0, 1), Vector2i(1, -1), Vector2i(1, 0), Vector2i(1, 1)]
 
 func _init(settings: Dictionary = {}) -> void:
 	cfg = settings
 
 func reset(map_seed: int, count: int = 1) -> void:
+	_sight_areas.clear(); _sight_blockers.clear(); _sight_unions.clear(); _sight_topology_valid = false
+	_opponents.clear()
 	seed_value = map_seed
 	random.seed = map_seed
 	radius = int(cfg.map.radiusTiles)
 	tick = 0
 	time_seconds = 0
 	gloom_spread_time = 0
+	lightless_chyme = int(cfg.lightless.startingChyme)
+	lightless_brain_time = 0.0; lightless_expansion_time = 0.0; lightless_income_time = 0.0
 	next_id = 1
 	feedback_events.clear(); feedback_serial = 0
 	ended = false
 	result = ""
 	medusa_dead = false
+	corpse = null
 	paused = false
 	speed = 1.0
-	for collection in [tiles, units, structures, players, visible, detected, illuminated, known, gloom, point_ids, structure_cells]: collection.clear()
+	for collection in [tiles, units, structures, players, visible, detected, illuminated, known, structure_memory, gloom, point_ids, structure_cells]: collection.clear()
 	for cell in HexGrid.disk(Vector2i.ZERO, radius):
 		tiles[cell] = {"cliff": random.randf() < float(cfg.map.cliffTileFraction), "resource": "", "amount": 0, "rock_health": float(cfg.map.cliffHealth)}
 	var inset := radius - int(cfg.map.anchorEdgeInsetTiles)
 	var corners: Array[Vector2i] = []
 	for direction in HexGrid.DIRECTIONS: corners.append(direction * inset)
+	var medusa_corner := random.randi_range(0, corners.size() - 1)
+	var medusa_spawn: Vector2i = corners[medusa_corner]
 	var selected: Array[int] = []
 	var best_score := -1
 	var choices: Array = []
 	for mask in range(1, 64):
+		if mask & (1 << medusa_corner): continue
 		var indices: Array[int] = []
 		for i in range(6):
 			if mask & (1 << i): indices.append(i)
@@ -79,7 +98,7 @@ func reset(map_seed: int, count: int = 1) -> void:
 	selected.assign(choices[random.randi_range(0, choices.size() - 1)])
 	for owner in range(count):
 		var spawn := corners[selected[owner]]
-		players[owner] = {"resources": cfg.map.startingResources.duplicate(true), "alive": true, "anchor": 0, "upgrades": {}, "extracting": false, "remaining": 0.0}
+		players[owner] = {"resources": cfg.map.startingResources.duplicate(true), "alive": true, "anchor": 0, "upgrades": {}, "extracting": false, "remaining": 0.0, "request_personnel": bool(cfg.personnel.personnelRequestDefaultEnabled)}
 		known[owner] = {}
 		for c in HexGrid.disk(spawn, 6):
 			if tiles.has(c): tiles[c].cliff = false
@@ -89,21 +108,22 @@ func reset(map_seed: int, count: int = 1) -> void:
 		add_unit("marine", HexGrid.world(spawn + Vector2i(2, -1)), owner)
 		_field(spawn + Vector2i(-2, 3), "gas", 1)
 		_field(spawn + Vector2i(3, -1), "ore", 3)
-		for c in HexGrid.line(spawn, Vector2i.ZERO):
+		for c in HexGrid.line(spawn, medusa_spawn):
 			for nearby in HexGrid.disk(c, 1):
 				if tiles.has(nearby): tiles[nearby].cliff = false
 	for resource in ["ore", "gas"]:
 		for i in range(int(cfg.map.additionalFieldsPerPlayer[resource]) * count):
 			var center := Vector2i(random.randi_range(-radius + 4, radius - 4), random.randi_range(-radius + 4, radius - 4))
-			if not tiles.has(center) or HexGrid.distance(center) < 5: continue
+			if not tiles.has(center) or HexGrid.distance(center, medusa_spawn) < 5: continue
 			var roll := random.randi_range(0, 5)
 			_field(center, resource, 1 if roll < 3 else 3 if roll < 5 else 7, false)
-	for c in HexGrid.disk(Vector2i.ZERO, 3): tiles[c].cliff = false
-	add_structure("medusa", Vector2i.ZERO, -1)
+	for c in HexGrid.disk(medusa_spawn, 3):
+		if tiles.has(c): tiles[c].cliff = false
+	add_structure("medusa", medusa_spawn, -1)
 	for i in range(int(cfg.lightless.startingScavengers)):
-		add_unit("scavenger", HexGrid.world(HexGrid.DIRECTIONS[i % 6] * 2), -1)
-	for c in HexGrid.disk(Vector2i.ZERO, int(cfg.structures.medusa.gloomRangeBeyondFootprintTiles) + 1):
-		gloom[c] = float(cfg.gloom.tileHealth)
+		add_unit("scavenger", HexGrid.world(medusa_spawn + HexGrid.DIRECTIONS[i % 6] * 2), -1)
+	for c in HexGrid.disk(medusa_spawn, int(cfg.structures.medusa.gloomRangeBeyondFootprintTiles) + int(cfg.structures.medusa.footprintRadiusTiles)):
+		if tiles.has(c): gloom[c] = float(cfg.gloom.tileHealth)
 	_rebuild_navigation()
 	_update_power(0)
 	update_visibility()
@@ -119,21 +139,28 @@ func _field(center: Vector2i, resource: String, size: int, clear_cliff: bool = t
 		if clear_cliff: tiles[c].cliff = false
 
 func add_unit(kind: String, position: Vector2, owner: int) -> int:
+	_opponents.clear()
 	var id := next_id
 	next_id += 1
 	var definition: Dictionary = cfg.units[kind]
 	units[id] = {"id": id, "kind": kind, "pos": position, "owner": owner, "hp": float(definition.health), "job": {"kind": "idle"}, "route": [], "cargo": {}, "cooldown": 0.0, "work": 0.0, "stance": str(definition.get("defaultStance", cfg.lightless.startingStance)), "home": position, "last_damage": -999, "target": 0, "driver": 0, "vehicle": 0, "heading": 0.0}
 	units[id].passengers = []
+	units[id].orders = []
 	return id
 
 func add_structure(kind: String, cell: Vector2i, owner: int, built: bool = true, depot_type: String = "ore") -> int:
+	_opponents.clear()
+	_sight_topology_valid = false; _sight_areas.clear()
 	var id := next_id
 	next_id += 1
 	structures[id] = {"id": id, "kind": kind, "cell": cell, "owner": owner, "hp": float(cfg.structures[kind].health) if built else float(cfg.construction.startingHealth), "built": built, "started": built, "depot_type": depot_type, "enabled": true, "powered": false, "brownout": false, "blackout": false, "open": false, "locked": false, "buffer": 0, "cycle": 0.0, "batch": {}, "operators": [], "kits": [], "vehicles": [], "upgrades": [], "fuel": 0.0, "cooldown": 0.0, "passive": 0.0}
 	structures[id].configuration_remaining = 0.0
 	structures[id].personnel_source = 0
-	structures[id].request_personnel = bool(cfg.personnel.personnelRequestDefaultEnabled)
+	structures[id].request_personnel = bool(players.get(owner, {}).get("request_personnel", cfg.personnel.personnelRequestDefaultEnabled))
 	structures[id].vehicle_assignments = {}
+	if owner < 0 and kind in ["medusa", "womb"]:
+		structures[id].spawn_queue = []
+		if kind == "womb": structures[id].unit_type = "scavenger"
 	for occupied in footprint(structures[id]):
 		if not structure_cells.has(occupied): structure_cells[occupied] = []
 		structure_cells[occupied].append(id)
@@ -162,7 +189,18 @@ func _index_structures() -> void:
 			structure_cells[cell].append(int(structure.id))
 
 func _rebuild_navigation() -> void:
+	_sight_topology_valid = false; _sight_areas.clear()
 	_index_structures()
+	if point_ids.size() == tiles.size() and navigation.get_point_count() == tiles.size():
+		# The hex topology is static. Construction, doors and excavation only
+		# change admission; retain the native graph and its existing edges.
+		navigation.edge_cache.clear(); dark_navigation.edge_cache.clear()
+		for cell in point_ids:
+			var disabled := blocked(cell)
+			var point: int = point_ids[cell]
+			if navigation.is_point_disabled(point) != disabled: navigation.set_point_disabled(point, disabled)
+			if dark_navigation.is_point_disabled(point) != disabled: dark_navigation.set_point_disabled(point, disabled)
+		return
 	navigation.clear(); navigation.edge_cache.clear()
 	dark_navigation.clear(); dark_navigation.edge_cache.clear()
 	point_ids.clear()
@@ -261,18 +299,43 @@ func _pay(owner: int, cost: Dictionary) -> bool:
 	for resource in cost: resources(owner)[resource] = int(resources(owner).get(resource, 0)) - int(cost[resource])
 	return true
 
-func command(owner: int, order: Dictionary) -> String:
-	if ended or not players.has(owner) or not players[owner].alive: return "Player cannot issue orders"
+func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
+	if ended or not players.has(owner) or (not players[owner].alive and not from_queue): return "Player cannot issue orders"
 	var action := str(order.get("action", ""))
+	if order.has("queued") and not order.queued is bool: return "Invalid queue flag"
 	if not order.get("ids", []) is Array or order.get("ids", []).size() > 128: return "Invalid unit selection"
-	var required: Dictionary = {"move": ["x", "z"], "patrol": ["x", "z"], "escort": ["target"], "mine": ["q", "r"], "attack": ["target"], "equip": ["target"], "board": ["target"], "load_cargo": ["target"], "excavate": ["q", "r"], "build": ["q", "r"]}
+	var required: Dictionary = {"move": ["x", "z"], "patrol": ["x", "z"], "escort": ["target"], "mine": ["q", "r"], "attack": ["target"], "equip": ["target"], "board": ["target"], "load_cargo": ["target"], "excavate": ["q", "r"], "build": ["q", "r"], "build_line": ["q", "r", "end_q", "end_r"]}
 	for field in required.get(action, []):
 		if not order.has(field) or not (order[field] is int or order[field] is float) or not is_finite(float(order[field])): return "Invalid order coordinates or target"
+	if action == "attack":
+		var observed := observed_entity(int(order.target), owner)
+		if from_queue and observed.is_empty(): return "Target is no longer visible"
+		if observed.get("remembered", false): return "Rediscover this structure before targeting it"
 	if action in ["build", "kit", "vehicle"] and not order.get("kind") is String: return "Missing production type"
 	if action == "stance" and not order.get("stance") is String: return "Invalid stance"
 	var ids: Array = order.get("ids", [])
 	for raw_id in ids:
 		if not (raw_id is int or raw_id is float): return "Invalid unit selection"
+	if action == "global_personnel":
+		if not order.get("enabled") is bool: return "Invalid personnel setting"
+		players[owner].request_personnel = order.enabled
+		for facility in structures.values():
+			if facility.owner == owner: facility.request_personnel = order.enabled
+		return "Global Operator requests enabled" if order.enabled else "Global Operator requests disabled"
+	if bool(order.get("queued", false)) and action in ["move", "attack", "mine", "repair", "deposit", "work", "equip", "board", "load_cargo", "excavate", "patrol", "escort", "unload"]:
+		if order.has("target"):
+			var target := observed_entity(int(order.target), owner)
+			if target.is_empty() or target.get("remembered", false): return "Select a visible target"
+			if action != "attack" and action != "board" and target.owner != owner: return "Select a friendly target"
+		if action in ["mine", "excavate"] and not known.get(owner, {}).has(Vector2i(int(order.q), int(order.r))): return "Select a revealed tile"
+		var queued := 0
+		for raw_id in ids:
+			var unit: Dictionary = units.get(int(raw_id), {})
+			if unit.is_empty() or unit.owner != owner or int(unit.vehicle) != 0: continue
+			if unit.orders.size() >= int(cfg.movement.orderQueueLimit): continue
+			var next := order.duplicate(true); next.erase("queued"); next.ids = [unit.id]
+			unit.orders.append(next); queued += 1
+		return "Order queued for %d units" % queued if queued > 0 else "No eligible units or order queue full"
 	if action in ["patrol", "escort"]:
 		var target := entity(int(order.get("target", 0)))
 		if action == "escort" and (target.is_empty() or target.owner != owner): return "Choose a friendly unit or structure to escort"
@@ -285,10 +348,12 @@ func command(owner: int, order: Dictionary) -> String:
 				var old_route: Array = unit.route.duplicate()
 				move_to(unit, Vector2(float(order.x), float(order.z)))
 				if unit.route.is_empty(): unit.route = old_route; continue
+				if not from_queue: unit.orders.clear()
 				var finish: Vector2 = unit.route.back()
 				unit.job = {"kind": "patrol", "a": [unit.pos.x, unit.pos.y], "b": [finish.x, finish.y], "leg": 1, "anchor": [unit.pos.x, unit.pos.y], "interrupted": false, "repath": 0.0}
 				unit.home = finish
 			else:
+				if not from_queue: unit.orders.clear()
 				var per_ring := int(cfg.movement.routeOrders.escortSlotsPerRing)
 				var ring := assigned / per_ring
 				var slots := mini(per_ring, ids.size() - ring * per_ring)
@@ -325,7 +390,9 @@ func command(owner: int, order: Dictionary) -> String:
 	if action == "unload":
 		for raw_id in ids:
 			var vehicle := units.get(int(raw_id), {}) as Dictionary
-			if not vehicle.is_empty() and vehicle.owner == owner and cfg.units[vehicle.kind].has("driverSeats"): unload_vehicle(vehicle, false)
+			if not vehicle.is_empty() and vehicle.owner == owner and cfg.units[vehicle.kind].has("driverSeats"):
+				if not from_queue: vehicle.orders.clear()
+				unload_vehicle(vehicle, false)
 		return "Occupants unloaded; passengers leave before the driver"
 	if action == "excavate":
 		var cell := Vector2i(int(order.get("q", 99999)), int(order.get("r", 99999)))
@@ -333,6 +400,7 @@ func command(owner: int, order: Dictionary) -> String:
 		for raw_id in ids:
 			var unit := units.get(int(raw_id), {}) as Dictionary
 			if not unit.is_empty() and unit.owner == owner and unit.kind == "excavator":
+				if not from_queue: unit.orders.clear()
 				unit.job = {"kind": "excavate", "source": HexGrid.key(cell)}; move_to(unit, HexGrid.world(nearest_free(cell)))
 		return "Cliff clearing ordered; a driver is required"
 	if action == "load_cargo":
@@ -341,6 +409,7 @@ func command(owner: int, order: Dictionary) -> String:
 		for raw_id in ids:
 			var worker := units.get(int(raw_id), {}) as Dictionary
 			if not worker.is_empty() and worker.owner == owner and worker.kind in ["operator", "engineer"] and int(worker.vehicle) == 0:
+				if not from_queue: worker.orders.clear()
 				worker.job = {"kind": "load_cargo", "target": vehicle.id}; move_to(worker, vehicle.pos)
 		return "Load cargo ordered; workers retain cargo if the vehicle is full"
 	if action == "board" and (not units.has(int(order.target)) or not cfg.units[units[int(order.target)].kind].has("driverSeats")): return "Choose a vehicle to board"
@@ -348,6 +417,7 @@ func command(owner: int, order: Dictionary) -> String:
 		for raw_id in ids:
 			if units.has(int(raw_id)) and units[int(raw_id)].owner == owner:
 				var u: Dictionary = units[int(raw_id)]
+				u.orders.clear()
 				u.job = {"kind": "idle"}; u.route.clear(); u.target = 0; u.home = u.pos
 		return "Orders stopped; cargo retained"
 	if action in ["deposit", "repair"]:
@@ -361,6 +431,7 @@ func command(owner: int, order: Dictionary) -> String:
 			if u.owner != owner or int(u.vehicle) != 0: continue
 			if action == "repair" and u.kind != "engineer": continue
 			if action == "deposit" and cargo_amount(u) == 0: continue
+			if not from_queue: u.orders.clear()
 			u.job = {"kind": action, "target": int(target.id)}
 			u.work = 0.0; u.target = 0
 			move_to(u, entity_position(target))
@@ -374,6 +445,7 @@ func command(owner: int, order: Dictionary) -> String:
 			var u: Dictionary = units[id]
 			if action == "equip" and u.kind != "operator": continue
 			if action == "board" and (not u.kind in ["operator", "engineer", "marine", "flamer", "lancer"] or not can_board(u, int(order.target))): continue
+			if not from_queue: u.orders.clear()
 			u.target = 0
 			if action == "move":
 				var p := Vector2(float(order.x), float(order.z))
@@ -403,21 +475,40 @@ func command(owner: int, order: Dictionary) -> String:
 			var id := int(raw_id)
 			if units.has(id) and units[id].owner == owner: units[id].stance = str(order.stance)
 		return "Stance changed"
+	if action == "build_line":
+		var builder := _build_engineer(owner, ids)
+		if builder.is_empty(): return "Select an Engineer"
+		var start := Vector2i(int(order.q), int(order.r))
+		var finish := Vector2i(int(order.end_q), int(order.end_r))
+		var plan := wall_line_plan(owner, start, finish)
+		if not plan.issue.is_empty(): return str(plan.issue)
+		var placed := 0
+		for site in plan.sites:
+			if not site.valid: continue
+			var queued: bool = bool(order.get("queued", false)) or placed > 0
+			if queued and builder.orders.size() >= int(cfg.movement.orderQueueLimit): break
+			var result := command(owner, {"action": "build", "kind": "wall", "ids": [builder.id], "q": site.cell.x, "r": site.cell.y, "queued": queued})
+			if result == "Blueprint placed": placed += 1
+		return "%d wall blueprints placed; blocked, unaffordable or excess cells skipped" % placed
 	if action == "build":
 		var kind := str(order.kind)
 		if not cfg.structures.has(kind) or kind in ["anchor", "medusa", "womb", "gland", "chyme_gland", "stoma"]: return "Unavailable structure"
-		var builder: Dictionary = {}
-		for raw_id in ids:
-			if units.has(int(raw_id)) and units[int(raw_id)].owner == owner and units[int(raw_id)].kind == "engineer" and int(units[int(raw_id)].vehicle) == 0: builder = units[int(raw_id)]; break
+		var builder := _build_engineer(owner, ids)
 		if builder.is_empty(): return "Select an Engineer"
+		if bool(order.get("queued", false)) and builder.orders.size() >= int(cfg.movement.orderQueueLimit): return "Order queue full"
 		var cell := Vector2i(int(order.q), int(order.r))
 		for c in HexGrid.disk(cell, int(cfg.structures[kind].footprintRadiusTiles)):
 			if not known[owner].has(c) or not tiles.has(c): return "Entire footprint must be revealed"
-		if kind == "extractor" and tiles[cell].resource == "": return "Place Extractors on a resource patch"
+		var issue := placement_issue(owner, kind, cell)
+		if issue != "": return issue
 		if not _pay(owner, cfg.structures[kind].cost): return "Not enough resources"
 		var id := add_structure(kind, cell, owner, false, str(order.get("depot_type", "ore")))
-		builder.job = {"kind": "build", "target": id}
-		move_to(builder, _work_position(structures[id], builder.pos))
+		if bool(order.get("queued", false)):
+			builder.orders.append({"action": "work", "target": id, "ids": [builder.id]})
+		else:
+			if not from_queue: builder.orders.clear()
+			builder.job = {"kind": "build", "target": id}
+			move_to(builder, _work_position(structures[id], builder.pos))
 		return "Blueprint placed"
 	var target_id := int(order.get("target", 0))
 	if not structures.has(target_id) or structures[target_id].owner != owner: return "Select an owned structure"
@@ -426,7 +517,7 @@ func command(owner: int, order: Dictionary) -> String:
 		var kind := str(order.get("kind", ""))
 		if not cfg.units.has(kind) or not cfg.units[kind].has("driverSeats"): return "Invalid vehicle type"
 		if s.vehicles.size() >= int(cfg.personnel.vehicleQueueLimit): return "Vehicle queue is full"
-		var auto_personnel := bool(order.get("personnel", s.request_personnel))
+		var auto_personnel := bool(order.get("personnel", players[owner].request_personnel))
 		var source: Dictionary = structures.get(int(s.personnel_source), {})
 		if auto_personnel and (source.is_empty() or source.operators.size() >= int(cfg.personnel.operatorQueueLimit)): return "Personnel source unavailable"
 		var cost: Dictionary = cfg.units[kind].cost.duplicate()
@@ -461,7 +552,10 @@ func command(owner: int, order: Dictionary) -> String:
 			var source_id := int(order.source)
 			if not structures.has(source_id) or structures[source_id].owner != owner or not structures[source_id].built or not structures[source_id].kind in ["anchor", "cradle"]: return "Invalid personnel source"
 			s.personnel_source = source_id
-		if order.has("enabled"): s.request_personnel = bool(order.enabled)
+		if order.has("enabled"):
+			players[owner].request_personnel = bool(order.enabled)
+			for facility in structures.values():
+				if facility.owner == owner: facility.request_personnel = bool(order.enabled)
 		return "Personnel settings updated"
 	if action in ["cancel_operator", "cancel_upgrade"]:
 		var queue: Array = s.operators if action == "cancel_operator" else s.upgrades
@@ -493,6 +587,7 @@ func command(owner: int, order: Dictionary) -> String:
 	if action == "work":
 		for raw_id in ids:
 			if units.has(int(raw_id)) and units[int(raw_id)].kind == "engineer" and units[int(raw_id)].owner == owner:
+				if not from_queue: units[int(raw_id)].orders.clear()
 				units[int(raw_id)].job = {"kind": "research" if s.built and s.kind == "fabricator" else "build", "target": target_id}
 				move_to(units[int(raw_id)], _work_position(s, units[int(raw_id)].pos))
 		return "Engineers assigned"
@@ -514,7 +609,7 @@ func command(owner: int, order: Dictionary) -> String:
 		if s.kits.size() >= int(cfg.personnel.kitQueueLimit): return "Five-kit queue is full"
 		var source: Dictionary = structures.get(int(s.personnel_source), {})
 		if s.kind in ["anchor", "cradle"]: source = s
-		var auto_personnel := bool(order.get("personnel", s.request_personnel))
+		var auto_personnel := bool(order.get("personnel", players[owner].request_personnel))
 		if auto_personnel and (source.is_empty() or source.operators.size() >= int(cfg.personnel.operatorQueueLimit)): return "Personnel source unavailable"
 		var cost: Dictionary = cfg.personnel.kits[kind].cost.duplicate()
 		if auto_personnel:
@@ -531,7 +626,10 @@ func command(owner: int, order: Dictionary) -> String:
 			for r in cfg.personnel.kits[kit.kind].cost: resources(owner)[r] += int(cfg.personnel.kits[kit.kind].cost[r])
 		s.kits.remove_at(index)
 		return "Kit discarded"
-	if action == "toggle": s.enabled = not s.enabled; return "Power toggled"
+	if action == "toggle":
+		s.enabled = not s.enabled
+		_update_power(0); update_visibility()
+		return ("Relay switched on" if s.enabled else "Relay switched off") if s.kind == "relay" else "Power toggled"
 	if action == "gate" and s.kind == "gate":
 		s.open = not s.open; s.auto_close = false; s.erase("opening_remaining"); _rebuild_navigation(); update_visibility(); return "Gate state changed"
 	if action == "gate_lock" and s.kind == "gate":
@@ -550,20 +648,74 @@ func personnel_source(owner: int, point: Vector2i) -> Dictionary:
 func entity(id: int) -> Dictionary:
 	return units.get(id, structures.get(id, {}))
 
+func structure_visible(owner: int, structure: Dictionary) -> bool:
+	if structure.get("remembered", false): return false
+	var sight: Dictionary = visible.get(owner, {})
+	for cell in footprint(structure):
+		if sight.has(cell): return true
+	return false
+
+func observed_entity(id: int, owner: int) -> Dictionary:
+	var current := entity(id)
+	if not current.is_empty():
+		if current.owner == owner: return current
+		if current.has("cell"):
+			if structure_visible(owner, current): return current
+		elif TargetRules.identifiable(self, current, owner): return current
+	return structure_memory.get(owner, {}).get(id, {})
+
+func observed_structures(owner: int) -> Array:
+	var result: Array = []
+	var live: Dictionary = {}
+	for structure in structures.values():
+		if structure.owner == owner or structure_visible(owner, structure):
+			result.append(structure); live[int(structure.id)] = true
+	for id in structure_memory.get(owner, {}):
+		if not live.has(id): result.append(structure_memory[owner][id])
+	return result
+
+func _remember_structures() -> void:
+	for owner in players:
+		if not structure_memory.has(owner): structure_memory[owner] = {}
+		var records: Dictionary = structure_memory[owner]
+		# A hidden demolition is not observable. Clear its old silhouette only
+		# when a previously occupied part of its footprint is scouted again.
+		for id in records.keys():
+			var record: Dictionary = records[id]
+			var revisited := false
+			for cell in footprint(record):
+				if visible.get(owner, {}).has(cell): revisited = true; break
+			if revisited: records.erase(id)
+		for structure in structures.values():
+			if structure.owner == owner or not structure_visible(owner, structure): continue
+			var record: Dictionary = structure.duplicate(true)
+			record.remembered = true; record.last_seen_tick = tick; record.last_seen_seconds = time_seconds
+			records[int(structure.id)] = record
+
 func entity_position(e: Dictionary) -> Vector2:
 	return e.pos if e.has("pos") else HexGrid.world(e.cell)
 
 func step(delta: float) -> void:
 	if ended or paused: return
+	_opponents.clear()
 	tick += 1
 	time_seconds += delta
 	shots.clear()
 	GateRules.update(self, delta)
 	_update_power(delta)
 	RadarSystem.update(self)
+	LightlessColony.update(self, delta)
 	for s in structures.values(): _production(s, delta)
 	for id in units.keys():
-		if units.has(id): _unit_step(units[id], delta)
+		if units.has(id):
+			var unit: Dictionary = units[id]
+			if unit.owner >= 0 and int(unit.vehicle) == 0:
+				if unit.job.get("automatic", false) and not unit.orders.is_empty():
+					unit.job = {"kind": "idle"}; unit.route.clear(); unit.target = 0
+				while unit.job.kind == "idle" and not unit.orders.is_empty():
+					var next: Dictionary = unit.orders.pop_front()
+					command(int(unit.owner), next, true)
+			_unit_step(unit, delta)
 	_separate_units(delta)
 	_update_occupants(delta)
 	_healing(delta)
@@ -577,11 +729,15 @@ func step(delta: float) -> void:
 
 func _unit_step(u: Dictionary, delta: float) -> void:
 	if u.vehicle != 0: return
+	if u.owner >= 0 and u.kind == "engineer": _idle_engineer_work(u, delta)
+	if u.owner < 0 and u.kind == "mother":
+		LightlessColony.mother_step(self, u, delta); return
 	if BurrowRules.update(self, u, delta): return
 	if u.owner < 0 and cfg.units[u.kind].has("buriedWeapon") and not u.get("buried", false) and u.job.kind == "idle":
 		BurrowRules.request(self, u, true); return
 	if cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: return
 	u.cooldown = maxf(0, float(u.cooldown) - delta)
+	if u.owner >= 0 and u.stance == "neutral" and u.job.kind == "idle" and u.route.is_empty(): return
 	if u.owner < 0: u.job.repath_remaining = maxf(0, float(u.job.get("repath_remaining", 0)) - delta)
 	if u.owner < 0 and u.stance == "probe":
 		_probe_step(u, delta)
@@ -616,6 +772,7 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 	elif u.job.kind == "research":
 		var facility := structures.get(int(u.job.target), {}) as Dictionary
 		if facility.is_empty(): u.job = {"kind": "idle"}
+		elif facility.upgrades.is_empty(): u.job = {"kind": "idle"}; u.route.clear()
 		elif not facility.upgrades.is_empty() and facility.powered:
 			if u.pos.distance_to(entity_position(facility)) <= int(cfg.structures.fabricator.footprintRadiusTiles) + 1.4:
 				u.route.clear()
@@ -682,7 +839,7 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 		if can_board(u, destination):
 			var vehicle: Dictionary = units[destination]
 			if u.pos.distance_to(vehicle.pos) <= float(cfg.economy.interactionRangeTiles):
-				if int(vehicle.driver) == 0: vehicle.driver = u.id; vehicle.owner = u.owner
+				if int(vehicle.driver) == 0: vehicle.driver = u.id; vehicle.owner = u.owner; _opponents.clear()
 				else: vehicle.passengers.append(u.id)
 				u.vehicle = vehicle.id; u.pos = vehicle.pos; u.job = {"kind": "riding"}; u.route.clear(); u.target = 0
 			elif u.route.is_empty() or u.route.back().distance_to(vehicle.pos) > 1: move_to(u, vehicle.pos)
@@ -714,9 +871,12 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 	if u.route.is_empty() and not goal.is_empty(): move_to(u, entity_position(goal))
 	var candidate: Dictionary = {}
 	var nearest := INF
-	var vision := flood(HexGrid.cell(u.pos), int(cfg.units[u.kind].visionRangeTiles))
-	for e in units.values() + structures.values():
+	var vision := _cached_sight(HexGrid.cell(u.pos), int(cfg.units[u.kind].visionRangeTiles))
+	for e in _enemy_entities(int(u.owner)):
 		if e.owner < 0 or int(e.get("vehicle", 0)) != 0: continue
+		var extent := int(cfg.structures[e.kind].footprintRadiusTiles) if e.has("cell") else 0
+		var reach := float(cfg.units[u.kind].visionRangeTiles) + extent + HexGrid.RADIUS * 2
+		if u.pos.distance_squared_to(entity_position(e)) > reach * reach: continue
 		var seen := vision.has(HexGrid.cell(entity_position(e)))
 		if e.has("cell"):
 			for cell in footprint(e):
@@ -734,8 +894,10 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		u.job.pressure += delta
 		if float(u.job.pressure) >= float(cfg.lightless.probeResistanceWindowSeconds):
 			var target_id := int(candidate.id)
-			for other in units.values():
-				if other.owner < 0 and other.kind == "scavenger" and other.stance == "probe" and other.job.kind in ["idle", "probe"] and other.pos.distance_to(u.pos) <= float(cfg.lightless.probePressureSignalRangeTiles):
+			var nearby := units.values().filter(func(other): return other.owner < 0 and cfg.units[other.kind].get("weapon") != null and other.pos.distance_to(u.pos) <= float(cfg.lightless.probePressureSignalRangeTiles))
+			for other in nearby:
+				if other.kind == "stalker" and nearby.size() < 2: continue
+				if other.stance == "probe" and other.job.kind in ["idle", "probe"]:
 					other.target = target_id; other.job = {"kind": "attack"}; other.route.clear()
 			return
 	else: u.target = 0; u.job.pressure = 0.0
@@ -763,22 +925,23 @@ func _separate_units(delta: float) -> void:
 		if int(u.vehicle) != 0 or u.get("buried", false): continue
 		var key := Vector2i(floori(u.pos.x), floori(u.pos.y))
 		if not buckets.has(key): buckets[key] = []
-		buckets[key].append(u.id)
+		buckets[key].append(u)
 	for u in units.values():
 		if int(u.vehicle) != 0 or u.get("buried", false): continue
 		if cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: continue
 		var key := Vector2i(floori(u.pos.x), floori(u.pos.y))
 		var push := Vector2.ZERO
-		for x in range(-1, 2):
-			for y in range(-1, 2):
-				for id in buckets.get(key + Vector2i(x, y), []):
-					if id == u.id: continue
-					var other: Dictionary = units[id]
-					var offset: Vector2 = u.pos - other.pos
-					var desired := float(cfg.units[u.kind].collisionRadiusTiles) + float(cfg.units[other.kind].collisionRadiusTiles)
-					if offset.length() >= desired: continue
-					var direction := offset.normalized() if offset.length() > 0.001 else Vector2.RIGHT * (1 if int(u.id) > int(id) else -1)
-					push += direction * (desired - offset.length())
+		for neighbor in SEPARATION_OFFSETS:
+			if not buckets.has(key + neighbor): continue
+			for other in buckets[key + neighbor]:
+				if other.id == u.id: continue
+				var offset: Vector2 = u.pos - other.pos
+				var desired := float(cfg.units[u.kind].collisionRadiusTiles) + float(cfg.units[other.kind].collisionRadiusTiles)
+				var length_squared := offset.length_squared()
+				if length_squared >= desired * desired: continue
+				var distance := sqrt(length_squared)
+				var direction := offset / distance if distance > 0.001 else Vector2.RIGHT * (1 if int(u.id) > int(other.id) else -1)
+				push += direction * (desired - distance)
 		var proposed: Vector2 = u.pos + push.limit_length(float(cfg.movement.separationTilesPerSecond) * delta)
 		if push.length_squared() > 0.000001 and RouteNavigation.clear_segment(self, u, u.pos, proposed): u.pos = proposed
 
@@ -798,6 +961,7 @@ func _repair(u: Dictionary, delta: float) -> void:
 	if float(target.hp) >= maximum: u.job = {"kind": "idle"}; return
 	var reach := float(cfg.construction.engineerWorkRangeTiles) + (float(cfg.structures[target.kind].footprintRadiusTiles) + 0.2 if target.has("cell") else 0.0)
 	if u.pos.distance_to(entity_position(target)) > reach:
+		if u.job.get("automatic", false) and u.route.is_empty(): u.job = {"kind": "idle"}; return
 		if u.route.is_empty(): move_to(u, entity_position(target))
 		return
 	u.route.clear()
@@ -838,11 +1002,12 @@ func unload_vehicle(vehicle: Dictionary, all_occupants: bool) -> void:
 func unit_area(unit: Dictionary, illumination: bool) -> Dictionary:
 	var d: Dictionary = cfg.units[unit.kind]
 	var cell := HexGrid.cell(unit.pos)
-	var result := flood(cell, int(d.illuminationRangeTiles if illumination else d.visionRangeTiles))
+	var result := _cached_sight(cell, int(d.illuminationRangeTiles if illumination else d.visionRangeTiles))
 	var forward_range := int(d.get("forwardIlluminationRangeTiles" if illumination else "visionForwardRangeTiles", 0))
 	if forward_range > 0:
+		result = result.duplicate()
 		var direction := Vector2(-sin(float(unit.heading)), -cos(float(unit.heading)))
-		result.merge(flood(cell, forward_range, direction, float(d.forwardConeDegrees)), true)
+		result.merge(_cached_sight(cell, forward_range, direction, float(d.forwardConeDegrees)), true)
 	return result
 
 func _update_occupants(delta: float) -> void:
@@ -890,7 +1055,8 @@ func _mine(u: Dictionary, delta: float) -> void:
 			_deposit_cargo(u, s)
 			if cargo_amount(u) == 0:
 				job.delivering = false
-				move_to(u, HexGrid.world(nearest_free(source)))
+				if facility == 0 and int(tiles.get(source, {}).get("amount", 0)) <= 0 and not u.orders.is_empty(): u.job = {"kind": "idle"}; u.route.clear()
+				else: move_to(u, HexGrid.world(nearest_free(source)))
 		return
 	var definition: Dictionary = cfg.units[u.kind]
 	var free := int(definition.get("cargoCapacity", 0)) - cargo_amount(u)
@@ -906,6 +1072,7 @@ func _mine(u: Dictionary, delta: float) -> void:
 		if cargo_amount(u) > 0:
 			job.delivering = true
 			job.deposit = 0
+		elif facility == 0 and amount == 0 and not u.orders.is_empty(): u.job = {"kind": "idle"}; u.route.clear()
 		return
 	if u.pos.distance_to(HexGrid.world(source)) > 1.3:
 		if u.route.is_empty(): move_to(u, HexGrid.world(nearest_free(source)))
@@ -931,6 +1098,63 @@ func _deposit_destination(u: Dictionary) -> int:
 		if d < distance: distance = d; best = s.id
 	return best
 
+func _build_engineer(owner: int, ids: Array) -> Dictionary:
+	for raw_id in ids:
+		var unit: Dictionary = units.get(int(raw_id), {})
+		if not unit.is_empty() and unit.owner == owner and unit.kind == "engineer" and int(unit.vehicle) == 0: return unit
+	return {}
+
+func wall_line_plan(owner: int, start: Vector2i, finish: Vector2i) -> Dictionary:
+	var result := {"sites": [], "count": 0, "cost": {}, "issue": ""}
+	if not players.has(owner) or HexGrid.distance(start) >= radius or HexGrid.distance(finish) >= radius:
+		result.issue = "Keep the wall line inside the map"; return result
+	var budget: Dictionary = resources(owner).duplicate()
+	var cost: Dictionary = cfg.structures.wall.cost
+	for cell in HexGrid.line(start, finish):
+		var issue := placement_issue(owner, "wall", cell)
+		if issue.is_empty():
+			for resource in cost:
+				if int(budget.get(resource, 0)) < int(cost[resource]): issue = "Not enough %s" % str(resource).capitalize(); break
+		if issue.is_empty():
+			for resource in cost:
+				budget[resource] -= int(cost[resource])
+				result.cost[resource] = int(result.cost.get(resource, 0)) + int(cost[resource])
+			result.count += 1
+		result.sites.append({"cell": cell, "valid": issue.is_empty(), "issue": issue})
+	return result
+
+func _idle_engineer_work(u: Dictionary, delta: float) -> void:
+	if u.job.kind != "idle":
+		if u.job.get("automatic", false) and u.job.kind == "repair" and float(u.work) <= 0 and int(resources(u.owner).get("ore", 0)) < int(cfg.construction.repairOrePerCycle):
+			u.job = {"kind": "idle"}; u.route.clear()
+		else: return
+	if not u.orders.is_empty() or not u.route.is_empty() or not players[u.owner].alive: return
+	u.auto_work_remaining = maxf(0, float(u.get("auto_work_remaining", 0)) - delta)
+	if u.auto_work_remaining > 0: return
+	u.auto_work_remaining = float(cfg.construction.idleEngineerSearchIntervalSeconds)
+	var candidates: Array = []
+	for s in structures.values():
+		if s.owner != u.owner or float(s.hp) >= float(cfg.structures[s.kind].health): continue
+		if s.built and int(resources(u.owner).get("ore", 0)) < int(cfg.construction.repairOrePerCycle): continue
+		var reach := float(cfg.construction.idleEngineerSearchRangeTiles) + float(cfg.structures[s.kind].footprintRadiusTiles)
+		var distance: float = u.pos.distance_squared_to(entity_position(s))
+		if distance <= reach * reach: candidates.append({"structure": s, "distance": distance})
+	candidates.sort_custom(func(a, b):
+		if a.structure.built != b.structure.built: return not a.structure.built
+		return int(a.structure.id) < int(b.structure.id) if a.distance == b.distance else a.distance < b.distance)
+	for candidate in candidates:
+		var s: Dictionary = candidate.structure
+		var positions := HexGrid.disk(s.cell, int(cfg.structures[s.kind].footprintRadiusTiles) + 1)
+		positions.sort_custom(func(a, b): return u.pos.distance_squared_to(HexGrid.world(a)) < u.pos.distance_squared_to(HexGrid.world(b)))
+		for cell in positions:
+			if cell in footprint(s) or blocked(cell): continue
+			var path := _route_path(u, nearest_free(HexGrid.cell(u.pos)), cell)
+			if path.is_empty(): continue
+			u.job = {"kind": "repair" if s.built else "build", "target": s.id, "automatic": true}
+			u.target = 0; u.work = 0
+			RouteNavigation.assign(self, u, path)
+			return
+
 func _build(u: Dictionary, delta: float) -> void:
 	var id := int(u.job.target)
 	if not structures.has(id): u.job = {"kind": "idle"}; return
@@ -941,7 +1165,8 @@ func _build(u: Dictionary, delta: float) -> void:
 		return
 	if u.pos.distance_to(HexGrid.world(s.cell)) > int(cfg.structures[s.kind].footprintRadiusTiles) + 1.4:
 		if u.route.is_empty():
-			command(u.owner, {"action": "cancel_build", "target": id})
+			if u.job.get("automatic", false): u.job = {"kind": "idle"}
+			else: command(u.owner, {"action": "cancel_build", "target": id})
 		return
 	if not s.started:
 		var wait_for_units := false
@@ -978,8 +1203,8 @@ func placement_issue(owner: int, kind: String, cell: Vector2i) -> String:
 	for c in HexGrid.disk(cell, int(cfg.structures[kind].footprintRadiusTiles)):
 		if not tiles.has(c) or not known.get(owner, {}).has(c): return "Reveal the entire footprint first"
 		if blocked(c): return "Footprint is obstructed"
-		for s in structures.values():
-			if c in footprint(s): return "A structure or blueprint occupies this site"
+		for id in structure_cells.get(c, []):
+			if structures.has(id): return "A structure or blueprint occupies this site"
 	if kind == "extractor" and tiles[cell].resource == "": return "An Extractor requires a resource patch"
 	for resource in cfg.structures[kind].cost:
 		if int(resources(owner).get(resource, 0)) < int(cfg.structures[kind].cost[resource]): return "Not enough %s" % resource.capitalize()
@@ -988,11 +1213,6 @@ func placement_issue(owner: int, kind: String, cell: Vector2i) -> String:
 func _production(s: Dictionary, delta: float) -> void:
 	if not s.built: return
 	if float(s.get("configuration_remaining", 0)) > 0: s.configuration_remaining = maxf(0, float(s.configuration_remaining) - delta)
-	if s.kind == "medusa":
-		s.passive += delta
-		if float(s.passive) >= float(cfg.lightless.medusaPassiveScavengerSeconds) and _population("scavenger") < int(cfg.units.scavenger.basePopulationCap):
-			s.passive = 0.0
-			add_unit("scavenger", HexGrid.world(nearest_free(s.cell)), -1)
 	if s.owner < 0: return
 	if int(cfg.structures[s.kind].powerDemand) > 0 and not s.powered: return
 	var rate := float(cfg.power.brownout.productionRateMultiplier) if s.brownout else 1.0
@@ -1044,7 +1264,7 @@ func _production(s: Dictionary, delta: float) -> void:
 func _population(kind: String) -> int:
 	var total := 0
 	for u in units.values():
-		if u.kind == kind: total += 1
+		if u.owner < 0 and u.kind == kind: total += 1
 	return total
 
 func _output_resource(s: Dictionary) -> String:
@@ -1075,6 +1295,14 @@ func _wants_power(s: Dictionary) -> bool:
 			if int(resources(s.owner).get(resource, 0)) < int(recipe.inputs[resource]): return false
 	return true
 
+func electrical_structure(kind: String) -> bool:
+	var d: Dictionary = cfg.structures[kind]
+	return kind == "relay" or int(d.powerDemand) > 0 or int(d.powerCapacity) > 0
+
+func electrical_reach(kind: String) -> int:
+	var d: Dictionary = cfg.structures[kind]
+	return int(d.footprintRadiusTiles) + int(d.electricalRangeBeyondFootprintTiles)
+
 func _update_power(delta: float) -> void:
 	var pending: Array = []
 	for s in structures.values():
@@ -1085,17 +1313,17 @@ func _update_power(delta: float) -> void:
 			if s.fuel <= 0:
 				var fuel: Dictionary = cfg.power.generatorFuel if s.kind == "generator" else cfg.power.reactorFuel
 				if _pay(s.owner, {str(fuel.resource): int(fuel.unitsPerCycle)}): s.fuel = float(fuel.cycleSeconds)
-		if int(cfg.structures[s.kind].powerDemand) > 0 or int(cfg.structures[s.kind].powerCapacity) > 0: pending.append(s.id)
+		if electrical_structure(s.kind): pending.append(s.id)
 		else: s.powered = true
 	while not pending.is_empty():
 		var group: Array = [pending.pop_front()]
 		var index := 0
 		while index < group.size():
 			var a: Dictionary = structures[group[index]]
-			var reach_a := int(cfg.structures[a.kind].footprintRadiusTiles) + int(cfg.structures[a.kind].electricalRangeBeyondFootprintTiles)
+			var reach_a := electrical_reach(a.kind)
 			for other in pending.duplicate():
 				var b: Dictionary = structures[other]
-				var reach_b := int(cfg.structures[b.kind].footprintRadiusTiles) + int(cfg.structures[b.kind].electricalRangeBeyondFootprintTiles)
+				var reach_b := electrical_reach(b.kind)
 				if a.owner == b.owner and HexGrid.distance(a.cell, b.cell) <= reach_a + reach_b:
 					pending.erase(other)
 					group.append(other)
@@ -1115,6 +1343,16 @@ func _update_power(delta: float) -> void:
 			structures[id].powered = not blackout
 			structures[id].blackout = blackout
 			structures[id].brownout = not blackout and demand > supply
+			if structures[id].kind == "relay":
+				structures[id].powered = true; structures[id].blackout = false; structures[id].brownout = false
+
+func _enemy_entities(owner: int) -> Array:
+	if not _opponents.has(owner):
+		var enemies: Array = []
+		for e in units.values() + structures.values():
+			if e.owner != owner: enemies.append(e)
+		_opponents[owner] = enemies
+	return _opponents[owner]
 
 func _fire(attacker: Dictionary, weapon_name: String, delta: float) -> bool:
 	var weapon: Dictionary = cfg.weapons[weapon_name]
@@ -1143,11 +1381,11 @@ func _fire(attacker: Dictionary, weapon_name: String, delta: float) -> bool:
 	if target.is_empty() or (target.owner == attacker.owner and not explicit_attack):
 		target = {}
 		var distance := float(weapon.rangeTiles) + float(cfg.combat.targetSearchMarginTiles)
-		for candidate in units.values() + structures.values():
+		for candidate in _enemy_entities(int(attacker.owner)):
 			if candidate.owner == attacker.owner: continue
 			if int(candidate.get("vehicle", 0)) != 0: continue
-			if not TargetRules.targetable(self, attacker, candidate): continue
 			if defensive and attacker.home.distance_to(entity_position(candidate)) > float(cfg.combat.defensiveLeashTiles): continue
+			if not TargetRules.targetable(self, attacker, candidate): continue
 			var d := origin.distance_to(entity_position(candidate))
 			if d < distance: distance = d; target = candidate
 	if target.is_empty():
@@ -1205,16 +1443,21 @@ func _weapon_damage(target: Dictionary, weapon: Dictionary) -> void:
 	if target.hp <= 0: _destroy(target)
 
 func _destroy(e: Dictionary) -> void:
+	_opponents.clear()
 	emit_feedback("destroy", entity_position(e), {"target": e.id, "owner": e.owner, "biological": e.owner < 0 or (e.has("pos") and bool(cfg.units[e.kind].get("biological", false)))}, feedback_audience(e))
 	if e.has("cell"):
+		for owner in structure_memory:
+			if e.owner == owner or structure_visible(owner, e): structure_memory[owner].erase(int(e.id))
 		structures.erase(e.id)
 		if e.kind == "anchor": eliminate(int(e.owner))
 		if e.kind == "medusa":
 			medusa_dead = true
-			tiles[Vector2i.ZERO].resource = "nacre"
-			tiles[Vector2i.ZERO].amount = 2147483647
+			corpse = e.cell
+			lightless_chyme += int(cfg.lightless.postMedusaChymeGrant)
+			tiles[e.cell].resource = "nacre"
+			tiles[e.cell].amount = 2147483647
 			for u in units.values():
-				if u.owner == -1: u.stance = "attack"; u.job = {"kind": "idle"}; u.target = 0; u.route.clear()
+				if u.owner == -1 and not u.kind in ["mother", "father"]: u.stance = "attack"; u.job = {"kind": "idle"}; u.target = 0; u.route.clear()
 		_rebuild_navigation()
 	else:
 		if cfg.units[e.kind].has("driverSeats"): unload_vehicle(e, true)
@@ -1243,17 +1486,68 @@ func eliminate(owner: int) -> void:
 
 func blocks_sight(cell: Vector2i) -> bool:
 	if not tiles.has(cell) or tiles[cell].cliff: return true
-	for s in structures.values():
+	for id in structure_cells.get(cell, []):
+		var s: Dictionary = structures.get(id, {})
+		if s.is_empty(): continue
 		if not s.started: continue
-		if cell in footprint(s) and (s.kind == "wall" or (s.kind == "gate" and not s.open)): return true
+		if s.kind == "wall" or (s.kind == "gate" and not s.open): return true
 	return false
+
+func _refresh_sight_topology() -> void:
+	var blockers: Dictionary = {}
+	for cell in tiles:
+		if tiles[cell].cliff: blockers[cell] = true
+	for s in structures.values():
+		if s.started and (s.kind == "wall" or (s.kind == "gate" and not s.open)):
+			for cell in footprint(s): blockers[cell] = true
+	if blockers != _sight_blockers: _sight_areas.clear(); _sight_unions.clear()
+	_sight_blockers = blockers; _sight_topology_valid = true
+
+func _cached_sight(cell: Vector2i, reach: int, direction: Vector2 = Vector2.ZERO, degrees: float = 360) -> Dictionary:
+	if not _sight_topology_valid: _refresh_sight_topology()
+	var key: Variant = Vector3i(cell.x, cell.y, reach) if direction == Vector2.ZERO else [cell, reach, direction, degrees]
+	if not _sight_areas.has(key):
+		# Bound memory when units explore many distinct cells/headings.
+		if _sight_areas.size() >= 1024: _sight_areas.clear()
+		_sight_areas[key] = flood(cell, reach, direction, degrees)
+	return _sight_areas[key]
+
+func _sight_union(sources: Dictionary) -> Dictionary:
+	for cached in _sight_unions:
+		if cached.sources == sources: return cached.area
+	# Descending remaining range visits each traversable cell at its best range.
+	# This is the exact union of the individual floods, including opaque sources.
+	var buckets: Array = []
+	var best: Dictionary = {}
+	var reached: Dictionary = {}
+	for cell in sources:
+		var reach: int = sources[cell]
+		while buckets.size() <= reach: buckets.append([])
+		buckets[reach].append(cell); best[cell] = reach; reached[cell] = true
+	for reach in range(buckets.size() - 1, 0, -1):
+		for cell in buckets[reach]:
+			if int(best[cell]) != reach: continue
+			for direction in HexGrid.DIRECTIONS:
+				var other: Vector2i = cell + direction
+				if not tiles.has(other): continue
+				reached[other] = true
+				if _sight_blockers.has(other) or int(best.get(other, -1)) >= reach - 1: continue
+				best[other] = reach - 1; buckets[reach - 1].append(other)
+	if _sight_unions.size() >= players.size() * 2: _sight_unions.pop_front()
+	_sight_unions.append({"sources": sources.duplicate(), "area": reached})
+	return reached
+
+func _sight_source(sources: Dictionary, cell: Vector2i, reach: int) -> void:
+	sources[cell] = maxi(int(sources.get(cell, 0)), reach)
 
 func flood(start: Vector2i, range_value: int, cone_direction: Vector2 = Vector2.ZERO, cone_degrees: float = 360) -> Dictionary:
 	var reached: Dictionary = {start: true}
 	var frontier: Array = [start]
 	var distances: Dictionary = {start: 0}
-	while not frontier.is_empty():
-		var cell: Vector2i = frontier.pop_front()
+	var cursor := 0
+	while cursor < frontier.size():
+		var cell: Vector2i = frontier[cursor]
+		cursor += 1
 		if int(distances[cell]) >= range_value or (cell != start and blocks_sight(cell)): continue
 		for direction in HexGrid.DIRECTIONS:
 			var other: Vector2i = cell + direction
@@ -1263,8 +1557,22 @@ func flood(start: Vector2i, range_value: int, cone_direction: Vector2 = Vector2.
 			if tiles.has(other) and not reached.has(other): reached[other] = true; distances[other] = int(distances[cell]) + 1; frontier.append(other)
 	return reached
 
+func structure_vision_range(s: Dictionary) -> int:
+	var d: Dictionary = cfg.structures[s.kind]
+	if d.has("unpoweredVisionRangeBeyondFootprintTiles") and (not s.powered or not s.enabled or s.blackout): return int(d.unpoweredVisionRangeBeyondFootprintTiles)
+	return int(d.visionRangeBeyondFootprintTiles)
+
 func update_visibility() -> void:
+	_refresh_sight_topology()
+	var old_light: Dictionary = {}
+	for area in illuminated.values(): old_light.merge(area, true)
+	# Preserve the latest visible state before replacing the previous sight map.
+	# Otherwise damage since the last refresh would be lost as vision recedes.
+	_remember_structures()
+	var sight_sources: Dictionary = {}
+	var light_sources: Dictionary = {}
 	for owner in players:
+		sight_sources[owner] = {}; light_sources[owner] = {}
 		visible[owner] = {}
 		illuminated[owner] = {}
 		if not known.has(owner): known[owner] = {}
@@ -1272,22 +1580,36 @@ func update_visibility() -> void:
 		if not s.built or s.owner < 0: continue
 		var d: Dictionary = cfg.structures[s.kind]
 		for c in footprint(s):
-			visible[s.owner].merge(flood(c, int(d.visionRangeBeyondFootprintTiles)), true)
-			if int(d.illuminationRangeBeyondFootprintTiles) > 0 and s.powered:
+			_sight_source(sight_sources[s.owner], c, structure_vision_range(s))
+			if int(d.illuminationRangeBeyondFootprintTiles) > 0 and s.powered and s.enabled and not s.blackout:
 				var reach := int(d.illuminationRangeBeyondFootprintTiles)
 				if s.brownout: reach = floori(reach * float(cfg.power.brownout.illuminationRangeMultiplier))
-				illuminated[s.owner].merge(flood(c, reach), true)
+				_sight_source(light_sources[s.owner], c, reach)
 	for u in units.values():
 		if u.owner < 0 or u.vehicle != 0: continue
 		var d: Dictionary = cfg.units[u.kind]
 		if d.has("driverSeats") and u.driver == 0: continue
 		var c := HexGrid.cell(u.pos)
-		visible[u.owner].merge(unit_area(u, false), true)
-		if int(d.illuminationRangeTiles) > 0: illuminated[u.owner].merge(unit_area(u, true), true)
+		_sight_source(sight_sources[u.owner], c, int(d.visionRangeTiles))
+		if int(d.illuminationRangeTiles) > 0: _sight_source(light_sources[u.owner], c, int(d.illuminationRangeTiles))
+		for illumination in [false, true]:
+			var reach := int(d.get("forwardIlluminationRangeTiles" if illumination else "visionForwardRangeTiles", 0))
+			if reach > 0:
+				var direction := Vector2(-sin(float(u.heading)), -cos(float(u.heading)))
+				var destination: Dictionary = illuminated[u.owner] if illumination else visible[u.owner]
+				destination.merge(_cached_sight(c, reach, direction, float(d.forwardConeDegrees)), true)
+	for owner in players:
+		visible[owner].merge(_sight_union(sight_sources[owner]), true)
+		illuminated[owner].merge(_sight_union(light_sources[owner]), true)
 	RadarSystem.update(self)
 	for owner in players: known[owner].merge(visible[owner], true)
-	for cell in point_ids:
-		dark_navigation.set_point_weight_scale(point_ids[cell], float(cfg.lightless.darkPathLightPenalty) if is_lit(cell) else 1.0)
+	_remember_structures()
+	var new_light: Dictionary = {}
+	for area in illuminated.values(): new_light.merge(area, true)
+	for cell in old_light:
+		if not new_light.has(cell) and point_ids.has(cell): dark_navigation.set_point_weight_scale(point_ids[cell], 1.0)
+	for cell in new_light:
+		if not old_light.has(cell) and point_ids.has(cell): dark_navigation.set_point_weight_scale(point_ids[cell], float(cfg.lightless.darkPathLightPenalty))
 
 func unknown_contacts(owner: int) -> Array[Vector2i]:
 	## Public UI contract: contacts contain coordinates, never enemy IDs or counts.
@@ -1335,18 +1657,18 @@ func snapshot(owner: int) -> Dictionary:
 	for u in units.values():
 		if u.owner != owner and not TargetRules.identifiable(self, u, owner): continue
 		var d: Dictionary = u.duplicate(true)
+		if u.owner != owner: d.erase("orders")
 		d.pos = [u.pos.x, u.pos.y]
 		d.home = [u.home.x, u.home.y]
 		d.erase("route")
 		exported_units.append(d)
-	for s in structures.values():
-		if s.owner != owner and not known.get(owner, {}).has(s.cell): continue
+	for s in observed_structures(owner):
 		var d: Dictionary = s.duplicate(true)
 		d.cell = [s.cell.x, s.cell.y]
 		exported_structures.append(d)
 	var cells: Array = []
 	for cell in known.get(owner, {}):
-		cells.append([cell.x, cell.y, bool(visible[owner].has(cell)), is_lit(cell), float(gloom.get(cell, 0)), int(tiles[cell].amount), bool(tiles[cell].cliff), bool(tiles[cell].get("rubble", false))])
+		cells.append([cell.x, cell.y, bool(visible[owner].has(cell)), is_lit(cell), float(gloom.get(cell, 0)), int(tiles[cell].amount), bool(tiles[cell].cliff), bool(tiles[cell].get("rubble", false)), str(tiles[cell].resource)])
 	var exported_feedback: Array = []
 	for event in feedback_for(owner):
 		var copy: Dictionary = event.duplicate(true); copy.erase("audience")
@@ -1356,6 +1678,8 @@ func snapshot(owner: int) -> Dictionary:
 	return {"feedback": exported_feedback, "feedback_serial": feedback_serial, "contacts": detected.get(owner, {}).keys().map(func(cell): return [cell.x, cell.y]), "tick": tick, "time_seconds": time_seconds, "units": exported_units, "structures": exported_structures, "players": players, "cells": cells, "ended": ended, "result": result, "medusa_dead": medusa_dead, "speed": speed, "paused": paused}
 
 func apply_snapshot(data: Dictionary, owner: int) -> void:
+	_opponents.clear(); _sight_areas.clear(); _sight_unions.clear(); _sight_topology_valid = false
+	corpse = null
 	tick = int(data.tick)
 	feedback_serial = int(data.get("feedback_serial", 0)); feedback_events.clear()
 	for event in data.get("feedback", []):
@@ -1366,16 +1690,19 @@ func apply_snapshot(data: Dictionary, owner: int) -> void:
 	time_seconds = float(data.get("time_seconds", 0))
 	units.clear()
 	structures.clear()
+	structure_memory.clear(); structure_memory[owner] = {}
 	players.clear()
 	for id in data.players: players[int(id)] = data.players[id]
 	for d in data.units:
 		d.pos = Vector2(float(d.pos[0]), float(d.pos[1]))
 		d.home = Vector2(float(d.home[0]), float(d.home[1]))
 		d.route = []
+		d.orders = d.get("orders", [])
 		units[int(d.id)] = d
 	for d in data.structures:
 		d.cell = Vector2i(int(d.cell[0]), int(d.cell[1]))
-		structures[int(d.id)] = d
+		if d.get("remembered", false): structure_memory[owner][int(d.id)] = d
+		else: structures[int(d.id)] = d
 	_index_structures()
 	detected[owner] = {}
 	for contact in data.get("contacts", []): detected[owner][Vector2i(int(contact[0]), int(contact[1]))] = true
@@ -1393,13 +1720,14 @@ func apply_snapshot(data: Dictionary, owner: int) -> void:
 		if tiles.has(cell):
 			tiles[cell].amount = int(c[5])
 			if c.size() > 6: tiles[cell].cliff = bool(c[6]); tiles[cell].rubble = bool(c[7])
+			if c.size() > 8:
+				tiles[cell].resource = str(c[8])
+				if tiles[cell].resource == "nacre": corpse = cell
 	ended = bool(data.ended)
 	result = str(data.result)
 	medusa_dead = bool(data.medusa_dead)
 	paused = bool(data.get("paused", false))
 	speed = float(data.get("speed", 1))
-	if medusa_dead:
-		tiles[Vector2i.ZERO].resource = "nacre"
 
 
 class MovementGraph:
@@ -1580,8 +1908,10 @@ class TargetRules:
 	## WorldState owns mutation. These helpers also work on host state before serialization.
 
 	static func identifiable(world: RefCounted, target: Dictionary, owner: int) -> bool:
+		if target.is_empty() or target.get("remembered", false): return false
 		if int(target.get("vehicle", 0)) != 0: return false
 		if target.owner == owner: return true
+		if target.has("cell"): return world.structure_visible(owner, target)
 		var cell := HexGrid.cell(world.entity_position(target))
 		if not world.visible.get(owner, {}).has(cell): return false
 		var rules: Dictionary = world.cfg.targeting.unitRules.get(target.kind, {})
@@ -1590,7 +1920,7 @@ class TargetRules:
 		return true
 
 	static func targetable(world: RefCounted, attacker: Dictionary, target: Dictionary) -> bool:
-		if target.is_empty() or int(target.get("vehicle", 0)) != 0: return false
+		if target.is_empty() or target.get("remembered", false) or int(target.get("vehicle", 0)) != 0: return false
 		var cell := HexGrid.cell(world.entity_position(target))
 		var rules: Dictionary = world.cfg.targeting.unitRules.get(target.kind, {})
 		if rules.get("requiresIllumination", false) and not world.is_lit(cell): return false
@@ -1633,6 +1963,151 @@ class TargetRules:
 		var minimum := 0.0 if world.cfg.combat.minimumDamageMode == "zero_floor" else float(world.cfg.combat.minimumDamagePerHit)
 		return minf(float(target.hp), maxf(minimum, raw - armor(world, target)))
 
+
+class LightlessColony:
+	extends RefCounted
+	## Host-only colony economy. Paid queues and free timers share type capacity.
+	static func cap(world: RefCounted, kind: String) -> int:
+		var result := int(world.cfg.units[kind].basePopulationCap)
+		for s in world.structures.values():
+			if s.owner < 0 and s.kind == "womb" and s.built and s.get("unit_type", "") == kind: result += int(world.cfg.units[kind].wombPopulationIncrease)
+		return result
+
+	static func unlocked(world: RefCounted, source: Dictionary, kind: String) -> bool:
+		if not world.cfg.units.has(kind) or not world.cfg.units[kind].has("manualSpawnSeconds"): return false
+		if source.kind == "womb": return source.get("unit_type", "") == kind
+		if source.kind != "medusa": return false
+		if kind in ["scavenger", "mother", "father"]: return true
+		for s in world.structures.values():
+			if s.owner < 0 and s.kind == "womb" and s.built and s.get("unit_type", "") == kind: return true
+		return false
+
+	static func queue_spawn(world: RefCounted, source: Dictionary, kind: String) -> String:
+		if source.is_empty() or not world.structures.has(source.get("id", 0)) or source.owner >= 0 or not source.built or not unlocked(world, source, kind): return "Spawn unavailable"
+		if source.spawn_queue.size() >= int(world.cfg.lightless.manualQueueLimit): return "Spawn queue full"
+		var cost := int(world.cfg.units[kind].manualSpawnCost.chyme)
+		if world.lightless_chyme < cost: return "Not enough Chyme"
+		world.lightless_chyme -= cost
+		source.spawn_queue.append({"kind": kind, "progress": 0.0})
+		return ""
+
+	static func cancel_spawn(world: RefCounted, source: Dictionary, index: int) -> void:
+		if not world.structures.has(source.get("id", 0)) or index < 0 or index >= source.get("spawn_queue", []).size(): return
+		var job: Dictionary = source.spawn_queue[index]
+		if float(job.progress) == 0: world.lightless_chyme += int(world.cfg.units[job.kind].manualSpawnCost.chyme)
+		source.spawn_queue.remove_at(index)
+
+	static func spawn(world: RefCounted, source: Dictionary, kind: String) -> bool:
+		if world._population(kind) >= cap(world, kind): return false
+		var cell: Vector2i = world.nearest_free(source.cell)
+		if world.blocked(cell): return false
+		var id: int = world.add_unit(kind, HexGrid.world(cell), -1)
+		if world.medusa_dead and not kind in ["mother", "father"]: world.units[id].stance = "attack"
+		return true
+
+	static func update(world: RefCounted, delta: float) -> void:
+		var sources: Array = []
+		var medusa: Dictionary = {}
+		var ids: Array = world.structures.keys(); ids.sort()
+		for id in ids:
+			var s: Dictionary = world.structures[id]
+			if s.owner >= 0: continue
+			if not s.built:
+				if s.started:
+					var duration := float(world.cfg.lightless.structureGestationSeconds)
+					var health := float(world.cfg.structures[s.kind].health)
+					s.hp = minf(health, float(s.hp) + (health - float(world.cfg.construction.startingHealth)) * delta / duration)
+					if s.hp >= health: s.built = true
+				continue
+			if s.kind in ["medusa", "womb"]: sources.append(s)
+			if s.kind == "medusa": medusa = s
+		if not medusa.is_empty():
+			world.lightless_income_time += delta
+			var cycles := floori(world.lightless_income_time / float(world.cfg.lightless.medusaChymeCycleSeconds))
+			world.lightless_income_time -= cycles * float(world.cfg.lightless.medusaChymeCycleSeconds)
+			world.lightless_chyme += cycles * int(world.cfg.lightless.medusaChymePerCycle)
+		# Resolve every ready manual order before any passive spawn, by source ID.
+		for source in sources:
+			if source.spawn_queue.is_empty(): continue
+			var job: Dictionary = source.spawn_queue[0]
+			if not unlocked(world, source, job.kind): continue
+			var rate := float(world.cfg.lightless.postMedusaWombSpawnRateMultiplier) if world.medusa_dead and source.kind == "womb" else 1.0
+			var duration := float(world.cfg.units[job.kind].manualSpawnSeconds)
+			job.progress = minf(duration, float(job.progress) + delta * rate)
+			if job.progress >= duration and spawn(world, source, job.kind): source.spawn_queue.pop_front()
+		for source in sources:
+			var kind := "scavenger" if source.kind == "medusa" else str(source.unit_type)
+			var duration := float(world.cfg.lightless.medusaPassiveScavengerSeconds) if source.kind == "medusa" else float(world.cfg.units[kind].wombPassiveSpawnSeconds)
+			var rate := float(world.cfg.lightless.postMedusaWombSpawnRateMultiplier) if world.medusa_dead and source.kind == "womb" else 1.0
+			source.passive = minf(duration, float(source.passive) + delta * rate)
+			if source.passive >= duration and spawn(world, source, kind): source.passive = 0.0
+		world.lightless_expansion_time += delta
+		world.lightless_brain_time += delta
+		if world.lightless_brain_time >= float(world.cfg.lightless.brainDecisionIntervalSeconds):
+			world.lightless_brain_time = fmod(world.lightless_brain_time, float(world.cfg.lightless.brainDecisionIntervalSeconds))
+			develop(world, medusa)
+
+	static func develop(world: RefCounted, medusa: Dictionary) -> void:
+		var mother: Dictionary = {}
+		for u in world.units.values():
+			if u.owner < 0 and u.kind == "mother" and u.job.kind == "idle": mother = u; break
+		# A surviving blueprint keeps its paid cost when its first Mother dies.
+		if not mother.is_empty():
+			for s in world.structures.values():
+				if s.owner >= 0 or s.kind != "womb" or s.started: continue
+				var assigned := false
+				for u in world.units.values():
+					if u.job.kind == "grow" and int(u.job.target) == int(s.id): assigned = true; break
+				if not assigned and route_mother(world, mother, s): return
+		if medusa.is_empty(): return
+		var next_type := ""
+		for kind in world.cfg.lightless.cpuWombPriority:
+			var exists := false
+			for s in world.structures.values():
+				if s.owner < 0 and s.kind == "womb" and s.get("unit_type", "") == kind: exists = true; break
+			if not exists: next_type = kind; break
+		var reserve := int(world.cfg.lightless.cpuMinimumChymeReserve)
+		var cost := int(world.cfg.structures.womb.cost.chyme)
+		if next_type != "" and not mother.is_empty() and world.lightless_expansion_time >= float(world.cfg.lightless.cpuExpansionIntervalSeconds) and world.lightless_chyme >= reserve + cost:
+			var cells: Array = world.gloom.keys()
+			cells.sort_custom(func(a, b):
+				var da: int = HexGrid.distance(a, medusa.cell); var db: int = HexGrid.distance(b, medusa.cell)
+				return da < db if da != db else a.x < b.x if a.x != b.x else a.y < b.y)
+			for cell in cells:
+				if world.blocked(cell) or world.is_lit(cell) or world.tiles[cell].resource != "" or not world.structure_cells.get(cell, []).is_empty(): continue
+				var path: PackedVector2Array = world._route_path(mother, world.nearest_free(HexGrid.cell(mother.pos)), cell)
+				if path.is_empty() or HexGrid.cell(path[path.size() - 1]) != cell: continue
+				world.lightless_chyme -= cost
+				var id: int = world.add_structure("womb", cell, -1, false)
+				world.structures[id].unit_type = next_type
+				route_mother(world, mother, world.structures[id])
+				world.lightless_expansion_time = 0.0
+				return
+		var pending_mothers := 0
+		for s in world.structures.values():
+			for job in s.get("spawn_queue", []):
+				if job.kind == "mother": pending_mothers += 1
+		if next_type != "" and world._population("mother") + pending_mothers < int(world.cfg.lightless.cpuDesiredMothers) and world.lightless_chyme >= reserve + int(world.cfg.units.mother.manualSpawnCost.chyme): queue_spawn(world, medusa, "mother")
+
+	static func route_mother(world: RefCounted, mother: Dictionary, site: Dictionary) -> bool:
+		var path: PackedVector2Array = world._route_path(mother, world.nearest_free(HexGrid.cell(mother.pos)), site.cell)
+		if path.is_empty() or HexGrid.cell(path[path.size() - 1]) != site.cell: return false
+		mother.job = {"kind": "grow", "target": site.id}
+		RouteNavigation.assign(world, mother, path)
+		return true
+
+	static func mother_step(world: RefCounted, mother: Dictionary, delta: float) -> void:
+		if mother.job.kind != "grow": return
+		var site: Dictionary = world.structures.get(int(mother.job.target), {})
+		if site.is_empty() or site.started: mother.job = {"kind": "idle"}; mother.route.clear(); return
+		if mother.pos.distance_to(HexGrid.world(site.cell)) > float(world.cfg.movement.routeOrders.arrivalRadiusTiles):
+			if mother.route.is_empty(): route_mother(world, mother, site)
+			world._move(mother, delta); return
+		for other in world.units.values():
+			if other.id != mother.id and HexGrid.cell(other.pos) == site.cell: return
+		world.units.erase(mother.id)
+		site.started = true
+		world._rebuild_navigation()
 
 class RadarSystem:
 	extends RefCounted

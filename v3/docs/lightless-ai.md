@@ -1,8 +1,34 @@
 # Lightless probing and combat
 
-The current CPU produces Scavengers; the complete Womb, gland, and Father
-coordinator economy remains pending. Behavior runs on simulation time in
-`WorldState`, with routing and obstruction decisions in `LightlessTactics`.
+The CPU now grows typed Wombs as well as producing Scavengers. Colony production
+runs in `WorldState.LightlessColony`; routing and obstruction decisions remain in
+`LightlessTactics`. This is a colony-production baseline, not the complete
+Lightless economy or coordination system.
+
+The colony starts with configured Chyme and receives the Medusa's passive income.
+At configured decision/expansion intervals it pays for queued Mothers, reserves
+Chyme, and places Womb blueprints in reachable, unoccupied Gloom using
+`cpuWombPriority`. A Mother travels to the paid site, transforms, and is consumed.
+Gestation raises structure health; damage delays completion. If the Mother dies
+en route, the blueprint remains available for another Mother without another cost.
+
+Completed Wombs increase the cap and unlock their corresponding type. Each Womb
+passively spawns that type for free; the Medusa's free production remains
+Scavenger-only. Thus Stalkers, Ravagers, Threshers, and Shades now appear through
+colony development rather than being substituted into the Medusa's free timer.
+The default priority grows the Scavenger Womb first, so variety develops over time.
+
+Paid host-side queues run alongside free timers, obey the same per-type cap,
+retain completed progress when capped, and resolve manual completions first by
+source ID. Unstarted cancellations refund; started cancellations and source
+destruction do not. Losing the last required Womb pauses a queued Medusa order
+without erasing its progress. Existing over-cap units survive Womb loss. Medusa
+death grants configured Chyme and permanently accelerates surviving Wombs.
+
+Human Lightless controls/manual-spawn buttons, combat Chyme harvesting/delivery,
+Glands, Father recruitment, full Gather/Defend coordination, and post-Medusa CPU
+expansion remain pending. The existing unit combat/concealment/burrow rules apply
+to the newly produced types; this pass does not complete their tactical AI.
 
 | State | Behavior |
 | --- | --- |

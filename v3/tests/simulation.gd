@@ -24,6 +24,7 @@ func world(count: int = 1) -> WorldState:
 		if state.units[id].owner == -1: state.units.erase(id)
 	for s in state.structures.values():
 		if s.kind == "medusa": s.passive = -10000.0
+	state.lightless_brain_time = -10000.0
 	return state
 
 func advance(state: WorldState, seconds: float) -> void:
@@ -34,12 +35,318 @@ func engineer(state: WorldState) -> Dictionary:
 		if u.kind == "engineer" and u.owner == 0: return u
 	return {}
 
+func queued_order_checks() -> void:
+	var w := movement_world()
+	var id := w.add_unit("engineer", Vector2.ZERO, 0)
+	var u: Dictionary = w.units[id]
+	w.command(0, {"action": "move", "ids": [id], "x": 2, "z": 0})
+	w.command(0, {"action": "move", "ids": [id], "x": 4, "z": 0, "queued": true})
+	verify(u.job.kind == "move" and u.home.x == 2 and u.orders.size() == 1, "Shift orders append without replacing the active route")
+	advance(w, 3)
+	verify(u.pos.distance_to(Vector2(4, 0)) < 0.1 and u.orders.is_empty(), "A completed move dispatches the next queued move")
+	w.cfg.movement.orderQueueLimit = 2
+	for x in [5, 6, 7]: w.command(0, {"action": "move", "ids": [id], "x": x, "z": 0, "queued": true})
+	verify(u.orders.size() == 2, "The host bounds each unit's queued orders")
+	w.command(0, {"action": "stance", "ids": [id], "stance": "defensive"})
+	verify(u.orders.size() == 2, "Changing stance preserves queued work")
+	w.command(0, {"action": "move", "ids": [id], "x": -2, "z": 0})
+	verify(u.orders.is_empty(), "An ordinary replacement order discards the previous plan")
+	w.command(0, {"action": "move", "ids": [id], "x": 4, "z": 0, "queued": true})
+	w.command(0, {"action": "stop", "ids": [id]})
+	verify(u.job.kind == "idle" and u.orders.is_empty() and u.route.is_empty(), "Stop clears active and queued orders")
+	var enemy := w.add_unit("marine", Vector2(2, 1), 1)
+	w.command(0, {"action": "move", "ids": [enemy], "x": 4, "z": 0, "queued": true})
+	verify(w.units[enemy].orders.is_empty(), "Queued orders cannot control another player's units")
+	w.command(0, {"action": "move", "ids": [id], "x": 3, "z": 0, "queued": true})
+	var snapshot: Dictionary = JSON.parse_string(JSON.stringify(w.snapshot(0)))
+	var client := WorldState.new(w.cfg); client.reset(472, 2); client.apply_snapshot(snapshot, 0)
+	verify(client.units[id].orders.size() == 1, "Owned queued orders survive browser snapshot serialization")
+	w = movement_world(); id = w.add_unit("marine", Vector2.ZERO, 0); u = w.units[id]
+	enemy = w.add_unit("marine", Vector2(2, 0), 1)
+	w.visible[0] = {HexGrid.cell(Vector2(2, 0)): true}
+	w.command(0, {"action": "attack", "ids": [id], "target": enemy, "queued": true})
+	w.command(0, {"action": "move", "ids": [id], "x": 4, "z": 0, "queued": true})
+	w.visible[0].clear(); w.step(0.05)
+	verify(u.target != enemy and u.job.kind == "move" and u.orders.is_empty(), "Queued attacks recheck visibility and advance safely when their target disappears")
+	w = movement_world(); id = w.add_unit("engineer", Vector2.ZERO, 0); u = w.units[id]
+	w.cfg.units.engineer.speedTilesPerSecond = 10
+	w.cfg.construction.engineerHealthPerSecond = 1000
+	for cell in [Vector2i(2, 0), Vector2i(4, 0)]: w.known[0][cell] = true
+	w.command(0, {"action": "move", "ids": [id], "x": 1, "z": 0})
+	var ore := int(w.resources(0).ore)
+	for q in [2, 4]: w.command(0, {"action": "build", "kind": "depot", "q": q, "r": 0, "ids": [id], "queued": true})
+	verify(w.structures.size() == 2 and u.orders.size() == 2 and int(w.resources(0).ore) == ore - 2 * int(w.cfg.structures.depot.cost.ore), "Queued construction places and pays for every blueprint immediately")
+	advance(w, 4)
+	verify(w.structures.values().all(func(s): return s.built) and u.orders.is_empty(), "Engineers finish multiple Shift-queued construction sites in order")
+	w = world(2)
+	w.command(0, {"action": "global_personnel", "enabled": false})
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	var armory := w.add_structure("armory", anchor.cell + Vector2i(3, 0), 0)
+	verify(not w.structures[armory].request_personnel and w.players[1].request_personnel, "Global Operator setting applies to future friendly facilities without changing opponents")
+	w.command(0, {"action": "kit", "target": armory, "kind": "marine"})
+	verify(anchor.operators.is_empty() and w.structures[armory].kits.size() == 1, "Global off queues kits without automatically requesting personnel")
+	w.command(0, {"action": "global_personnel", "enabled": true})
+	w.command(0, {"action": "kit", "target": armory, "kind": "marine"})
+	verify(anchor.operators.size() == 1 and w.structures[armory].kits.size() == 2, "Global on affects new orders and leaves existing kit orders unchanged")
+
+func medusa_spawn_checks() -> void:
+	var config: Dictionary = world().cfg
+	var locations: Dictionary = {}
+	for map_seed in [1, 2, 3, 7, 91, 472]:
+		for count in [1, 5]:
+			var w := WorldState.new(config); w.reset(map_seed, count)
+			var medusa: Dictionary = {}
+			for s in w.structures.values():
+				if s.kind == "medusa": medusa = s
+			var corners: Array[Vector2i] = []
+			for direction in HexGrid.DIRECTIONS: corners.append(direction * (w.radius - int(config.map.anchorEdgeInsetTiles)))
+			verify(medusa.cell in corners and medusa.cell != Vector2i.ZERO, "Medusa starts at an inset corner (seed %d, players %d)" % [map_seed, count])
+			locations[medusa.cell] = true
+			for owner in w.players:
+				var anchor: Dictionary = w.structures[int(w.players[owner].anchor)]
+				verify(anchor.cell != medusa.cell and not w.structure_visible(owner, medusa), "Medusa has a separate undiscovered corner for player %d" % owner)
+				var from := w.nearest_free(anchor.cell); var to := w.nearest_free(medusa.cell)
+				verify(not w.navigation.get_point_path(w.point_ids[from], w.point_ids[to]).is_empty(), "A player can reach the corner nest without excavation")
+			var nearby_scavengers := 0
+			for u in w.units.values():
+				if u.owner < 0 and u.kind == "scavenger" and HexGrid.distance(HexGrid.cell(u.pos), medusa.cell) == 2: nearby_scavengers += 1
+			verify(nearby_scavengers == int(config.lightless.startingScavengers), "Starting Scavengers follow the corner nest")
+			var valid_gloom := w.gloom.has(medusa.cell)
+			for cell in w.gloom:
+				if not w.tiles.has(cell): valid_gloom = false
+			verify(valid_gloom, "Initial Gloom follows the nest and stays inside the map")
+	verify(locations.size() > 1, "Different seeds choose different nest corners")
+	var w := WorldState.new(config); w.reset(472, 1)
+	var medusa: Dictionary = {}
+	for s in w.structures.values():
+		if s.kind == "medusa": medusa = s
+	var site: Vector2i = medusa.cell
+	var center_resource: String = w.tiles[Vector2i.ZERO].resource
+	w._destroy(medusa)
+	verify(w.corpse == site and w.tiles[site].resource == "nacre" and w.tiles[Vector2i.ZERO].resource == center_resource, "Medusa death creates Nacre at the actual nest, leaving the center alone")
+	var client := WorldState.new(config); client.reset(472, 1)
+	client.apply_snapshot(JSON.parse_string(JSON.stringify(w.snapshot(0))), 0)
+	verify(client.medusa_dead and client.corpse == null and client.tiles[Vector2i.ZERO].resource == center_resource, "An undiscovered death does not reveal a corpse or create central Nacre on clients")
+	w.known[0][site] = true; w.visible[0][site] = true
+	client.apply_snapshot(JSON.parse_string(JSON.stringify(w.snapshot(0))), 0)
+	verify(client.corpse == site and client.tiles[site].resource == "nacre" and client.tiles[site].amount == w.tiles[site].amount, "Scouting the remains synchronizes their location and infinite Nacre supply")
+	w.reset(91, 1)
+	verify(w.corpse == null and not w.medusa_dead, "Starting a new match clears the previous corpse")
+
+func idle_engineer_checks() -> void:
+	var w := movement_world()
+	w.cfg.construction.engineerHealthPerSecond = 1200
+	w.cfg.construction.repairHealthPerSecond = 1000
+	var worker := w.add_unit("engineer", Vector2.ZERO, 0)
+	var u: Dictionary = w.units[worker]
+	var repair := w.add_structure("wall", Vector2i(0, 2), 0)
+	w.structures[repair].hp -= 20
+	var site := w.add_structure("wall", Vector2i(2, 0), 0, false)
+	var far_site := w.add_structure("wall", Vector2i(10, 0), 0, false)
+	var enemy := w.add_structure("wall", Vector2i(1, -2), 1)
+	w.structures[enemy].hp -= 20
+	w._rebuild_navigation()
+	var ore := int(w.resources(0).ore)
+	w._unit_step(u, 0.05)
+	verify(u.job.kind == "build" and int(u.job.target) == site and u.job.automatic, "Idle Engineers prioritize nearby construction over repair")
+	advance(w, 5)
+	verify(w.structures[site].built and w.structures[repair].hp == w.cfg.structures.wall.health, "Idle Engineers finish construction and then repair nearby damage")
+	verify(int(w.resources(0).ore) == ore - int(w.cfg.construction.repairOrePerCycle), "Automatic construction charges no second fee and repair pays its normal Ore cost")
+	verify(not w.structures[far_site].started and w.structures[enemy].hp == float(w.cfg.structures.wall.health) - 20, "Engineers leave distant and enemy structures alone")
+	w.structures[repair].hp -= 100
+	u.auto_work_remaining = 0; w._unit_step(u, 0.05)
+	w.command(0, {"action": "move", "ids": [worker], "x": -4, "z": 0, "queued": true})
+	w.step(0.05)
+	verify(u.job.kind == "move" and not u.job.get("automatic", false) and u.orders.is_empty(), "Queued player orders interrupt automatic work")
+	u.job = {"kind": "mine", "source": "0,0", "facility": 0, "delivering": false, "deposit": 0}
+	w._idle_engineer_work(u, 1)
+	verify(u.job.kind == "mine", "Automatic work never steals an active player job")
+	w = movement_world(); worker = w.add_unit("engineer", Vector2.ZERO, 0); u = w.units[worker]
+	site = w.add_structure("wall", Vector2i(3, 0), 0, false)
+	for cell in HexGrid.disk(Vector2i(3, 0), 1):
+		if cell != Vector2i(3, 0): w.tiles[cell].cliff = true
+	var reachable := w.add_structure("wall", Vector2i(0, 3), 0, false)
+	w._rebuild_navigation(); w._unit_step(u, 0.05)
+	verify(u.job.get("target", 0) == reachable and w.structures.has(site), "An unreachable nearby site is skipped without canceling it")
+	w = movement_world(); worker = w.add_unit("engineer", Vector2.ZERO, 0); u = w.units[worker]
+	repair = w.add_structure("wall", Vector2i(1, 0), 0); w.structures[repair].hp -= 30
+	w.resources(0).ore = 0; w._unit_step(u, 0.05)
+	verify(u.job.kind == "idle" and w.structures[repair].hp < w.cfg.structures.wall.health, "Automatic repairs cannot spend nonexistent Ore")
+
+func wall_line_checks() -> void:
+	var w := movement_world()
+	for cell in w.tiles: w.known[0][cell] = true
+	var worker := w.add_unit("engineer", HexGrid.world(Vector2i(-2, -2)), 0)
+	w.add_structure("wall", Vector2i(4, 0), 0)
+	w.tiles[Vector2i(2, 0)].cliff = true
+	w.resources(0).ore = int(w.cfg.structures.wall.cost.ore) * 3
+	var plan := w.wall_line_plan(0, Vector2i.ZERO, Vector2i(5, 0))
+	verify(plan.count == 3 and plan.sites.size() == 6 and not plan.sites[2].valid and not plan.sites[4].valid and not plan.sites[5].valid, "Wall line preview skips obstructions and accounts for its whole budget")
+	w.command(0, {"action": "build_line", "ids": [worker], "q": 0, "r": 0, "end_q": 5, "end_r": 0})
+	verify(w.structures.size() == 4 and w.resources(0).ore == 0 and w.units[worker].orders.size() == 2, "A wall stroke charges once per placed cell and queues every segment after the first")
+	w.resources(0).ore = 100
+	w.command(0, {"action": "move", "ids": [worker], "x": -4, "z": 0})
+	w.command(0, {"action": "build_line", "ids": [worker], "q": 0, "r": 1, "end_q": 2, "end_r": 1, "queued": true})
+	verify(w.units[worker].job.kind == "move" and w.units[worker].orders.size() == 3, "Shift wall strokes append to the existing plan")
+	var count := w.structures.size()
+	w.command(0, {"action": "build_line", "ids": [worker], "q": 0, "r": 2, "end_q": 1000000, "end_r": 0})
+	verify(w.structures.size() == count, "Wall line commands reject out-of-map endpoints before allocating a line")
+	w.command(1, {"action": "build_line", "ids": [worker], "q": 0, "r": 2, "end_q": 2, "end_r": 2})
+	verify(w.structures.size() == count, "Wall line commands cannot use an opponent's Engineer")
+	w.cfg.movement.orderQueueLimit = 3
+	w.command(0, {"action": "build_line", "ids": [worker], "q": 0, "r": -2, "end_q": 3, "end_r": -2, "queued": true})
+	verify(w.structures.size() == count, "A full order queue does not create unassigned wall blueprints")
+
+func visibility_optimization_checks() -> void:
+	var w := world()
+	w.units.clear(); w.structures.clear(); w._index_structures()
+	var gate := w.add_structure("gate", Vector2i(1, 0), 0)
+	w.add_structure("wall", Vector2i(0, 1), 0)
+	for case in range(12):
+		w.structures[gate].open = case % 2 == 0
+		w._refresh_sight_topology()
+		var sources: Dictionary = {}
+		var expected: Dictionary = {}
+		for index in range(8):
+			var cell := Vector2i((index * 7 + case) % 9 - 4, (index * 3 + case) % 7 - 3)
+			var reach := (index + case) % 6
+			w._sight_source(sources, cell, reach)
+			expected.merge(w.flood(cell, reach), true)
+		verify(w._sight_union(sources) == expected, "Batched sight exactly matches independent floods with cliffs, opaque sources and gates: %d" % case)
+	var cell := Vector2i(-2, -2)
+	w._cached_sight(cell, 5)
+	w.tiles[Vector2i(-1, -2)].cliff = not w.tiles[Vector2i(-1, -2)].cliff
+	w.update_visibility()
+	verify(w._cached_sight(cell, 5) == w.flood(cell, 5), "Cliff changes invalidate cached personal sight")
+	w.structures[gate].open = not w.structures[gate].open
+	w.update_visibility()
+	verify(w._cached_sight(cell, 5) == w.flood(cell, 5), "Gate changes invalidate cached personal sight")
+	w._rebuild_navigation()
+	var points: Dictionary = w.point_ids.duplicate()
+	var connections := w.navigation.get_point_connections(int(points[Vector2i.ZERO]))
+	w.structures[gate].open = true; w.tiles[Vector2i(1, 0)].cliff = false; w._rebuild_navigation()
+	verify(w.point_ids == points and w.navigation.get_point_connections(int(points[Vector2i.ZERO])) == connections and not w.navigation.is_point_disabled(int(points[Vector2i(1, 0)])), "Opening a gate retains graph topology and updates admission")
+	w.structures[gate].open = false; w._rebuild_navigation()
+	verify(w.navigation.is_point_disabled(int(points[Vector2i(1, 0)])), "Closing a gate updates retained graph admission")
+
+func power_balance_checks() -> void:
+	verify(int(settings.structures.anchor.powerCapacity) == 4 and int(settings.structures.floodlight.powerDemand) == 1 and int(settings.structures.relay.powerDemand) == 0, "Starting power and passive Relay match the requested budget")
+	for kind in ["sentry", "torch", "lance"]: verify(int(settings.structures[kind].powerDemand) >= 3, "Every turret requires at least three power")
+	var w := world()
+	w.units.clear(); w.structures.clear(); w._index_structures()
+	for cell in w.tiles: w.tiles[cell].cliff = false
+	var flood := w.add_structure("floodlight", Vector2i.ZERO, 0)
+	var generator := w.add_structure("generator", Vector2i(2, 0), 0)
+	w._rebuild_navigation(); w._update_power(0); w.update_visibility()
+	var far := Vector2i(-6, 0)
+	verify(w.visible[0].has(far), "Powered Floodlight provides its full vision")
+	w.structures[generator].enabled = false; w._update_power(0); w.update_visibility()
+	verify(not w.visible[0].has(far) and w.visible[0].has(Vector2i(1, 0)), "Power loss reduces Floodlight vision to the local fallback")
+	verify(w.known[0].has(far) and not w.illuminated[0].has(far), "Lost Floodlight coverage retains explored terrain without current vision or light")
+	w.structures[generator].enabled = true; w._update_power(0); w.update_visibility()
+	verify(w.visible[0].has(far), "Restoring power restores Floodlight vision")
+	w.structures[flood].enabled = false; w._update_power(0); w.update_visibility()
+	verify(not w.visible[0].has(far), "Manually disabled Floodlight also loses long-range vision")
+	w.structures.clear(); w._index_structures()
+	w.add_structure("anchor", Vector2i(-8, 0), 0)
+	var relay := w.add_structure("relay", Vector2i.ZERO, 0)
+	flood = w.add_structure("floodlight", Vector2i(8, 0), 0)
+	w._update_power(0)
+	verify(w.structures[flood].powered and int(w.structures[flood].grid_demand) == 1, "A zero-demand Relay still connects a distant consumer to its source")
+	w.paused = true
+	var tick_before := w.tick
+	w.command(0, {"action": "toggle", "target": relay})
+	verify(not w.structures[flood].powered, "Disabling the Relay breaks the remote grid connection")
+	w.command(0, {"action": "toggle", "target": relay})
+	verify(w.structures[flood].powered and w.tick == tick_before, "Relay switching recomputes the grid without advancing paused simulation")
+
+func colony_production_checks() -> void:
+	var w := world()
+	var medusa: Dictionary = {}
+	for s in w.structures.values():
+		if s.kind == "medusa": medusa = s
+	w.cfg.units.scavenger.basePopulationCap = 1
+	var before := w.lightless_chyme
+	verify(WorldState.LightlessColony.queue_spawn(w, medusa, "scavenger") == "", "Paid Medusa production accepts an unlocked type")
+	verify(w.lightless_chyme == before - int(w.cfg.units.scavenger.manualSpawnCost.chyme), "Manual production pays Chyme immediately")
+	medusa.spawn_queue[0].progress = float(w.cfg.units.scavenger.manualSpawnSeconds)
+	medusa.passive = float(w.cfg.lightless.medusaPassiveScavengerSeconds)
+	WorldState.LightlessColony.update(w, 0)
+	verify(w._population("scavenger") == 1 and medusa.spawn_queue.is_empty() and medusa.passive > 0, "Manual completion claims the last cap slot before a ready passive unit")
+	for id in w.units.keys():
+		if w.units[id].owner < 0: w.units.erase(id)
+	WorldState.LightlessColony.update(w, 0)
+	verify(w._population("scavenger") == 1 and medusa.passive == 0 and w.lightless_chyme == before - 5, "Waiting passive spawn resumes for free when capacity opens")
+	verify(WorldState.LightlessColony.queue_spawn(w, medusa, "ravager") != "", "Medusa cannot produce a Womb-locked type")
+	before = w.lightless_chyme
+	WorldState.LightlessColony.queue_spawn(w, medusa, "mother")
+	WorldState.LightlessColony.cancel_spawn(w, medusa, 0)
+	verify(w.lightless_chyme == before, "Unstarted manual spawn cancellation refunds its own cost")
+	WorldState.LightlessColony.queue_spawn(w, medusa, "mother")
+	medusa.spawn_queue[0].progress = 0.1
+	WorldState.LightlessColony.cancel_spawn(w, medusa, 0)
+	verify(w.lightless_chyme == before - int(w.cfg.units.mother.manualSpawnCost.chyme), "Started manual spawn cancellation does not refund")
+	var index := 0
+	for kind in ["stalker", "ravager", "thresher", "shade"]:
+		var id := w.add_structure("womb", Vector2i(3 - index * 2, 3), -1)
+		var womb: Dictionary = w.structures[id]; womb.unit_type = kind
+		womb.passive = float(w.cfg.units[kind].wombPassiveSpawnSeconds)
+		index += 1
+	WorldState.LightlessColony.update(w, 0)
+	for kind in ["stalker", "ravager", "thresher", "shade"]: verify(w._population(kind) == 1, "A completed Womb passively produces " + kind)
+	var ravager_womb: Dictionary = {}
+	for s in w.structures.values():
+		if s.kind == "womb" and s.unit_type == "ravager": ravager_womb = s
+	w.lightless_chyme = 500
+	WorldState.LightlessColony.queue_spawn(w, medusa, "ravager")
+	medusa.spawn_queue[0].progress = 2.0
+	w._destroy(ravager_womb)
+	WorldState.LightlessColony.update(w, 0.5)
+	verify(float(medusa.spawn_queue[0].progress) == 2.0 and w._population("ravager") == 1, "Losing the unlock pauses paid progress and retains existing over-cap units")
+	w._destroy(medusa)
+	var stalker_before := w._population("stalker")
+	WorldState.LightlessColony.update(w, float(w.cfg.units.stalker.wombPassiveSpawnSeconds) / float(w.cfg.lightless.postMedusaWombSpawnRateMultiplier))
+	verify(w._population("stalker") > stalker_before, "Surviving Wombs receive the post-Medusa passive spawn buff")
+	var a := colony_fixture(); var b := colony_fixture()
+	advance(a, 20); advance(b, 20)
+	for kind in ["stalker", "ravager", "thresher", "shade"]: verify(a._population(kind) > 0, "CPU pays for Mothers, grows Wombs, and produces " + kind)
+	verify(JSON.stringify(a.snapshot(0)) == JSON.stringify(b.snapshot(0)) and a.lightless_chyme == b.lightless_chyme, "Colony development replays deterministically")
+
+func colony_fixture() -> WorldState:
+	var w := world()
+	w.lightless_brain_time = 0; w.lightless_chyme = 1000
+	w.cfg.lightless.brainDecisionIntervalSeconds = 0.1
+	w.cfg.lightless.cpuExpansionIntervalSeconds = 0.2
+	w.cfg.lightless.structureGestationSeconds = 0.3
+	w.cfg.units.mother.manualSpawnSeconds = 0.2
+	w.cfg.units.mother.speedTilesPerSecond = 8.0
+	w.cfg.lightless.cpuWombPriority = ["scavenger", "stalker", "ravager", "thresher", "shade"]
+	for kind in w.cfg.lightless.cpuWombPriority:
+		w.cfg.units[kind].wombPassiveSpawnSeconds = 1.5
+		w.cfg.units[kind].wombPopulationIncrease = 2
+	w.cfg.units.scavenger.basePopulationCap = 2
+	return w
+
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	if "--spawns-only" in OS.get_cmdline_user_args():
+		medusa_spawn_checks(); print("Spawn checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--construction-only" in OS.get_cmdline_user_args():
+		idle_engineer_checks(); wall_line_checks(); print("Construction checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--visibility-only" in OS.get_cmdline_user_args():
+		visibility_optimization_checks(); print("Visibility checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--power-only" in OS.get_cmdline_user_args():
+		power_balance_checks(); print("Power checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--balance-only" in OS.get_cmdline_user_args():
+		power_balance_checks(); colony_production_checks(); print("Power and colony checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--orders-only" in OS.get_cmdline_user_args():
+		queued_order_checks(); print("Queued order checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--ai-only" in OS.get_cmdline_user_args():
 		lightless_behavior_checks(); print("Lightless checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--movement-only" in OS.get_cmdline_user_args():
 		movement_checks(); print("Movement checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--memory-only" in OS.get_cmdline_user_args():
+		structure_memory_checks(); print("Structure memory checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--config-only" in OS.get_cmdline_user_args():
 		var errors := ConfigRules.validate(settings)
 		for error in errors: printerr(error)
@@ -47,14 +354,18 @@ func run() -> void:
 		quit(0 if errors.is_empty() else 1); return
 	if "--routes-only" in OS.get_cmdline_user_args():
 		route_order_checks(); print("Route checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	power_balance_checks(); colony_production_checks(); queued_order_checks(); visibility_optimization_checks(); idle_engineer_checks(); wall_line_checks(); medusa_spawn_checks()
 	for cell in HexGrid.disk(Vector2i.ZERO, 10): verify(HexGrid.cell(HexGrid.world(cell)) == cell, "Hex round trip")
 	var a := world(5)
 	var b := world(5)
 	verify(JSON.stringify(a.snapshot(0)) == JSON.stringify(b.snapshot(0)), "Seeded map and deployment reproduce")
+	var nest := Vector2i.ZERO
+	for s in a.structures.values():
+		if s.kind == "medusa": nest = s.cell
 	for owner in a.players:
 		var anchor: Dictionary = a.structures[int(a.players[owner].anchor)]
 		var from := a.nearest_free(anchor.cell)
-		var to := a.nearest_free(Vector2i.ZERO)
+		var to := a.nearest_free(nest)
 		verify(not a.navigation.get_point_path(a.point_ids[from], a.point_ids[to]).is_empty(), "All starting Anchors can reach Medusa")
 	var w := world()
 	var worker := engineer(w)
@@ -107,8 +418,11 @@ func run() -> void:
 	verify(w.structures[flood].powered and w.structures[turret].powered, "Anchor powers one Floodlight and Sentry at full capacity")
 	var relay := w.add_structure("relay", anchor.cell + Vector2i(3, 1), 0)
 	w.step(0.05)
+	verify(w.structures[flood].powered and w.structures[relay].powered, "A zero-demand Relay does not overload the starting grid")
+	var extra_turret := w.add_structure("sentry", anchor.cell + Vector2i(2, 1), 0)
+	w.step(0.05)
 	verify(w.structures[flood].blackout, "Overload triggers blackout at rounded threshold")
-	w.structures[relay].enabled = false
+	w.structures[extra_turret].enabled = false
 	w.step(0.05)
 	verify(w.structures[flood].powered, "Blackout recovers at 100 percent")
 	w = world()
@@ -169,6 +483,7 @@ func run() -> void:
 	anchor = w.structures[int(w.players[0].anchor)]
 	worker.hp = 40.0
 	anchor.hp -= 100.0
+	worker.auto_work_remaining = 2.0 # Isolate Anchor healing from idle Engineer repairs.
 	advance(w, 1)
 	verify(is_equal_approx(worker.hp, 44.0), "Anchor passively heals nearby biological units")
 	verify(anchor.hp == 1900.0, "Anchor healing does not restore structures")
@@ -318,6 +633,7 @@ func run() -> void:
 	feedback_checks()
 	route_order_checks()
 	movement_checks()
+	structure_memory_checks()
 	lightless_behavior_checks()
 	print("Simulation checks: ", assertions, "; failures: ", failures.size())
 	quit(0 if failures.is_empty() else 1)
@@ -720,7 +1036,10 @@ func lightless_behavior_checks() -> void:
 			if structure.kind == "medusa": structure.passive = -10000.0
 		anchor = w.structures[int(w.players[0].anchor)]
 		original_health = float(anchor.hp)
-		for i in range(3): w.add_unit("scavenger", HexGrid.world(w.nearest_free(HexGrid.DIRECTIONS[i] * 3)), -1)
+		var nest_cell := Vector2i.ZERO
+		for structure in w.structures.values():
+			if structure.kind == "medusa": nest_cell = structure.cell
+		for i in range(3): w.add_unit("scavenger", HexGrid.world(w.nearest_free(nest_cell + HexGrid.DIRECTIONS[i] * 2)), -1)
 		advance(w, 90)
 		verify(float(anchor.hp) < original_health, "Scavengers reach and pressure an undefended base across generated cliffs (seed %d)" % seed_value)
 
@@ -807,3 +1126,60 @@ func movement_checks() -> void:
 	u.job = {"kind": "attack"}
 	w.move_to(u, Vector2(4, 0))
 	verify(u.route.size() == 1, "Committed Lightless attacks can take a direct route across light")
+
+func structure_memory_checks() -> void:
+	var w := movement_world()
+	w.visible[0] = {}; w.visible[1] = {}; w.structure_memory.clear()
+	var cell := Vector2i.ZERO
+	w.known[0][cell] = true
+	var enemy := w.add_structure("wall", cell, 1)
+	verify(w.observed_entity(enemy, 0).is_empty(), "Explored terrain alone does not reveal a newly built enemy structure")
+	w.visible[0][cell] = true; w.time_seconds = 10; w.tick = 200; w._remember_structures()
+	var recorded_hp := float(w.structures[enemy].hp)
+	verify(not w.observed_entity(enemy, 0).get("remembered", false), "Visible structures use current observations")
+	w.visible[0].clear(); w._remember_structures()
+	w.structures[enemy].hp = 17; w.structures[enemy].powered = false; w.structures[enemy].buffer = 123
+	var memory := w.observed_entity(enemy, 0)
+	verify(memory.get("remembered", false) and float(memory.hp) == recorded_hp and int(memory.buffer) == 0, "Hidden structure damage and inventory changes do not alter last-seen records")
+	verify(float(w.observed_entity(enemy, 1).hp) == 17, "Owners retain live information about their own hidden structures")
+	var soldier := w.add_unit("marine", Vector2(-5, 0), 0)
+	var denial := w.command(0, {"action": "attack", "ids": [soldier], "target": enemy})
+	verify(denial == "Rediscover this structure before targeting it", "A stale scouting record is not a live combat target")
+	var newer := w.add_structure("depot", Vector2i(1, 0), 1)
+	w.known[0][Vector2i(1, 0)] = true
+	w._remember_structures()
+	var packet := w.snapshot(0)
+	verify(not packet.structures.any(func(e): return int(e.id) == newer), "New construction on previously explored fog is omitted from snapshots")
+	var encoded: Dictionary = packet.structures.filter(func(e): return int(e.id) == enemy)[0]
+	verify(encoded.remembered and float(encoded.hp) == recorded_hp and int(encoded.last_seen_tick) == 200, "Snapshots export frozen observed state and its last-seen timestamp")
+	var replica := movement_world()
+	replica.apply_snapshot(JSON.parse_string(JSON.stringify(packet)), 0)
+	verify(replica.entity(enemy).is_empty() and replica.observed_entity(enemy, 0).get("remembered", false), "Client replicas keep scouting records separate from live entities")
+	verify(not replica.blocked(cell), "Remembered structures do not become authoritative collision obstacles")
+	w._destroy(w.structures[enemy])
+	verify(not w.observed_entity(enemy, 0).is_empty() and not w.blocked(cell), "A hidden demolition preserves its silhouette without affecting real collision")
+	verify(w.command(0, {"action": "attack", "ids": [soldier], "target": enemy}) == denial, "Targeting responses do not disclose whether a remembered structure was demolished")
+	verify(not w.structure_memory.get(1, {}).has(enemy), "Destroyed owned structures do not leave owned ghosts")
+	w.visible[0][cell] = true; w._remember_structures()
+	verify(w.observed_entity(enemy, 0).is_empty() and w.known[0].has(cell), "Scouting an empty old footprint clears the structure while retaining explored terrain")
+
+	var large := w.add_structure("factory", Vector2i(4, 0), 1)
+	w.visible[0] = {Vector2i(3, 0): true}; w._remember_structures()
+	verify(w.structure_visible(0, w.structures[large]) and not w.visible[0].has(Vector2i(4, 0)), "Seeing part of a large structure reveals it without requiring its center tile")
+	w.visible[0].clear(); w._remember_structures()
+	w.structures[large].hp = 9
+	verify(float(w.observed_entity(large, 0).hp) != 9, "Large structures also freeze when their footprint leaves vision")
+	w.visible[0][Vector2i(3, 0)] = true; w._remember_structures()
+	verify(float(w.observed_entity(large, 0).hp) == 9 and not w.observed_entity(large, 0).get("remembered", false), "Rediscovery replaces stale information with current structure state")
+	w._destroy(w.structures[large])
+	verify(w.observed_entity(large, 0).is_empty(), "Visible destruction removes both live and remembered views immediately")
+	var creature := w.add_unit("scavenger", Vector2(-3, 0), -1)
+	w.visible[0] = {Vector2i(-3, 0): true}; w._remember_structures()
+	verify(not w.observed_entity(creature, 0).is_empty(), "A visible enemy unit can be inspected")
+	w.visible[0].clear(); w._remember_structures()
+	verify(w.observed_entity(creature, 0).is_empty(), "Mobile enemies do not acquire fog-of-war memory")
+	w = movement_world(); w.visible[0] = {Vector2i.ZERO: true}
+	enemy = w.add_structure("wall", Vector2i.ZERO, 1)
+	w._remember_structures(); w.structures[enemy].hp = 123
+	w.update_visibility()
+	verify(w.observed_entity(enemy, 0).get("remembered", false) and float(w.observed_entity(enemy, 0).hp) == 123, "Losing sight captures the latest observed state rather than an older refresh")

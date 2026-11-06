@@ -86,9 +86,9 @@ Each player faction begins with:
 - One Engineer.
 - One Marine.
 
-The intended starting layout places the Medusa at the map's center and players at corners chosen to maximize separation from one another. Player starting positions remain inset from the boundary by a provisional buffer of **about six tiles**. The proposed deterministic placement and tie-breaking algorithm is documented in the first-playable specification.
+The Medusa starts at one randomly selected map corner. That corner is reserved for the Lightless; players occupy separate corners chosen to maximize separation from one another. All starting positions use the configured boundary inset, provisionally **about six tiles**. The deterministic placement and tie-breaking algorithm is documented in the first-playable specification.
 
-The Medusa is hidden from players until discovered, even though experienced players may deduce its location from the intended central placement.
+The Medusa remains hidden until scouted. Its initial Scavengers and Gloom surround its chosen corner, and its remains produce Nacre at that location after death.
 
 The Anchor provides **100 starting Ore** and **100 starting Gas**. It contributes the following ordinary-resource capacities:
 
@@ -194,7 +194,7 @@ Workers can load nearby vehicles with resources to increase the amount transport
 
 **Depot configuration**
 
-While holding a Depot blueprint, the player selects its resource type. That type can be changed at any time while it remains a blueprint.
+Depot blueprints default to Ore, then remember the player's last selected capacity type for subsequent placements. Selecting a type is optional: the player may place the blueprint immediately. After choosing Depot in the construction catalogue, five resource buttons offer Ore, Gas, Alloy, Polymer, and Crystal with contextual hotkeys. The type can also be changed while the site remains an unstarted blueprint. Completed Depot reconfiguration uses the same five-button interface.
 
 An existing Depot can be reconfigured only if removing its current capacity would leave capacity greater than or equal to the current global supply of that resource. For example, reducing capacity from 800 to 600 is permitted when the stored supply is 500.
 
@@ -300,7 +300,7 @@ The proposed preset charges 10 Ore and 5 Gas per Operator, with 12-second Anchor
 
 **Requesting personnel**
 
-Most structures that produce units or vehicles have a toggle to request an Operator alongside production. When enabled, the cost of each kit or vehicle includes the cost of a new Operator.
+Automatic Operator requests use one global toggle per player, available when a structure is selected. When enabled, the cost of each newly ordered kit or vehicle includes a new Operator at every facility, including facilities built later. Changing the toggle leaves existing queues unchanged. Personnel-source assignments remain specific to each production structure.
 
 When a structure such as an Armory or Factory is placed, it selects the nearest Anchor or Cradle as its personnel source by default. The player can change this assignment by selecting the production structure and choosing a different personnel source. The structure requests Operators from its configured source.
 
@@ -401,6 +401,10 @@ A new construction site starts with **1 health** by default. This starting value
 
 Construction progress persists when Engineers leave or die. The Anchor does not heal structures, including unfinished buildings. In the proposed preset, each Engineer adds 20 construction health per second and rates add linearly. Repair orders on unfinished buildings use construction work without a second repair charge. Rates and interaction ranges are configurable.
 
+Idle Engineers automatically help nearby friendly construction before seeking damaged structures to repair. The default search reaches six tiles beyond the structure footprint and runs at half-second intervals. Automatic work uses normal construction and Ore-funded repair rules, skips unreachable sites, and yields to player orders, including queued orders.
+
+Wall placement supports click-and-drag lines. Releasing commits affordable, revealed, unobstructed cells and queues them for the selected Engineer. Shift appends the line and keeps wall placement active; Escape or right click cancels before commitment. Blocked cells are skipped, and the ordinary order-queue limit applies. Walls fill their hexagons as solid raised hexagonal prisms.
+
 #### Power generation and distribution
 
 **Sources and electrical footprints**
@@ -411,7 +415,9 @@ Anchors, Generators, and Reactors produce power. Producers have electrical footp
 
 Footprint overlap connects producers, consumers, and Relays into networks. When networks connect, their capacity and consumption combine into one larger network. Walls and cliffs do not obstruct electrical connections.
 
-Switching off or unpowering a Relay disables its electrical footprint. Structures connected exclusively through that Relay also become unpowered.
+Relays consume no power and retain their electrical footprint during a blackout. They transmit existing supply and cannot generate it. Switching off or destroying a Relay disconnects its footprint; structures connected exclusively through it lose their source.
+
+The starting Anchor supplies 4 power. A Floodlight consumes 1 and each turret consumes at least 3, allowing one Floodlight and one turret on the starting grid. A powered Floodlight has eight tiles of vision beyond its footprint; when switched off or unpowered, that shrinks to one tile and its illumination stops. Previously explored ground remains remembered.
 
 **Capacity and consumption**
 

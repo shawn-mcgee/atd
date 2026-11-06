@@ -51,7 +51,7 @@ func _process(delta: float) -> void:
 	for effect in damage_numbers: effect.time -= delta
 	damage_numbers = damage_numbers.filter(func(effect): return effect.time > 0)
 	_consume_feedback()
-	for e in world.units.values() + world.structures.values():
+	for e in world.units.values() + world.observed_structures(owner_id):
 		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
 		if not health_trails.has(e.id): health_trails[e.id] = {"hp": float(e.hp), "trail": float(e.hp), "hold": 0.0}
 		var bar: Dictionary = health_trails[e.id]
@@ -61,7 +61,7 @@ func _process(delta: float) -> void:
 		if bar.hold <= 0: bar.trail = lerpf(float(bar.trail), float(e.hp), 1 - exp(-delta / maxf(0.001, float(world.cfg.presentation.feedback.healthTrailSeconds))))
 		bar.trail = maxf(float(e.hp), float(bar.trail))
 	for id in health_trails.keys():
-		if world.entity(int(id)).is_empty(): health_trails.erase(id)
+		if _observed_entity(int(id)).is_empty(): health_trails.erase(id)
 	map_timer -= delta
 	if map_timer <= 0: _refresh_map(); map_timer = 0.4
 	queue_redraw()
@@ -82,6 +82,9 @@ func _refresh_map() -> void:
 	if map_texture == null: map_texture = ImageTexture.create_from_image(image)
 	else: map_texture.update(image)
 
+func _observed_entity(id: int) -> Dictionary:
+	return world.observed_entity(id, owner_id)
+
 func _project(point: Vector2, height: float = 0.15) -> Vector2:
 	return camera.unproject_position(Vector3(point.x, height, point.y))
 
@@ -91,7 +94,7 @@ func _draw() -> void:
 	if selection_pulse > 0:
 		var ratio := selection_pulse / float(world.cfg.controls.selectionPulseSeconds)
 		for id in selected.slice(0, 32):
-			var entity_data := world.entity(int(id))
+			var entity_data := _observed_entity(int(id))
 			if not entity_data.is_empty(): draw_arc(_project(world.entity_position(entity_data)), 17 + ratio * 10, 0, TAU, 24, Color(0.77, 0.83, 0.68, ratio * 0.65), 1.5, true)
 	var contact_color := Color("e4ae68")
 	for cell in world.unknown_contacts(owner_id):
@@ -102,36 +105,24 @@ func _draw() -> void:
 		if position.distance_to(get_viewport().get_mouse_position()) < 24:
 			draw_string(font, position + Vector2(14, -8), "UNIDENTIFIED CONTACT", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, contact_color)
 	for id in selected:
-		var emitter := world.entity(int(id))
+		var emitter := _observed_entity(int(id))
 		if emitter.is_empty() or emitter.owner != owner_id: continue
 		if emitter.has("pos"):
 			var definition: Dictionary = world.cfg.units[emitter.kind]
 			if int(definition.get("detectionRangeTiles", 0)) > 0:
 				_range_outline(HexGrid.cell(emitter.pos), int(definition.detectionRangeTiles), Color("e4ae68") if int(emitter.get("driver", 0)) != 0 else Color("657470"))
+		if emitter.kind == "relay": _draw_electrical_links("relay", emitter.cell, int(emitter.id), bool(emitter.enabled))
 		if emitter.kind == "radar": _range_outline(emitter.cell, int(world.cfg.structures.radar.detectionRangeBeyondFootprintTiles) + int(world.cfg.structures.radar.footprintRadiusTiles), Color("e4ae68"))
 		if emitter.kind == "rampart": _range_outline(emitter.cell, int(world.cfg.combat.rampartRangeBeyondFootprintTiles) + int(world.cfg.structures.rampart.footprintRadiusTiles), Color("91c5bc"))
 	if placement_kind != "":
 		if placement_kind == "radar": _range_outline(placement_cell, int(world.cfg.structures.radar.detectionRangeBeyondFootprintTiles) + int(world.cfg.structures.radar.footprintRadiusTiles), Color("e4ae68"))
 		if placement_kind == "rampart": _range_outline(placement_cell, int(world.cfg.combat.rampartRangeBeyondFootprintTiles) + int(world.cfg.structures.rampart.footprintRadiusTiles), Color("91c5bc"))
-		var definition: Dictionary = world.cfg.structures[placement_kind]
-		if int(definition.powerDemand) > 0 or int(definition.powerCapacity) > 0:
-			var reach := int(definition.footprintRadiusTiles) + int(definition.electricalRangeBeyondFootprintTiles)
-			for structure in world.structures.values():
-				if structure.owner != owner_id or not structure.built or not structure.enabled: continue
-				var d: Dictionary = world.cfg.structures[structure.kind]
-				if int(d.powerDemand) == 0 and int(d.powerCapacity) == 0: continue
-				var existing_reach := int(d.footprintRadiusTiles) + int(d.electricalRangeBeyondFootprintTiles)
-				if HexGrid.distance(structure.cell, placement_cell) > reach + existing_reach: continue
-				var tint := Color(0.7, 0.75, 0.55, 0.65) if structure.powered else Color(0.8, 0.45, 0.3, 0.65)
-				draw_dashed_line(_project(HexGrid.world(structure.cell)), _project(HexGrid.world(placement_cell)), tint, 1.5, 5, true, true)
-				var outline := PackedVector2Array()
-				for i in range(7): outline.append(_project(HexGrid.world(structure.cell) + HexGrid.world(HexGrid.DIRECTIONS[i % 6]) * (existing_reach + 0.5)))
-				draw_polyline(outline, Color(tint, 0.25), 1, true)
+		if world.electrical_structure(placement_kind): _draw_electrical_links(placement_kind, placement_cell)
 	if drag_selection.size.length() > 8:
 		draw_rect(drag_selection, Color(0.72, 0.78, 0.64, 0.08))
 		draw_rect(drag_selection, Color("a5b7a1"), false, 1)
 	for id in selected.slice(0, 8):
-		var u := world.entity(int(id))
+		var u := _observed_entity(int(id))
 		if u.is_empty() or not u.has("route") or u.owner != owner_id: continue
 		if u.job.kind == "patrol":
 			var a := Vector2(float(u.job.a[0]), float(u.job.a[1]))
@@ -139,14 +130,28 @@ func _draw() -> void:
 			draw_dashed_line(_project(a), _project(b), Color(0.75, 0.7, 0.48, 0.5), 1.5, 6, true, true)
 			for endpoint in [a, b]: draw_circle(_project(endpoint), 5, Color("c3b47c"), false, 1.5)
 		if u.job.kind == "escort":
-			var target := world.entity(int(u.job.target))
+			var target := _observed_entity(int(u.job.target))
 			if not target.is_empty(): draw_dashed_line(_project(u.pos), _project(world.entity_position(target)), Color(0.5, 0.75, 0.73, 0.55), 1.5, 5, true, true)
 		var previous := _project(u.pos)
 		for point in u.route:
 			var screen := _project(point)
 			draw_dashed_line(previous, screen, Color(0.7, 0.77, 0.65, 0.24), 1, 4, true, true)
 			previous = screen
-	for e in world.units.values() + world.structures.values():
+		var planned := previous
+		for order in u.get("orders", []):
+			var point := Vector2.ZERO
+			if order.has("x") and order.has("z"): point = Vector2(float(order.x), float(order.z))
+			elif order.has("q") and order.has("r"): point = HexGrid.world(Vector2i(int(order.q), int(order.r)))
+			elif order.has("target"):
+				var target := _observed_entity(int(order.target))
+				if target.is_empty(): continue
+				point = world.entity_position(target)
+			else: continue
+			var projected := _project(point)
+			draw_dashed_line(planned, projected, Color(0.7, 0.8, 0.6, 0.5), 1.5, 4, true, true)
+			draw_circle(projected, 4, Color("c3d1a1"), false, 1)
+			planned = projected
+	for e in world.units.values() + world.observed_structures(owner_id):
 		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
 		var maximum := float(world.cfg.structures[e.kind].health) if e.has("cell") else float(world.cfg.units[e.kind].health)
 		var selected_here: bool = e.id in selected or e.id == hovered
@@ -189,10 +194,10 @@ func _draw() -> void:
 	var map_rect := minimap_rect()
 	draw_style_box(_map_style(), map_rect)
 	if map_texture != null: draw_texture_rect(map_texture, map_rect.grow(-12), false)
-	for e in world.units.values() + world.structures.values():
+	for e in world.units.values() + world.observed_structures(owner_id):
 		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
 		var point := map_point(world.entity_position(e))
-		var color := Color("80e5d0") if e.owner == owner_id else Color("ec7c8d")
+		var color := Color("697d87") if e.get("remembered", false) else Color("80e5d0") if e.owner == owner_id else Color("ec7c8d")
 		if e.has("cell"): draw_rect(Rect2(point - Vector2(2, 2), Vector2(4, 4)), color)
 		else: draw_circle(point, 1.7, color)
 	for cell in world.unknown_contacts(owner_id):
@@ -210,11 +215,35 @@ func _map_style() -> StyleBoxFlat:
 	style.bg_color = Color("0a141e"); style.border_color = Color("314c58"); style.set_border_width_all(1); style.set_corner_radius_all(5)
 	return style
 
+func electrical_links(kind: String, cell: Vector2i, exclude: int = 0) -> Array:
+	var links: Array = []
+	if not world.electrical_structure(kind): return links
+	for structure in world.observed_structures(owner_id):
+		if int(structure.id) == exclude or structure.owner != owner_id or not structure.built or not structure.enabled: continue
+		if not world.electrical_structure(structure.kind): continue
+		if HexGrid.distance(structure.cell, cell) <= world.electrical_reach(kind) + world.electrical_reach(structure.kind): links.append(structure)
+	return links
+
+func _draw_electrical_links(kind: String, cell: Vector2i, exclude: int = 0, enabled: bool = true) -> void:
+	var links := electrical_links(kind, cell, exclude)
+	var supplied := links.any(func(s): return s.powered and int(s.get("grid_capacity", 0)) > 0)
+	var tint := Color("b7d8b0") if supplied and enabled else Color("d5a473") if enabled else Color("849091")
+	_range_outline(cell, world.electrical_reach(kind), tint)
+	var origin := _project(HexGrid.world(cell))
+	for structure in links:
+		var point := _project(HexGrid.world(structure.cell))
+		draw_dashed_line(origin, point, Color(tint, 0.85 if enabled else 0.4), 2, 6, true, true)
+		draw_circle(point, 7, tint, false, 2, true)
+		_range_outline(structure.cell, world.electrical_reach(structure.kind), Color(tint, 0.4))
+	var label := "LINKS: %d · %s" % [links.size(), "CONNECTED" if exclude != 0 and enabled else "WOULD CONNECT" if exclude == 0 else "OFF / POTENTIAL LINKS"]
+	if links.is_empty(): label = "NO GRID LINKS IN RANGE"
+	draw_string(FONT, _project(HexGrid.world(cell), 2.6) + Vector2(12, 0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, tint)
+
 func _range_outline(cell: Vector2i, reach: int, color: Color) -> void:
 	var points := PackedVector2Array()
 	for i in range(7): points.append(_project(HexGrid.world(cell) + HexGrid.world(HexGrid.DIRECTIONS[i % 6]) * (reach + 0.5)))
-	draw_colored_polygon(points.slice(0, 6), Color(color, 0.035))
-	draw_polyline(points, Color(color, 0.5), 1.5, true)
+	draw_colored_polygon(points.slice(0, 6), Color(color, 0.035 * color.a))
+	draw_polyline(points, Color(color, 0.5 * color.a), 1.5, true)
 
 func _consume_feedback() -> void:
 	for event in world.feedback_for(owner_id, feedback_cursor):

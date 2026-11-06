@@ -37,6 +37,7 @@ export function createBridge() {
     finally { sending = false }
   }
   const api = {
+    diagnosticsEnabled: parameters.has('test') || parameters.has('diagnostics'),
     diagnostics: {},
     start(role, invite, configuration) {
       api.leave()

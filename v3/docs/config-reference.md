@@ -107,6 +107,8 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `construction.repairOrePerCycle` | number | `1` |
 | `construction.repairCycleSeconds` | number | `1` |
 | `construction.engineerWorkRangeTiles` | number | `1` |
+| `construction.idleEngineerSearchRangeTiles` | number | `6` |
+| `construction.idleEngineerSearchIntervalSeconds` | number | `0.5` |
 | `construction.additionalEngineerMultiplier` | number | `1` |
 | `construction.gateOpenSeconds` | number | `0.5` |
 | `construction.gateCloseDelaySeconds` | number | `1` |
@@ -620,7 +622,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `structures.anchor.cost` | null | `null` |
 | `structures.anchor.footprintRadiusTiles` | number | `1` |
 | `structures.anchor.powerDemand` | number | `0` |
-| `structures.anchor.powerCapacity` | number | `2` |
+| `structures.anchor.powerCapacity` | number | `4` |
 | `structures.anchor.electricalRangeBeyondFootprintTiles` | number | `3` |
 | `structures.anchor.illuminationRangeBeyondFootprintTiles` | number | `3` |
 | `structures.anchor.visionRangeBeyondFootprintTiles` | number | `5` |
@@ -717,7 +719,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `structures.relay.cost.ore` | number | `10` |
 | `structures.relay.cost.gas` | number | `5` |
 | `structures.relay.footprintRadiusTiles` | number | `0` |
-| `structures.relay.powerDemand` | number | `1` |
+| `structures.relay.powerDemand` | number | `0` |
 | `structures.relay.powerCapacity` | number | `0` |
 | `structures.relay.electricalRangeBeyondFootprintTiles` | number | `8` |
 | `structures.relay.illuminationRangeBeyondFootprintTiles` | number | `0` |
@@ -734,6 +736,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `structures.floodlight.illuminationRangeBeyondFootprintTiles` | number | `6` |
 | `structures.floodlight.visionRangeBeyondFootprintTiles` | number | `8` |
 | `structures.floodlight.collisionShape` | string | `"footprint_hex_union"` |
+| `structures.floodlight.unpoweredVisionRangeBeyondFootprintTiles` | number | `1` |
 | `structures.extractor.health` | number | `500` |
 | `structures.extractor.armor` | number | `2` |
 | `structures.extractor.cost.ore` | number | `30` |
@@ -750,7 +753,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `structures.sentry.cost.ore` | number | `20` |
 | `structures.sentry.cost.gas` | number | `10` |
 | `structures.sentry.footprintRadiusTiles` | number | `0` |
-| `structures.sentry.powerDemand` | number | `1` |
+| `structures.sentry.powerDemand` | number | `3` |
 | `structures.sentry.powerCapacity` | number | `0` |
 | `structures.sentry.electricalRangeBeyondFootprintTiles` | number | `0` |
 | `structures.sentry.illuminationRangeBeyondFootprintTiles` | number | `0` |
@@ -762,7 +765,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `structures.torch.cost.ore` | number | `30` |
 | `structures.torch.cost.polymer` | number | `5` |
 | `structures.torch.footprintRadiusTiles` | number | `0` |
-| `structures.torch.powerDemand` | number | `2` |
+| `structures.torch.powerDemand` | number | `3` |
 | `structures.torch.powerCapacity` | number | `0` |
 | `structures.torch.electricalRangeBeyondFootprintTiles` | number | `0` |
 | `structures.torch.illuminationRangeBeyondFootprintTiles` | number | `0` |
@@ -970,11 +973,30 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `movement.routeOrders.repathSeconds` | number | `0.4` |
 | `movement.routeOrders.escortRearArcDegrees` | number | `120` |
 | `movement.routeOrders.escortSlotsPerRing` | number | `6` |
+| `movement.orderQueueLimit` | number | `32` |
 
 ## presentation
 
 | JSON path | Type | Default |
 | --- | --- | --- |
+| `presentation.terrain.scatterDensity` | number | `0.42` |
+| `presentation.terrain.contactShadowOpacity` | number | `0.42` |
+| `presentation.terrain.rockStrataStrength` | number | `0.32` |
+| `presentation.terrain.gasVaporOpacity` | number | `0.22` |
+| `presentation.terrain.groundNormalStrength` | number | `0.32` |
+| `presentation.fog.enabled` | boolean | `true` |
+| `presentation.fog.memoryOpacity` | number | `0.58` |
+| `presentation.fog.edgeOpacity` | number | `0.82` |
+| `presentation.fog.edgeReachTiles` | number | `1.6` |
+| `presentation.fog.driftSpeed` | number | `0.09` |
+| `presentation.fog.noiseScale` | number | `1.25` |
+| `presentation.fog.heightTiles` | number | `0.85` |
+| `presentation.lighting.serviceLightWashOpacity` | number | `0.16` |
+| `presentation.lighting.ambientEnergy` | number | `0.32` |
+| `presentation.lighting.keyLightEnergy` | number | `0.48` |
+| `presentation.lighting.workLightEnergy` | number | `2` |
+| `presentation.lighting.groundBrightness` | number | `1.7` |
+| `presentation.structureMemoryTintStrength` | number | `0.75` |
 | `presentation.damageNumbers` | boolean | `true` |
 | `presentation.soundEnabled` | boolean | `true` |
 | `presentation.ambienceVolumeDb` | number | `-25` |
@@ -1108,6 +1130,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `controls.commands.focusAnchor` | string | `"Home"` |
 | `controls.commands.pause` | string | `"Space"` |
 | `controls.commands.cancel` | string | `"Escape"` |
+| `controls.commands.togglePersonnel` | string | `"T"` |
 | `controls.buildHotkeys.wall` | string | `"W"` |
 | `controls.buildHotkeys.gate` | string | `"G"` |
 | `controls.buildHotkeys.depot` | string | `"D"` |
@@ -1134,3 +1157,22 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `controls.groupDoubleTapSeconds` | number | `0.32` |
 | `controls.selectionPulseSeconds` | number | `0.3` |
 | `controls.buildOrder` | array | `["wall","gate","depot","generator","relay","floodlight","extractor","sentry","cradle","armory","foundry","refinery","factory","synthesizer","reactor","radar","torch","lance","rampart","fabricator"]` |
+| `controls.stanceHotkeys.neutral` | string | `"N"` |
+| `controls.stanceHotkeys.defensive` | string | `"F"` |
+| `controls.stanceHotkeys.aggressive` | string | `"V"` |
+| `controls.productionHotkeys.operator` | string | `"O"` |
+| `controls.productionHotkeys.engineer` | string | `"E"` |
+| `controls.productionHotkeys.marine` | string | `"M"` |
+| `controls.productionHotkeys.flamer` | string | `"F"` |
+| `controls.productionHotkeys.lancer` | string | `"L"` |
+| `controls.productionHotkeys.scout` | string | `"S"` |
+| `controls.productionHotkeys.ranger` | string | `"R"` |
+| `controls.productionHotkeys.excavator` | string | `"E"` |
+| `controls.productionHotkeys.reaper` | string | `"H"` |
+| `controls.productionHotkeys.cremator` | string | `"C"` |
+| `controls.productionHotkeys.javelin` | string | `"J"` |
+| `controls.depotHotkeys.ore` | string | `"O"` |
+| `controls.depotHotkeys.gas` | string | `"G"` |
+| `controls.depotHotkeys.alloy` | string | `"A"` |
+| `controls.depotHotkeys.polymer` | string | `"P"` |
+| `controls.depotHotkeys.crystal` | string | `"C"` |

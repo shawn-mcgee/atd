@@ -15,6 +15,59 @@ async function open(page,target=url){
   return errors
 }
 
+test('wall painting: pointer drag queues affordable blueprints',async({page})=>{
+  const errors=await open(page)
+  await control(page,'solo')
+  await expect.poll(async()=> (await diagnostics(page)).active).toBe(true)
+  await page.mouse.move(640,400); await page.keyboard.press('Space')
+  await expect.poll(async()=> (await diagnostics(page)).paused).toBe(true)
+  const initial=await diagnostics(page)
+  const engineer=initial.units.find(u=>u.kind==='engineer')
+  await page.mouse.click(...engineer.screen)
+  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(engineer.id)
+  await page.keyboard.press('b'); await page.keyboard.press('w')
+  await expect.poll(async()=> (await diagnostics(page)).build_kind).toBe('wall')
+  let line
+  await expect.poll(async()=>{
+    const {build_sites:sites}=await diagnostics(page)
+    for(const start of sites){
+      const middle=sites.find(s=>s.q===start.q+1 && s.r===start.r)
+      const end=sites.find(s=>s.q===start.q+2 && s.r===start.r)
+      if(middle && end){line=[start,end];return true}
+    }
+    return false
+  }).toBe(true)
+  await page.mouse.move(...line[0].screen); await page.mouse.down()
+  await page.mouse.move(...line[1].screen); await page.mouse.up()
+  await expect.poll(async()=> (await diagnostics(page)).structures.filter(s=>s.kind==='wall').length).toBe(3)
+  const result=await diagnostics(page)
+  expect(result.resources.ore).toBe(initial.resources.ore-15)
+  expect(result.units.find(u=>u.id===engineer.id).queued).toBe(2)
+  expect(result.build_kind).toBe('')
+  expect(errors).toEqual([])
+})
+
+test('minimap input: drag and queued commands',async({page})=>{
+  const errors=await open(page)
+  await control(page,'solo')
+  await expect.poll(async()=> (await diagnostics(page)).active).toBe(true)
+  await page.mouse.move(640,400)
+  await page.keyboard.press('Space')
+  await expect.poll(async()=> (await diagnostics(page)).paused).toBe(true)
+  const initial=await diagnostics(page)
+  const marine=initial.units.find(u=>u.kind==='marine')
+  await page.mouse.click(...marine.screen)
+  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(marine.id)
+  await page.keyboard.down('Shift')
+  try {await page.mouse.click(180,650,{button:'right'})} finally {await page.keyboard.up('Shift')}
+  await expect.poll(async()=> (await diagnostics(page)).units.find(u=>u.id===marine.id).queued).toBe(1)
+  await page.mouse.move(118,694); await page.mouse.down()
+  await page.mouse.move(158,680,{steps:4}); await page.mouse.up()
+  await expect.poll(async()=> Math.abs((await diagnostics(page)).camera.x-initial.camera.x)).toBeGreaterThan(2)
+  expect((await diagnostics(page)).selected).toContain(marine.id)
+  expect(errors).toEqual([])
+})
+
 test('versioned browser scene: select, mine, pause and navigate',async({page})=>{
   const errors=await open(page,url.replace('8080/','8080/v3/'))
   await control(page,'solo')

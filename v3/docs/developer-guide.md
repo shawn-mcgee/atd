@@ -8,6 +8,8 @@ Use the Godot version pinned in `.godot-version`. `npm test` runs actual Godot s
 
 Edit `config/prototype.json` for gameplay, camera, and presentation values; edit `config/networking.json` for transport policy. Run `npm run config:check` for native validation with JSON-path errors. Run `npm run config:reference` to update the [searchable default-value index](config-reference.md). Restart the game or re-export the browser build to apply changes. Configuration is loaded once, not hot-reloaded mid-match.
 
+Use `npm run profile:cpu -- --active` for bounded CPU timings, or append `--frames --rendered` to exercise the native game callbacks. See [performance measurements and remaining work](performance.md). Normal browser sessions skip diagnostic enumeration; use `?diagnostics=1` when inspecting the browser bridge.
+
 The presence of a definition does not implement a feature. Check [implementation status](implementation-status.md). In particular, full mining expeditions and the Lightless economy/coordination are still pending.
 
 ## Code map
@@ -16,6 +18,7 @@ The presence of a definition does not implement a feature. Check [implementation
 | --- | --- | --- |
 | Config loading, validation, hash, test patches | `scripts/settings.gd`, `ConfigRules` | `validate` returns errors, `merged` returns a deep copy, gameplay hash omits camera/metadata/presentation. |
 | Entities, commands, simulation ordering | `scripts/world_state.gd` | Host-owned mutable state; no scene nodes, input, audio, or wall-clock calls. |
+| Last-seen enemy structures | `WorldState.structure_memory`, `observed_entity`, `observed_structures` | Observer records remain separate from simulation entities and collision. UI must use observed views. See [fog memory](fog-memory.md). |
 | Continuous routes and body clearance | `WorldState._route_path`, `MovementGraph`, `RouteNavigation` | Coarse hex topology, actual-position starts, clearance-aware shortcuts, swept collision and full movement budgets. See [navigation](navigation.md). |
 | Lightless probes, obstruction targets, attack/retreat paths | `WorldState._probe_step`, `LightlessTactics` | Uses known Anchors and personal vision; full routes, simulation-time retries, preserved attack objectives. See [Lightless AI](lightless-ai.md). |
 | Eligibility, concealment, armor and damage | `WorldState.TargetRules` | Query functions shared by simulation, snapshots, rendering and inspector. |

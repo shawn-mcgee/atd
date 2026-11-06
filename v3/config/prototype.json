@@ -131,6 +131,8 @@
     "repairOrePerCycle": 1,
     "repairCycleSeconds": 1,
     "engineerWorkRangeTiles": 1,
+    "idleEngineerSearchRangeTiles": 6,
+    "idleEngineerSearchIntervalSeconds": 0.5,
     "additionalEngineerMultiplier": 1,
     "gateOpenSeconds": 0.5,
     "gateCloseDelaySeconds": 1
@@ -776,7 +778,7 @@
       "cost": null,
       "footprintRadiusTiles": 1,
       "powerDemand": 0,
-      "powerCapacity": 2,
+      "powerCapacity": 4,
       "electricalRangeBeyondFootprintTiles": 3,
       "illuminationRangeBeyondFootprintTiles": 3,
       "visionRangeBeyondFootprintTiles": 5,
@@ -909,7 +911,7 @@
         "gas": 5
       },
       "footprintRadiusTiles": 0,
-      "powerDemand": 1,
+      "powerDemand": 0,
       "powerCapacity": 0,
       "electricalRangeBeyondFootprintTiles": 8,
       "illuminationRangeBeyondFootprintTiles": 0,
@@ -929,7 +931,8 @@
       "electricalRangeBeyondFootprintTiles": 0,
       "illuminationRangeBeyondFootprintTiles": 6,
       "visionRangeBeyondFootprintTiles": 8,
-      "collisionShape": "footprint_hex_union"
+      "collisionShape": "footprint_hex_union",
+      "unpoweredVisionRangeBeyondFootprintTiles": 1
     },
     "extractor": {
       "health": 500,
@@ -954,7 +957,7 @@
         "gas": 10
       },
       "footprintRadiusTiles": 0,
-      "powerDemand": 1,
+      "powerDemand": 3,
       "powerCapacity": 0,
       "electricalRangeBeyondFootprintTiles": 0,
       "illuminationRangeBeyondFootprintTiles": 0,
@@ -970,7 +973,7 @@
         "polymer": 5
       },
       "footprintRadiusTiles": 0,
-      "powerDemand": 2,
+      "powerDemand": 3,
       "powerCapacity": 0,
       "electricalRangeBeyondFootprintTiles": 0,
       "illuminationRangeBeyondFootprintTiles": 0,
@@ -1240,9 +1243,34 @@
       "repathSeconds": 0.4,
       "escortRearArcDegrees": 120,
       "escortSlotsPerRing": 6
-    }
+    },
+    "orderQueueLimit": 32
   },
   "presentation": {
+    "terrain": {
+      "scatterDensity": 0.42,
+      "contactShadowOpacity": 0.42,
+      "rockStrataStrength": 0.32,
+      "gasVaporOpacity": 0.22,
+      "groundNormalStrength": 0.32
+    },
+    "fog": {
+      "enabled": true,
+      "memoryOpacity": 0.58,
+      "edgeOpacity": 0.82,
+      "edgeReachTiles": 1.6,
+      "driftSpeed": 0.09,
+      "noiseScale": 1.25,
+      "heightTiles": 0.85
+    },
+    "lighting": {
+      "serviceLightWashOpacity": 0.16,
+      "ambientEnergy": 0.32,
+      "keyLightEnergy": 0.48,
+      "workLightEnergy": 2.0,
+      "groundBrightness": 1.7
+    },
+    "structureMemoryTintStrength": 0.75,
     "damageNumbers": true,
     "soundEnabled": true,
     "ambienceVolumeDb": -25,
@@ -1422,7 +1450,8 @@
       "focusSelection": "Z",
       "focusAnchor": "Home",
       "pause": "Space",
-      "cancel": "Escape"
+      "cancel": "Escape",
+      "togglePersonnel": "T"
     },
     "buildHotkeys": {
       "wall": "W",
@@ -1472,6 +1501,31 @@
       "lance",
       "rampart",
       "fabricator"
-    ]
+    ],
+    "stanceHotkeys": {
+      "neutral": "N",
+      "defensive": "F",
+      "aggressive": "V"
+    },
+    "productionHotkeys": {
+      "operator": "O",
+      "engineer": "E",
+      "marine": "M",
+      "flamer": "F",
+      "lancer": "L",
+      "scout": "S",
+      "ranger": "R",
+      "excavator": "E",
+      "reaper": "H",
+      "cremator": "C",
+      "javelin": "J"
+    },
+    "depotHotkeys": {
+      "ore": "O",
+      "gas": "G",
+      "alloy": "A",
+      "polymer": "P",
+      "crystal": "C"
+    }
   }
 }

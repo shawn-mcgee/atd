@@ -1,4 +1,5 @@
 The lightless AI needs some serious work.
 
-Clicking on certain structures is a challenge because you have to select the exact middle tile. Make it so that clicking on the geometry of a unit or structure also works (or add in invisible capsule collider or something to improve the selection behavior).
+CPU performance: finish the sub-4-ms busy-frame target. Active movement/combat and path requests still exceed it; see v3/docs/performance.md for the bounded benchmark and measured improvements.
 
+Changing the stance of the unit is not reflected in the ui until you re-select the unit.
