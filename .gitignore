@@ -11,9 +11,4 @@ export_credentials.cfg
 .vscode/
 __pycache__/
 /v1/.godot/
-/v2/.godot/
 /v1/art_source/.build/
-/v2/native/.build/
-/v2/native/bin/
-/v2/native/runtime.gdextension
-/v2/native/runtime.gdextension.uid

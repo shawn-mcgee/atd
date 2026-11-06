@@ -1,16 +1,15 @@
 # Task-oriented code map
 
-Read `AGENTS.md` first. Open only the relevant entries below. The current game and controls are described in the root `README.md`; older prototype specs are historical. Proposed changes in `ideas.md` are not implemented requirements.
+Read `AGENTS.md` first. Open only the relevant entries below. This map describes the preserved legacy game. The active game lives in `v3/`; see the repository README. Legacy ideas are in `v1/legacy-ideas.md`.
 
-The active rewrite is a separate project under root `v2/`. See [its code map and validation](../../v2/README.md); the table below covers the existing game only.
 
-| Task | Start here | Focused tests (`tools/test-game.py --name …`) |
+| Task | Start here | Focused tests (`v1/tools/test-game.py --name …`) |
 | --- | --- | --- |
 | Startup, loading screen, restart | `scenes/loading.tscn`, `view/loading.gd`; prepared core handoff in `view/game.gd` | `loading`, `top-down` |
 | Tick loop, command dispatch, IDs, replay | `engine/simulation.gd`: `initialize`, `enqueue`, `step`, `apply_command`, `snapshot`; `engine/state_codec.gd` | `engine`, `gameplay-baseline` |
 | Prices, health, speeds, production stats | `config/gameplay.json`, `engine/gameplay_config.gd`, `engine/expedition_rules.gd` | `mission-upgrade`, `engine` |
 | Selection, hotkeys, camera, command targeting | `view/game.gd`: `pick`, `target_click`, `_input`, `_unhandled_input` | `top-down` |
-| Generate or integrate 2D art | [Sprite integration](sprite-integration.md), `view/sprite_library.gd`, root `tools/prepare-sprites.py`; [generation brief](asset-generation-brief.md) for art specs | `sprites`, `top-down`; rendered gallery |
+| Generate or integrate 2D art | [Sprite integration](sprite-integration.md), `view/sprite_library.gd`, root `v1/tools/prepare-sprites.py`; [generation brief](asset-generation-brief.md) for art specs | `sprites`, `top-down`; rendered gallery |
 | Drawing, footprint polygons, tile geometry | `view/terrain_renderer.gd`, `view/primitives.gd`: `placement_polygon`, `structure_polygon`; `engine/structure_footprints.gd`; `engine/hex_grid.gd` | `top-down`, `mission-upgrade`; preview `--engineer --placement` (optional `--rotated`) |
 | Selected unit/structure silhouettes | `view/selection_highlight.gd`, `view/shaders/selection_mask.gdshader`, `selection_outline.gdshader` | `top-down`, `sprites`; preview `--combat --selection` |
 | HUD, tooltips, contextual menus | `view/game_hud.gd`, `rts_theme.gd`, `rts_panel.gd`, `rts_icons.gd`; `view/game.gd`: `refresh_context_commands` | `top-down` |
@@ -22,13 +21,13 @@ The active rewrite is a separate project under root `v2/`. See [its code map and
 | Construction/repair and clearance | `simulation.gd`: `valid_site`, `order_build`, `process_order`, `continue_maintenance`; `construction_clearance.gd` | `construction-illumination`, `construction-clearance`, `engineer-maintenance` |
 | Mining/convoys/crew priorities | `engine/resource_fields.gd`, `complex_commands.gd`, `foot_expeditions.gd`, `expedition_scouts.gd` | `todo-logistics`, `expedition-delivery`, `expedition-seating`, `expedition-scouts`, `nearest-receiver` |
 | Exploration and interruptions | `engine/exploration_expeditions.gd`: `prepare_plan`, `choose_destination`, `tick`; `complex_commands.gd`: `start_expedition`, `interrupt` | `exploration-routing`, `exploration-interruptions`, `expedition-seating` |
-| Combat facing, muzzle alignment, mining adjacency | `view/sprite_library.gd`, root `tools/prepare-sprites.py`, `engine/resource_fields.gd`; shot dispatch in `engine/simulation.gd` | `combat-and-mining`, `sprites`, mining expedition suites |
+| Combat facing, muzzle alignment, mining adjacency | `view/sprite_library.gd`, root `v1/tools/prepare-sprites.py`, `engine/resource_fields.gd`; shot dispatch in `engine/simulation.gd` | `combat-and-mining`, `sprites`, mining expedition suites |
 | Infantry and convoy patrol/tactics | `engine/tactical_orders.gd`, `tactical_groups.gd`, `expedition_patrol.gd` | `expedition-patrol`, `mission-upgrade`, `engine` |
 | Economy, power, gates, HQ healing, drilling | `engine/expedition_economy.gd`, `expedition_power.gd`, `gate_passage.gd`, `vehicle_systems.gd` | `mission-upgrade`, `expedition-delivery`, `engine` |
 | Creature AI, reinforcement, combat | [Enemy AI](enemy-ai.md); `engine/predator_director.gd`, `predator_tactics.gd`, `predator.gd`, `turret_system.gd`; `simulation.gd`: `combat_tick` | `enemy-tactics`, `predators`, `predator-pressure`, `mission-upgrade` |
 | Expanded map and terrain density | `engine/scenario_layout.gd`, `expedition_terrain.gd`; radius 84, 72 ridges | `map-generation`, `mission-upgrade`, `darkness` |
 | Map generation, mission lifecycle | `engine/scenario_layout.gd`, `hive_mission.gd` | `mission-upgrade`, `gameplay-baseline` |
-| Export, test runner, rendered preview | root `tools/build-web.ps1`, `tools/test-game.py`; `v1/tools/preview-prototype.gd` | Run the affected tool |
+| Export, test runner, rendered preview | `v3/tools/build-web.ps1`, `v1/tools/test-game.py`; `v1/tools/preview-prototype.gd` | Run the affected tool |
 
 Paths above are relative to `v1/` unless marked root. Locate functions with `rg -n '^func NAME' path`, then read a bounded range. Shared scene-free test setup is in `tools/fixtures/simulation_fixture.gd` and `mechanics_layout.gd`. Run tests from the repository root; supply `--godot <executable>` if needed. Logs and previews are ignored under `v1/art_source/.build/`.
 

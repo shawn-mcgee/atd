@@ -25,4 +25,4 @@ Historical snapshot before the ideas iteration. Follow the current README and gr
 
 See [README](../README.md) for controls, balance values, and validation commands.
 
-Next playtest: tune the 30-second extraction hold, swarm pressure, battery range, and methane economy. Tentative rival-company/creature concepts remain in `../ideas.md`.
+Next playtest: tune the 30-second extraction hold, swarm pressure, battery range, and methane economy. Tentative rival-company/creature concepts remain in `legacy-ideas.md`.

@@ -1,6 +1,6 @@
 # Current todos
 
-Concrete requests extracted from [ideas.md](../ideas.md). All extracted items are implemented and validated; balance remains a playtest task.
+Concrete requests extracted from [ideas.md](legacy-ideas.md). All extracted items are implemented and validated; balance remains a playtest task.
 
 - [Scenario and discovery](todos/scenario.md)
 - [Minimal starting base](todos/base.md)

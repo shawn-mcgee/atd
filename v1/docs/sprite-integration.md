@@ -4,16 +4,16 @@
 
 - Approved original sheets: `art_source/sprites/batch_*.png` (kept unchanged).
 - Runtime copies and metadata: `assets/sprites/`; `atlas.json` maps 94 regions, including registered Batch 7 gate layers.
-- Rebuild from the repository root with `python tools/prepare-sprites.py` (Pillow, NumPy and SciPy required). Use `--batch-7` to refresh only ground, walls and gates. Both paths retain the approved cliff artwork and resource patches and leave source art unchanged. Reimport in Godot afterward; tracked PNG import settings enable mipmaps.
+- Rebuild from the repository root with `python v1/tools/prepare-sprites.py` (Pillow, NumPy and SciPy required). Use `--batch-7` to refresh only ground, walls and gates. Both paths retain the approved cliff artwork and resource patches and leave source art unchanged. Reimport in Godot afterward; tracked PNG import settings enable mipmaps.
 - Rendering, pivots, orientation, alpha picking, turret heads, gate animation, and combat effects: `view/sprite_library.gd`.
 - Drawing order, terrain, resource depletion, previews, and selection overlays: `view/primitives.gd`. HUD thumbnails: `view/game_hud.gd`.
-- Validation: `python tools/test-game.py --name sprites --name top-down --name engine --name gameplay-baseline --godot <executable>`. Render all families with `Godot --path v1 --script res://tools/preview-prototype.gd -- --gallery --seed=42`. Preview PNGs/logs stay in `art_source/.build/`.
+- Validation: `python v1/tools/test-game.py --name sprites --name top-down --name engine --name gameplay-baseline --godot <executable>`. Render all families with `Godot --path v1 --script res://tools/preview-prototype.gd -- --gallery --seed=42`. Preview PNGs/logs stay in `art_source/.build/`.
 
 All paths above are relative to `v1/`, except the root preparation/test scripts.
 
 ## Corrections and layout
 
-Ramps and platforms remain unavailable for player construction. Walls use the full-tile Batch 7 sprite in world drawing, picking and the selection mask, without connector arms. `python tools/prepare-sprites.py --wall-only` refreshes just the wall (Pillow required). `python tools/prepare-sprites.py --fortifications` refreshes only walls and all three gate layers, preserving the current terrain and resource art.
+Ramps and platforms remain unavailable for player construction. Walls use the full-tile Batch 7 sprite in world drawing, picking and the selection mask, without connector arms. `python v1/tools/prepare-sprites.py --wall-only` refreshes just the wall (Pillow required). `python v1/tools/prepare-sprites.py --fortifications` refreshes only walls and all three gate layers, preserving the current terrain and resource art.
 
 
 
@@ -65,7 +65,7 @@ Ground is the intentional aspect-ratio exception: fit the complete ground sprite
 
 Cliff caps are the second deliberate fitting exception: 2.0×2.5 world units, pivot (0.5,0.62). The cliff art is lifted relative to its ground cell: the top sits above the hex and the bottom of the side faces remains near the ground footprint. Cliff sprites draw back-to-front with no flat footprint outline.
 
-Ground/cliff fitting now uses alpha-boundary radial morphing, not rectangular scaling. Three generated *_fit textures preserve the entire source silhouette mapped onto an exact pointy-top hex. Opaque edge-extended pixels prevent transparent seams. Ground uses a 2-unit-high mesh; cliffs use a 2.5-unit-high mesh with the bottom anchored at the ground hex bottom (top raised 0.5). Originals stay intact. Rebuild with tools/prepare-sprites.py.
+Ground/cliff fitting now uses alpha-boundary radial morphing, not rectangular scaling. Three generated *_fit textures preserve the entire source silhouette mapped onto an exact pointy-top hex. Opaque edge-extended pixels prevent transparent seams. Ground uses a 2-unit-high mesh; cliffs use a 2.5-unit-high mesh with the bottom anchored at the ground hex bottom (top raised 0.5). Originals stay intact. Rebuild with v1/tools/prepare-sprites.py.
 
 Map expansion: radius 84 (50% wider), 72 ridges of 14–32 steps, occasional three-cell thickness. Objectives and distant fields use the expanded outer area; HQ and nearby starter resources retain their protected layout. Darkness mask bounds follow map radius, at 768² resolution. Legacy gameplay checkpoints use a frozen original generator fixture.
 

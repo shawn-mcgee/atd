@@ -1,11 +1,11 @@
 # Project instructions
 
-The active browser alpha is the Godot 4.7.2 project at the repository root. Run commands from here. See README.md, docs/developer-guide.md, docs/implementation-status.md, and docs/controls.md.
+The active Godot 4.7.2 browser alpha lives in v3/. Open v3/project.godot and run npm/Python project commands from v3/. Read v3/README.md and v3/docs/developer-guide.md; implementation coverage is in v3/docs/implementation-status.md.
 
-Keep simulation deterministic and independent of scene rendering. Gameplay commands pass through WorldState; presentation and local controls must not mutate simulation state directly. Configuration lives in config/*.json; document new settings and run npm run config:reference.
+Keep simulation deterministic and independent of presentation. Gameplay commands pass through WorldState. Configuration lives in v3/config/; document new values and regenerate the configuration reference. Preserve existing script UID sidecars; do not regenerate caches or add @tool scripts without need.
 
-Run npm test for simulation and interface checks. For browser changes run npm run export:web then npm run test:browser. Use the pinned portable engine via tools/setup-engine.py. Preserve script UID sidecars; do not regenerate editor caches or introduce @tool scripts without need.
+Run npm test, npm run export:web, and npm run test:browser from v3/ for relevant changes. The repository workflow stages the exported build at both / and /v3/ using v3/tools/stage-site.py. Do not deploy the legacy game at the root URL.
 
-The older v1/ and v2/ projects are preserved for reference and excluded from the root project with .gdignore files. Legacy maintenance instructions are in docs/legacy-project-instructions.md. Do not alter those games when working on the root alpha.
+v1/ is preserved legacy code. Its instructions are in v3/docs/legacy-project-instructions.md. Do not mix its tooling or assets into v3/.
 
-Keep updates concise, inspect narrow relevant code ranges, and finish authorized work without unnecessary confirmation.
+Keep communication concise, inspect narrow relevant code ranges, and finish authorized work without unnecessary confirmations.

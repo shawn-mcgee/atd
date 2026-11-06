@@ -1,6 +1,6 @@
 # Against the Darkness: 2D asset generation brief
 
-This is a handoff for generating art, not a gameplay change. It covers the current roster in `engine/expedition_rules.gd` and footprints in `engine/structure_footprints.gd`. The proposed seven-cell extractor in root `todo.md` is not implemented: generate the current single-cell extractor first.
+This is a handoff for generating art, not a gameplay change. It covers the current roster in `engine/expedition_rules.gd` and footprints in `engine/structure_footprints.gd`. The proposed seven-cell extractor in `v1/legacy-todo.md` is not implemented: generate the current single-cell extractor first.
 
 ## Art direction
 
