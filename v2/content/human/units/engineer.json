@@ -1,0 +1,45 @@
+{
+  "units": {
+    "engineer": {
+      "name": "Engineer",
+      "faction": "human",
+      "hp": 15,
+      "armor": 0,
+      "cost": 10,
+      "production_ticks": 60,
+      "visual": {
+        "shape": "capsule",
+        "radius": 0.2,
+        "color": "eac45e"
+      },
+      "capabilities": {
+        "mission_worker": {
+          "capacity": 10,
+          "mining_amount": 2,
+          "mining_interval_ticks": 20,
+          "work_range": 1
+        },
+        "move": {
+          "speed": 3
+        },
+        "weapon": {
+          "damage": 1,
+          "range": 1,
+          "interval_ticks": 20
+        },
+        "perception": {
+          "radius": 2
+        },
+        "builder": {
+          "blueprint": "human_blueprint",
+          "structures": [
+            "turret",
+            "wall"
+          ],
+          "work_range": 1
+        }
+      },
+      "collision_radius": 0.2
+    }
+  }
+}

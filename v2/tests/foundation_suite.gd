@@ -1,0 +1,176 @@
+extends RefCounted
+const Content = preload("res://core/content.gd")
+const Rules = preload("res://core/match_rules.gd")
+const Sim = preload("res://core/simulation.gd")
+const Rollback = preload("res://net/rollback_session.gd")
+const Canonical = preload("res://core/canonical.gd")
+const VeilSuite = preload("res://tests/veil_suite.gd")
+const ChymeSuite = preload("res://tests/chyme_suite.gd")
+const RallySuite = preload("res://tests/rally_suite.gd")
+const CpuSuite = preload("res://tests/cpu_suite.gd")
+const SteeringSuite = preload("res://tests/steering_suite.gd")
+const GeometrySuite = preload("res://tests/geometry_suite.gd")
+const EngineeringSuite = preload("res://tests/engineering_suite.gd")
+const ConstructionSuite = preload("res://tests/construction_suite.gd")
+const EscalationSuite = preload("res://tests/escalation_suite.gd")
+const MissionSuite = preload("res://tests/mission_suite.gd")
+const OrientationSuite = preload("res://tests/orientation_suite.gd")
+const ConfigFilesSuite = preload("res://tests/config_files_suite.gd")
+const SpawningSuite = preload("res://tests/spawning_suite.gd")
+const IlluminationSuite = preload("res://tests/illumination_suite.gd")
+const VeilPerceptionSuite = preload("res://tests/veil_perception_suite.gd")
+var failures: Array[String] = []
+var checks := 0
+
+func run() -> Dictionary:
+	var content = Content.new()
+	_check(content.load_file("res://content/default.json"), "default content validates")
+	content.data.settings.mission.enabled = false # Isolate sandbox mechanics; MissionSuite covers objectives.
+	var invalid: Dictionary = content.data.duplicate(true)
+	invalid.units.marine.capabilities.weapon.range = -1
+	var bad = Content.new()
+	_check(not bad.load_text(Canonical.text(invalid)) and "units.marine.capabilities.weapon.range" in " ".join(bad.errors), "invalid fields produce useful paths")
+	invalid = content.data.duplicate(true)
+	invalid.units.marine.capabilities.script = {}
+	_check(not bad.load_text(Canonical.text(invalid)), "unknown capabilities rejected")
+	var fallback := Rules.participants([{"id": 1, "faction": "lightless", "controller": "human"}])
+	_check(fallback.is_empty(), "missing faction is rejected without AI fallback")
+	_check(Rules.participants([{"id": 1, "faction": "lightless", "controller": "human"}, {"id": 2, "faction": "lightless", "controller": "human"}]).is_empty(), "only one Lightless participant")
+	_check(Rules.participants([{"id": 1, "faction": "human", "controller": "ai"}, {"id": 2, "faction": "lightless", "controller": "human"}]).is_empty(), "AI participants are unsupported")
+	var players := Rules.participants([{"id": 1, "faction": "human", "controller": "human"}, {"id": 9, "faction": "lightless", "controller": "human"}])
+	var sim = Sim.new()
+	sim.initialize(content.data, players, 42)
+	var initial := sim.state_hash()
+	sim.step([{"player": 9, "kind": "train", "actors": [1], "definition": "marine"}])
+	_check(int(sim.state.banks["1"]) == 100 and sim.entity(1).production.is_empty(), "foreign ownership cannot train")
+	sim.step([{"player": 1, "kind": "train", "actors": [1], "definition": "marine"}])
+	_check(int(sim.state.banks["1"]) == 80, "production costs paid exactly once")
+	var checkpoint := sim.checkpoint()
+	var roundtrip: Dictionary = Canonical.normalize(JSON.parse_string(Canonical.text(checkpoint)))
+	for tick in 120: sim.step([])
+	var expected := sim.state_hash()
+	_check(sim.state.actors.size() == 7, "production creates a new actor")
+	sim.restore(roundtrip)
+	for tick in 120: sim.step([])
+	_check(sim.state_hash() == expected, "JSON checkpoint restore reproduces production and RNG")
+	checkpoint.actors[0].hp = 1
+	_check(int(sim.entity(1).hp) == 300, "checkpoint is isolated from live state")
+	var twin = Sim.new()
+	twin.initialize(content.data, players, 42)
+	_check(twin.state_hash() == initial, "seeded initial states match")
+	var small: Dictionary = content.data.duplicate(true)
+	small.settings.map_radius = 8
+	twin.initialize(small, players, 42)
+	for actor in twin.state.actors:
+		_check(twin.valid_point(actor.position), "starting actors fit the smallest configured map")
+	var authored: Dictionary = content.data.duplicate(true)
+	authored.units.sentry = authored.units.marine.duplicate(true)
+	authored.units.sentry.name = "Sentry"
+	authored.units.sentry.capabilities.erase("move")
+	authored.units.sentry.capabilities.weapon.turret = true
+	authored.units.hq.capabilities.factory.produces.append("sentry")
+	_check(bad.load_text(Canonical.text(authored)), "new unit composes existing capabilities without code")
+	twin.initialize(bad.data, players, 42)
+	twin.step([{"player": 1, "kind": "train", "actors": [1], "definition": "sentry"}])
+	for tick in int(authored.units.sentry.production_ticks): twin.step([])
+	_check(twin.state.actors.any(func(actor): return actor.definition == "sentry"), "authored unit can be produced")
+	var detector: Dictionary = content.data.duplicate(true)
+	detector.units.marine.capabilities.weapon.range = 24
+	detector.units.marine.capabilities.perception.radius = 0
+	detector.units.marine.capabilities.detection = {"radius": 24}
+	twin.initialize(detector, players, 42)
+	twin.step([{"player": 1, "kind": "attack", "actors": [3], "target": 4}])
+	_check(int(twin.entity(4).hp) == 500, "ordinary weapon cannot attack detection-only contact")
+	detector.units.marine.capabilities.weapon.turret = true
+	twin.initialize(detector, players, 42)
+	twin.step([{"player": 1, "kind": "attack", "actors": [3], "target": 4}])
+	_check(int(twin.entity(4).hp) == 495, "turret can attack detection-only contact")
+	# Two independently advancing peers; one receives a nonempty frame eight ticks late.
+	var definitions: Dictionary = content.data.duplicate(true)
+	definitions.units.marine.capabilities.weapon.range = 24
+	definitions.units.marine.capabilities.weapon.interval_ticks = 2
+	definitions.units.marine.capabilities.perception.radius = 24
+	var a = Rollback.new()
+	var b = Rollback.new()
+	a.initialize(definitions, players, 42, 0)
+	b.initialize(definitions, players, 42, 0)
+	var seen: Array = []
+	b.events_confirmed.connect(func(events):
+		for event in events: seen.append(event.id))
+	var delayed := [{"kind": "move", "actors": [5], "point": [6 * Sim.SCALE, 0, 2 * Sim.SCALE]}]
+	for tick in 50:
+		for player in [1, 9]:
+			var commands: Array = []
+			if tick == 2 and player == 9: commands = delayed
+			if tick == 3 and player == 1: commands = [{"kind": "attack", "actors": [3], "target": 4}]
+			_check(a.receive(player, tick, commands), "reference frame accepted")
+			if not (tick == 2 and player == 9): _check(b.receive(player, tick, commands), "delayed peer frame accepted")
+	for tick in 10:
+		_check(a.advance() and b.advance(), "peers advance before correction")
+	_check(b.receive(9, 2, delayed), "late input accepted")
+	_check(b.rollbacks == 1 and b.replayed_ticks == 8, "late command restores and replays only affected history")
+	_check(a.simulation.state_hash() == b.simulation.state_hash(), "rollback corrects divergent speculative state")
+	for tick in 40: _check(a.advance() and b.advance(), "peers advance after correction")
+	_check(a.simulation.state_hash() == b.simulation.state_hash(), "corrected peers remain identical")
+	var unique: Dictionary = {}
+	for id in seen: unique[id] = true
+	_check(not seen.is_empty() and unique.size() == seen.size(), "confirmed effects are not duplicated during rollback")
+	_check(b.confirmed_tick == 49, "all received frames become confirmed")
+	_check(not b.receive(9, 3, [{"kind": "stop", "actors": [5]}]), "conflicting sealed input rejected")
+	var stalled = Rollback.new()
+	stalled.initialize(content.data, players, 42, 1)
+	for tick in 150: stalled.advance()
+	_check(int(stalled.simulation.state.tick) <= stalled.window + 2, "missing peer stalls before rollback history is lost")
+	var unsafe = Rollback.new()
+	unsafe.initialize(content.data, players, 42, 1)
+	_check(not unsafe.queue({"kind": "move", "actors": [2], "point": [999999999999, 0, 0]}), "out-of-world movement rejected")
+	var veil: Dictionary = VeilSuite.new().run()
+	checks += int(veil.checks)
+	for failure in veil.failures: failures.append("Veil: " + str(failure))
+	var chyme: Dictionary = ChymeSuite.new().run()
+	checks += int(chyme.checks)
+	for failure in chyme.failures: failures.append("Chyme: " + str(failure))
+	var rally: Dictionary = RallySuite.new().run()
+	checks += int(rally.checks)
+	for failure in rally.failures: failures.append("Rally: " + str(failure))
+	var cpu: Dictionary = CpuSuite.new().run()
+	checks += int(cpu.checks)
+	for failure in cpu.failures: failures.append("CPU: " + str(failure))
+	var steering: Dictionary = SteeringSuite.new().run()
+	checks += int(steering.checks)
+	for failure in steering.failures: failures.append("Steering: " + str(failure))
+	var geometry: Dictionary = GeometrySuite.new().run()
+	checks += int(geometry.checks)
+	for failure in geometry.failures: failures.append("Geometry: " + str(failure))
+	var engineering: Dictionary = EngineeringSuite.new().run()
+	checks += int(engineering.checks)
+	for failure in engineering.failures: failures.append("Engineering: " + str(failure))
+	var construction: Dictionary = ConstructionSuite.new().run()
+	checks += int(construction.checks)
+	for failure in construction.failures: failures.append("Construction: " + str(failure))
+	var escalation: Dictionary = EscalationSuite.new().run()
+	checks += int(escalation.checks)
+	for failure in escalation.failures: failures.append("Escalation: " + str(failure))
+	var mission: Dictionary = MissionSuite.new().run()
+	checks += int(mission.checks)
+	for failure in mission.failures: failures.append("Mission: " + str(failure))
+	var orientation: Dictionary = OrientationSuite.new().run()
+	checks += int(orientation.checks)
+	for failure in orientation.failures: failures.append("Orientation: " + str(failure))
+	var config_files: Dictionary = ConfigFilesSuite.new().run()
+	checks += int(config_files.checks)
+	for failure in config_files.failures: failures.append("Config files: " + str(failure))
+	var spawning: Dictionary = SpawningSuite.new().run()
+	checks += int(spawning.checks)
+	for failure in spawning.failures: failures.append("Spawning: " + str(failure))
+	var illumination: Dictionary = IlluminationSuite.new().run()
+	checks += int(illumination.checks)
+	for failure in illumination.failures: failures.append("Illumination: " + str(failure))
+	var veil_perception: Dictionary = VeilPerceptionSuite.new().run()
+	checks += int(veil_perception.checks)
+	for failure in veil_perception.failures: failures.append("Veil perception: " + str(failure))
+	return {"ok": failures.is_empty(), "checks": checks, "failures": failures, "deterministic_hash": Canonical.hash_of([a.simulation.state_hash(), veil.hash, chyme.hash, rally.hash, steering.hash, geometry.hash, engineering.hash, construction.hash, escalation.hash, mission.hash, orientation.hash, config_files.hash, spawning.hash, illumination.hash, veil_perception.hash])}
+
+func _check(condition: bool, message: String) -> void:
+	checks += 1
+	if not condition: failures.append(message)

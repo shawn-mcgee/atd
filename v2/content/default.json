@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "imports": [
+    "settings.json",
+    "human/structures/hq.json",
+    "lightless/structures/nest.json",
+    "human/units/engineer.json",
+    "human/units/marine.json",
+    "human/structures/extraction_point.json",
+    "lightless/units/mother.json",
+    "lightless/structures/womb.json",
+    "lightless/structures/scavenger_spawner.json",
+    "lightless/structures/maw.json",
+    "lightless/units/scavenger.json",
+    "human/structures/human_blueprint.json",
+    "human/structures/turret.json",
+    "human/structures/wall.json"
+  ]
+}

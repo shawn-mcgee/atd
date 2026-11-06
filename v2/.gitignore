@@ -1,0 +1,8 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+/addons/webrtc_native/
+/test-results/
+/.vscode/
+/export_credentials.cfg
+*.blend[0-9]

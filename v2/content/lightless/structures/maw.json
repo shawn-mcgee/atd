@@ -1,0 +1,33 @@
+{
+  "units": {
+    "maw": {
+      "name": "Maw",
+      "faction": "lightless",
+      "hp": 100,
+      "armor": 0,
+      "cost": 30,
+      "production_ticks": 80,
+      "construction_ticks": 80,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 0.4,
+        "color": "bd6770"
+      },
+      "capabilities": {
+        "perception": {
+          "radius": 3
+        },
+        "chyme_receiver": {
+          "radius": 1.5
+        },
+        "chyme_source": {
+          "amount": 2,
+          "interval_ticks": 40
+        }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 0.4,
+      "footprint": [[0, 0]]
+    }
+  }
+}

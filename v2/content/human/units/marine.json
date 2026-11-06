@@ -1,0 +1,31 @@
+{
+  "units": {
+    "marine": {
+      "name": "Marine",
+      "faction": "human",
+      "hp": 30,
+      "armor": 4,
+      "cost": 20,
+      "production_ticks": 80,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 0.2,
+        "color": "68cbd6"
+      },
+      "capabilities": {
+        "move": {
+          "speed": 3.5
+        },
+        "weapon": {
+          "damage": 10,
+          "range": 7.5,
+          "interval_ticks": 16
+        },
+        "perception": {
+          "radius": 2
+        }
+      },
+      "collision_radius": 0.2
+    }
+  }
+}

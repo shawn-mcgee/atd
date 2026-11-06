@@ -1,0 +1,34 @@
+{
+  "units": {
+    "hq": {
+      "name": "HQ",
+      "faction": "human",
+      "hp": 300,
+      "armor": 3,
+      "cost": 0,
+      "production_ticks": 100,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 1,
+        "color": "589cdb"
+      },
+      "capabilities": {
+        "perception": {
+          "radius": 6
+        },
+        "illumination": {
+          "radius": 4
+        },
+        "factory": {
+          "produces": [
+            "engineer",
+            "marine"
+          ]
+        }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 1,
+      "footprint": [[0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "units": {
+    "mother": {
+      "name": "Mother",
+      "faction": "lightless",
+      "hp": 40,
+      "armor": 1,
+      "cost": 30,
+      "production_ticks": 80,
+      "visual": {
+        "shape": "capsule",
+        "radius": 0.5,
+        "color": "c889b8"
+      },
+      "capabilities": {
+        "move": {
+          "speed": 1.5
+        },
+        "perception": {
+          "radius": 4
+        },
+        "metamorphosis": {
+          "womb": "womb",
+          "structures": [
+            "scavenger_spawner",
+            "maw"
+          ]
+        }
+      },
+      "collision_radius": 0.5
+    }
+  }
+}

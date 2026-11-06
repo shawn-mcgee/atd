@@ -1,0 +1,49 @@
+{
+  "units": {
+    "nest": {
+      "name": "Nest",
+      "faction": "lightless",
+      "hp": 500,
+      "armor": 5,
+      "cost": 0,
+      "production_ticks": 100,
+      "visual": {
+        "shape": "cylinder",
+        "radius": 1,
+        "color": "a96edb"
+      },
+      "capabilities": {
+        "passive_spawner": {
+          "definition": "scavenger",
+          "interval_ticks": 200,
+          "max_alive": 6,
+          "spawn_radius": 2
+        },
+        "chyme_receiver": {
+          "radius": 1.5
+        },
+        "chyme_source": {
+          "amount": 1,
+          "interval_ticks": 20
+        },
+        "perception": {
+          "radius": 7
+        },
+        "factory": {
+          "produces": [
+            "scavenger",
+            "mother"
+          ]
+        },
+        "veil_source": {
+          "radius": 7,
+          "growth_interval_ticks": 6,
+          "growth_tiles": 4
+        }
+      },
+      "collision_shape": "circle",
+      "collision_radius": 1,
+      "footprint": [[0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]
+    }
+  }
+}

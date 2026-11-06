@@ -6,3 +6,14 @@ test-results/
 playwright-report/
 .env
 export_credentials.cfg
+
+# Preserved legacy projects and local diagnostics
+.vscode/
+__pycache__/
+/v1/.godot/
+/v2/.godot/
+/v1/art_source/.build/
+/v2/native/.build/
+/v2/native/bin/
+/v2/native/runtime.gdextension
+/v2/native/runtime.gdextension.uid

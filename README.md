@@ -1010,3 +1010,5 @@ Siege - Specialized attacks designed to destroy structures and break fortified p
 
 **Power**
 *Electricity supplied by Anchors, Gas-fueled Generators, and Crystal-fueled Reactors, then distributed through electrical footprints and the expedition's Relay network. Power sustains artificial lighting, automated defenses, resource processing, and other critical infrastructure. Maintaining a reliable grid is essential to holding territory, as an interrupted supply can leave remote outposts exposed to the Lightless.*
+
+The earlier projects remain archived in `v1/` and `v2/`; the repository-root project is the current alpha.
