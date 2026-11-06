@@ -89,6 +89,38 @@ func queued_order_checks() -> void:
 	w.command(0, {"action": "kit", "target": armory, "kind": "marine"})
 	verify(anchor.operators.size() == 1 and w.structures[armory].kits.size() == 2, "Global on affects new orders and leaves existing kit orders unchanged")
 
+func performance_cache_checks() -> void:
+	var w := movement_world()
+	var unit := w.add_unit("operator", Vector2(-2, 0), 0)
+	var gate := w.add_structure("gate", Vector2i.ZERO, 0)
+	w._rebuild_navigation()
+	for i in range(2): verify(not WorldState.RouteNavigation.clear_segment(w, w.units[unit], Vector2(-1, 0), Vector2(1, 0)), "Warm collision caches retain closed gates")
+	w.command(0, {"action": "gate", "target": gate})
+	verify(WorldState.RouteNavigation.clear_segment(w, w.units[unit], Vector2(-1, 0), Vector2(1, 0)), "Opening a gate invalidates cached collision neighborhoods")
+	w.command(0, {"action": "gate", "target": gate})
+	verify(not WorldState.RouteNavigation.clear_segment(w, w.units[unit], Vector2(-1, 0), Vector2(1, 0)), "Closing a gate invalidates cached clear paths")
+	var point := HexGrid.world(Vector2i(0, 3))
+	verify(WorldState.RouteNavigation.clear_segment(w, w.units[unit], point, point + Vector2(0.1, 0)), "An empty infantry neighborhood admits same-cell movement")
+	w.tiles[Vector2i(0, 3)].cliff = true; w._rebuild_navigation()
+	verify(not WorldState.RouteNavigation.clear_segment(w, w.units[unit], point, point + Vector2(0.1, 0)), "A new obstacle invalidates the open-cell fast path")
+	w = movement_world()
+	var first := w.add_unit("marine", Vector2(-2, 2), 0)
+	var second := w.add_unit("marine", Vector2(2, 2), 0)
+	w._separate_units(0.05); w._separate_units(0.05)
+	w.units[second].pos = w.units[first].pos
+	w._separate_units(0.05)
+	verify(w.units[first].pos.distance_to(w.units[second].pos) > 0, "Moving a unit invalidates stationary separation reuse")
+	w = movement_world()
+	var radar := w.add_structure("radar", Vector2i.ZERO, 0)
+	w.structures[radar].powered = true
+	var contact := w.add_unit("scavenger", HexGrid.world(Vector2i(2, 0)), -1)
+	WorldState.RadarSystem.update(w); WorldState.RadarSystem.update(w)
+	verify(w.detected[0].has(Vector2i(2, 0)), "Cached Radar coverage still reports hostile occupied cells")
+	w.units[contact].pos = HexGrid.world(Vector2i(3, 0)); WorldState.RadarSystem.update(w)
+	verify(not w.detected[0].has(Vector2i(2, 0)) and w.detected[0].has(Vector2i(3, 0)), "Cached coverage does not freeze moving Radar contacts")
+	w.structures[radar].powered = false; WorldState.RadarSystem.update(w)
+	verify(w.detected[0].is_empty(), "Power loss invalidates Radar coverage immediately")
+
 func medusa_spawn_checks() -> void:
 	var config: Dictionary = world().cfg
 	var locations: Dictionary = {}
@@ -329,6 +361,8 @@ func colony_fixture() -> WorldState:
 
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	if "--performance-only" in OS.get_cmdline_user_args():
+		performance_cache_checks(); print("Performance cache checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--spawns-only" in OS.get_cmdline_user_args():
 		medusa_spawn_checks(); print("Spawn checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--construction-only" in OS.get_cmdline_user_args():
@@ -354,7 +388,7 @@ func run() -> void:
 		quit(0 if errors.is_empty() else 1); return
 	if "--routes-only" in OS.get_cmdline_user_args():
 		route_order_checks(); print("Route checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
-	power_balance_checks(); colony_production_checks(); queued_order_checks(); visibility_optimization_checks(); idle_engineer_checks(); wall_line_checks(); medusa_spawn_checks()
+	power_balance_checks(); colony_production_checks(); queued_order_checks(); visibility_optimization_checks(); idle_engineer_checks(); wall_line_checks(); medusa_spawn_checks(); performance_cache_checks()
 	for cell in HexGrid.disk(Vector2i.ZERO, 10): verify(HexGrid.cell(HexGrid.world(cell)) == cell, "Hex round trip")
 	var a := world(5)
 	var b := world(5)

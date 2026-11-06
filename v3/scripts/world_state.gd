@@ -41,6 +41,13 @@ var _sight_areas: Dictionary = {}
 var _sight_topology_valid := false
 var _sight_unions: Array = []
 var _opponents: Dictionary = {}
+var _power_signature: Array = []
+var _power_groups: Array = []
+var _open_movement_cells: Dictionary = {}
+var _clearance_neighborhoods: Dictionary = {}
+var _dark_clearance_neighborhoods: Dictionary = {}
+var _separation_signature: Array = []
+var _radar_coverage: Dictionary = {}
 const SEPARATION_OFFSETS: Array[Vector2i] = [Vector2i(-1, -1), Vector2i(-1, 0), Vector2i(-1, 1), Vector2i(0, -1), Vector2i.ZERO, Vector2i(0, 1), Vector2i(1, -1), Vector2i(1, 0), Vector2i(1, 1)]
 
 func _init(settings: Dictionary = {}) -> void:
@@ -48,7 +55,8 @@ func _init(settings: Dictionary = {}) -> void:
 
 func reset(map_seed: int, count: int = 1) -> void:
 	_sight_areas.clear(); _sight_blockers.clear(); _sight_unions.clear(); _sight_topology_valid = false
-	_opponents.clear()
+	_opponents.clear(); _power_signature.clear(); _power_groups.clear(); _open_movement_cells.clear(); _clearance_neighborhoods.clear(); _dark_clearance_neighborhoods.clear(); _separation_signature.clear()
+	_radar_coverage.clear()
 	seed_value = map_seed
 	random.seed = map_seed
 	radius = int(cfg.map.radiusTiles)
@@ -149,6 +157,7 @@ func add_unit(kind: String, position: Vector2, owner: int) -> int:
 	return id
 
 func add_structure(kind: String, cell: Vector2i, owner: int, built: bool = true, depot_type: String = "ore") -> int:
+	_open_movement_cells.clear(); _clearance_neighborhoods.clear(); _dark_clearance_neighborhoods.clear(); _separation_signature.clear()
 	_opponents.clear()
 	_sight_topology_valid = false; _sight_areas.clear()
 	var id := next_id
@@ -182,6 +191,7 @@ func blocked(cell: Vector2i, ignore: int = 0) -> bool:
 	return false
 
 func _index_structures() -> void:
+	_open_movement_cells.clear(); _clearance_neighborhoods.clear(); _dark_clearance_neighborhoods.clear(); _separation_signature.clear()
 	structure_cells.clear()
 	for structure in structures.values():
 		for cell in footprint(structure):
@@ -281,6 +291,25 @@ func _move(u: Dictionary, delta: float) -> bool:
 		budget -= travel
 		if travel >= distance: u.route.pop_front()
 	return moved
+
+func clearance_obstacles(cell: Vector2i, reach: int, avoid_light: bool) -> Array[Vector2i]:
+	var cache: Dictionary = _dark_clearance_neighborhoods if avoid_light else _clearance_neighborhoods
+	var key := Vector3i(cell.x, cell.y, reach)
+	if not cache.has(key):
+		var obstacles: Array[Vector2i] = []
+		for nearby in HexGrid.disk(cell, reach):
+			if blocked(nearby) or (avoid_light and is_lit(nearby)): obstacles.append(nearby)
+		cache[key] = obstacles
+	return cache[key]
+
+func open_movement_cell(cell: Vector2i) -> bool:
+	if not _open_movement_cells.has(cell):
+		var clear := not blocked(cell)
+		if clear:
+			for direction in HexGrid.DIRECTIONS:
+				if blocked(cell + direction): clear = false; break
+		_open_movement_cells[cell] = clear
+	return _open_movement_cells[cell]
 
 func resources(owner: int) -> Dictionary:
 	return players[owner].resources
@@ -727,6 +756,7 @@ func step(delta: float) -> void:
 			if players[owner].remaining <= 0: ended = true; result = "Player %d extracted successfully" % (owner + 1)
 	if tick % int(cfg.targeting.refreshIntervalTicks) == 0: update_visibility(); _update_gloom(delta * int(cfg.targeting.refreshIntervalTicks))
 
+
 func _unit_step(u: Dictionary, delta: float) -> void:
 	if u.vehicle != 0: return
 	if u.owner >= 0 and u.kind == "engineer": _idle_engineer_work(u, delta)
@@ -906,7 +936,7 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 
 func _healing(delta: float) -> void:
 	for u in units.values():
-		if not cfg.units[u.kind].get("biological", false) or u.vehicle != 0: continue
+		if not cfg.units[u.kind].get("biological", false) or u.vehicle != 0 or float(u.hp) >= float(cfg.units[u.kind].health): continue
 		if u.owner < 0:
 			if gloom.has(HexGrid.cell(u.pos)): u.hp = minf(float(cfg.units[u.kind].health), float(u.hp) + float(cfg.gloom.unitRegenerationPerSecond) * delta)
 			continue
@@ -920,6 +950,17 @@ func _healing(delta: float) -> void:
 		if s.owner < 0 and s.built: s.hp = minf(float(cfg.structures[s.kind].health), float(s.hp) + float(cfg.gloom.structureRegenerationPerSecond) * delta)
 
 func _separate_units(delta: float) -> void:
+	var positions := PackedVector2Array()
+	var identifiers := PackedInt64Array()
+	var radii := PackedFloat64Array()
+	for u in units.values():
+		if int(u.vehicle) != 0 or u.get("buried", false): continue
+		positions.append(u.pos)
+		radii.append(float(cfg.units[u.kind].collisionRadiusTiles))
+		identifiers.append(-int(u.id) if cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0 else int(u.id))
+	var signature: Array = [positions, identifiers, radii, delta, cfg.movement.separationTilesPerSecond]
+	if signature == _separation_signature: return
+	_separation_signature = signature
 	var buckets: Dictionary = {}
 	for u in units.values():
 		if int(u.vehicle) != 0 or u.get("buried", false): continue
@@ -943,7 +984,8 @@ func _separate_units(delta: float) -> void:
 				var direction := offset / distance if distance > 0.001 else Vector2.RIGHT * (1 if int(u.id) > int(other.id) else -1)
 				push += direction * (desired - distance)
 		var proposed: Vector2 = u.pos + push.limit_length(float(cfg.movement.separationTilesPerSecond) * delta)
-		if push.length_squared() > 0.000001 and RouteNavigation.clear_segment(self, u, u.pos, proposed): u.pos = proposed
+		if push.length_squared() > 0.000001 and RouteNavigation.clear_segment(self, u, u.pos, proposed):
+			u.pos = proposed; _separation_signature.clear()
 
 func _deposit_cargo(u: Dictionary, depot: Dictionary) -> void:
 	var delivered := 0
@@ -1315,19 +1357,27 @@ func _update_power(delta: float) -> void:
 				if _pay(s.owner, {str(fuel.resource): int(fuel.unitsPerCycle)}): s.fuel = float(fuel.cycleSeconds)
 		if electrical_structure(s.kind): pending.append(s.id)
 		else: s.powered = true
-	while not pending.is_empty():
-		var group: Array = [pending.pop_front()]
-		var index := 0
-		while index < group.size():
-			var a: Dictionary = structures[group[index]]
-			var reach_a := electrical_reach(a.kind)
-			for other in pending.duplicate():
-				var b: Dictionary = structures[other]
-				var reach_b := electrical_reach(b.kind)
-				if a.owner == b.owner and HexGrid.distance(a.cell, b.cell) <= reach_a + reach_b:
-					pending.erase(other)
-					group.append(other)
-			index += 1
+	var signature: Array = []
+	for id in pending:
+		var s: Dictionary = structures[id]
+		signature.append([id, s.owner, s.cell, electrical_reach(s.kind)])
+	if signature != _power_signature:
+		_power_signature = signature; _power_groups.clear()
+		while not pending.is_empty():
+			var group: Array = [pending.pop_front()]
+			var index := 0
+			while index < group.size():
+				var a: Dictionary = structures[group[index]]
+				var reach_a := electrical_reach(a.kind)
+				for other in pending.duplicate():
+					var b: Dictionary = structures[other]
+					var reach_b := electrical_reach(b.kind)
+					if a.owner == b.owner and HexGrid.distance(a.cell, b.cell) <= reach_a + reach_b:
+						pending.erase(other)
+						group.append(other)
+				index += 1
+			_power_groups.append(group)
+	for group in _power_groups:
 		var supply := 0
 		var demand := 0
 		var was_blackout := false
@@ -1381,13 +1431,16 @@ func _fire(attacker: Dictionary, weapon_name: String, delta: float) -> bool:
 	if target.is_empty() or (target.owner == attacker.owner and not explicit_attack):
 		target = {}
 		var distance := float(weapon.rangeTiles) + float(cfg.combat.targetSearchMarginTiles)
+		var distance_squared := distance * distance
 		for candidate in _enemy_entities(int(attacker.owner)):
 			if candidate.owner == attacker.owner: continue
 			if int(candidate.get("vehicle", 0)) != 0: continue
+			var candidate_position := entity_position(candidate)
+			var d_squared := origin.distance_squared_to(candidate_position)
+			if d_squared >= distance_squared: continue
 			if defensive and attacker.home.distance_to(entity_position(candidate)) > float(cfg.combat.defensiveLeashTiles): continue
 			if not TargetRules.targetable(self, attacker, candidate): continue
-			var d := origin.distance_to(entity_position(candidate))
-			if d < distance: distance = d; target = candidate
+			distance_squared = d_squared; target = candidate
 	if target.is_empty():
 		if attacker.has("pos") and int(attacker.get("target", 0)) != 0:
 			attacker.target = 0
@@ -1606,6 +1659,7 @@ func update_visibility() -> void:
 	_remember_structures()
 	var new_light: Dictionary = {}
 	for area in illuminated.values(): new_light.merge(area, true)
+	if old_light != new_light: _dark_clearance_neighborhoods.clear()
 	for cell in old_light:
 		if not new_light.has(cell) and point_ids.has(cell): dark_navigation.set_point_weight_scale(point_ids[cell], 1.0)
 	for cell in new_light:
@@ -1767,20 +1821,21 @@ class RouteNavigation:
 		for i in range(6):
 			var c: Vector2 = polygon[i]
 			var d: Vector2 = polygon[(i + 1) % 6]
-			if Geometry2D.segment_intersects_segment(a, b, c, d) != null: return 0.0
-			nearest = minf(nearest, c.distance_squared_to(Geometry2D.get_closest_point_to_segment(c, a, b)))
-			nearest = minf(nearest, a.distance_squared_to(Geometry2D.get_closest_point_to_segment(a, c, d)))
-			nearest = minf(nearest, b.distance_squared_to(Geometry2D.get_closest_point_to_segment(b, c, d)))
+			var points := Geometry2D.get_closest_points_between_segments(a, b, c, d)
+			nearest = minf(nearest, points[0].distance_squared_to(points[1]))
+			if nearest < 0.000000000001: return 0.0
 		return nearest
 
 	static func clear_segment(world: RefCounted, unit: Dictionary, a: Vector2, b: Vector2, gates: bool = false, avoid_light: bool = false) -> bool:
 		var radius := clearance(world, unit)
+		var start := HexGrid.cell(a); var finish := HexGrid.cell(b)
+		if start == finish and radius < HexGrid.RADIUS and not avoid_light and world.open_movement_cell(start): return true
 		var candidates: Dictionary = {}
 		# A conservative neighborhood covers offset endpoints and wide bodies;
 		# the exact capsule/hex test below rejects only actual intersections.
-		var neighborhood := 1 if HexGrid.cell(a) == HexGrid.cell(b) and radius < HexGrid.RADIUS else ceili(radius + HexGrid.RADIUS * 2)
-		for cell in HexGrid.line(HexGrid.cell(a), HexGrid.cell(b)):
-			for nearby in HexGrid.disk(cell, neighborhood): candidates[nearby] = true
+		var neighborhood := 1 if start == finish and radius < HexGrid.RADIUS else ceili(radius + HexGrid.RADIUS * 2)
+		for cell in HexGrid.line(start, finish):
+			for nearby in world.clearance_obstacles(cell, neighborhood, avoid_light): candidates[nearby] = true
 		for cell in candidates:
 			var solid: bool = world.blocked(cell)
 			var lit: bool = avoid_light and world.is_lit(cell)
@@ -1824,9 +1879,12 @@ class RouteNavigation:
 				limit = path.size() - 1
 				for pin in range(index, path.size()):
 					if pins.has(pin): limit = pin; break
-			var chosen := index
-			for next in range(limit, index - 1, -1):
-				if clear_segment(world, unit, origin, path[next], true, dark): chosen = next; break
+			# A blocked distant shortcut is not evidence that every intervening
+			# endpoint needs a separate sweep. Halving bounds retry work while
+			# preserving the native route and mandatory gate waypoints.
+			var chosen := limit
+			while chosen > index and not clear_segment(world, unit, origin, path[chosen], true, dark):
+				chosen = index + (chosen - index) / 2
 			unit.route.append(path[chosen]); origin = path[chosen]; index = chosen + 1
 
 class LightlessTactics:
@@ -2117,21 +2175,27 @@ class RadarSystem:
 	static func update(world: RefCounted) -> void:
 		world.detected.clear()
 		for owner in world.players:
-			var coverage: Dictionary = {}
+			var sources: Array[Vector3i] = []
 			for sensor in world.structures.values():
 				if sensor.owner != owner or not sensor.built or not sensor.enabled or not sensor.powered: continue
 				var definition: Dictionary = world.cfg.structures[sensor.kind]
 				var reach := int(definition.get("detectionRangeBeyondFootprintTiles", 0))
 				if reach <= 0: continue
-				for cell in world.footprint(sensor):
-					for covered in HexGrid.disk(cell, reach): coverage[covered] = true
+				sources.append(Vector3i(sensor.cell.x, sensor.cell.y, reach + int(definition.footprintRadiusTiles)))
 			for sensor in world.units.values():
 				if sensor.owner != owner or int(sensor.vehicle) != 0: continue
 				var definition: Dictionary = world.cfg.units[sensor.kind]
 				if definition.has("driverSeats") and int(sensor.driver) == 0: continue
 				var reach := int(definition.get("detectionRangeTiles", 0))
 				if reach > 0:
-					for covered in HexGrid.disk(HexGrid.cell(sensor.pos), reach): coverage[covered] = true
+					var cell := HexGrid.cell(sensor.pos)
+					sources.append(Vector3i(cell.x, cell.y, reach))
+			if not world._radar_coverage.has(owner) or world._radar_coverage[owner].sources != sources:
+				var area: Dictionary = {}
+				for source in sources:
+					for cell in HexGrid.disk(Vector2i(source.x, source.y), source.z): area[cell] = true
+				world._radar_coverage[owner] = {"sources": sources, "area": area}
+			var coverage: Dictionary = world._radar_coverage[owner].area
 			var contacts: Dictionary = {}
 			for unit in world.units.values():
 				if unit.owner == owner or int(unit.vehicle) != 0: continue

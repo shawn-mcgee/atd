@@ -28,29 +28,39 @@ func run() -> void:
 	game._start_game(472, 1)
 	game.set_process(false); game.set_physics_process(false); game.tactical.set_process(false); game.camera.set_process(false)
 	var world: WorldState = game.state
-	var anchor: Dictionary = world.structures[int(world.players[0].anchor)]
-	var center: Vector2i = anchor.cell - anchor.cell.sign() * 7
-	var cells: Array[Vector2i] = []
-	for cell in HexGrid.disk(center, 9):
-		if world.tiles.has(cell) and not world.tiles[cell].cliff and not world.structure_cells.has(cell): cells.append(cell)
-	var friendly_ids: Array[int] = []
-	for i in range(96):
-		var id := world.add_unit("marine" if i % 4 else "engineer", HexGrid.world(cells[i]), 0)
-		friendly_ids.append(id)
-		if not "--active" in OS.get_cmdline_user_args(): world.units[id].stance = "neutral"
-	for i in range(24): world.add_structure("relay" if i % 3 else "floodlight", cells[100 + i * 2], 0)
-	world._rebuild_navigation(); world._update_power(0); world.update_visibility()
-	if "--active" in OS.get_cmdline_user_args():
-		for i in range(12): world.add_unit("scavenger", HexGrid.world(cells[180 + i]), -1)
-		for i in range(0, 96, 3):
-			var unit: Dictionary = world.units[friendly_ids[i]]
-			var goal := HexGrid.world(cells[(130 + i) % cells.size()])
-			unit.home = goal; unit.job = {"kind": "move"}; world.move_to(unit, goal)
+	var stress := "--stress" in OS.get_cmdline_user_args()
+	var scale := 1
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--scale="): scale = maxi(1, int(argument.trim_prefix("--scale=")))
+	var center := Vector2i.ZERO
+	if stress:
+		if not stress_fixture(world, scale): quit(1); return
+	else:
+		var anchor: Dictionary = world.structures[int(world.players[0].anchor)]
+		center = anchor.cell - anchor.cell.sign() * 7
+		var cells: Array[Vector2i] = []
+		for cell in HexGrid.disk(center, 9):
+			if world.tiles.has(cell) and not world.tiles[cell].cliff and not world.structure_cells.has(cell): cells.append(cell)
+		var friendly_ids: Array[int] = []
+		for i in range(96):
+			var id := world.add_unit("marine" if i % 4 else "engineer", HexGrid.world(cells[i]), 0)
+			friendly_ids.append(id)
+			if not "--active" in OS.get_cmdline_user_args(): world.units[id].stance = "neutral"
+		for i in range(24): world.add_structure("relay" if i % 3 else "floodlight", cells[100 + i * 2], 0)
+		world._rebuild_navigation(); world._update_power(0); world.update_visibility()
+		if "--active" in OS.get_cmdline_user_args():
+			for i in range(12): world.add_unit("scavenger", HexGrid.world(cells[180 + i]), -1)
+			for i in range(0, 96, 3):
+				var unit: Dictionary = world.units[friendly_ids[i]]
+				var goal := HexGrid.world(cells[(130 + i) % cells.size()])
+				unit.home = goal; unit.job = {"kind": "move"}; world.move_to(unit, goal)
 	var position := HexGrid.world(center)
 	game.camera.focus = Vector3(position.x, 0, position.y); game.camera._update_transform()
 	game.renderer.refresh_entities(); game.renderer.refresh_tiles()
 	print("Fixture: ", world.units.size(), " units, ", world.structures.size(), " structures, ", world.tiles.size(), " tiles")
 	var results := {}
+	var initial_counts := Vector2i(world.units.size(), world.structures.size())
+	print("CPU: ", OS.get_processor_name())
 	if "--frames" in OS.get_cmdline_user_args():
 		var callbacks: Array[float] = []
 		var engine: Array[float] = []
@@ -68,6 +78,7 @@ func run() -> void:
 	results.live_step = measure("simulation_tick_20hz", func(): world.step(1.0 / 20))
 	results.visibility = measure("visibility", func(): world.update_visibility(), 20)
 	results.topology = measure("sight_topology", func(): world._refresh_sight_topology(), 20)
+	results.radar = measure("radar", func(): WorldState.RadarSystem.update(world))
 	results.power = measure("power", func(): world._update_power(0))
 	results.units = measure("unit_logic", func():
 		for u in world.units.values(): world._unit_step(u, 1.0 / 60))
@@ -89,8 +100,54 @@ func run() -> void:
 	results.pick = measure("picking", func(): game._pick(Vector2(640, 400)))
 	results.overlay = measure("tactical_process", func(): game.tactical._process(1.0 / 60))
 	results.hud = measure("hud", func(): game._update_hud(), 20)
-	results.fixture = {"units": world.units.size(), "structures": world.structures.size(), "tiles": world.tiles.size(), "active": "--active" in OS.get_cmdline_user_args(), "engine": Engine.get_version_info().string}
+	results.fixture = {"units": world.units.size(), "structures": world.structures.size(), "tiles": world.tiles.size(), "active": "--active" in OS.get_cmdline_user_args(), "engine": Engine.get_version_info().string, "initial_units": initial_counts.x, "initial_structures": initial_counts.y}
 	DirAccess.make_dir_recursive_absolute("res://build/profiles")
-	var file := FileAccess.open("res://build/profiles/core-%s.json" % ("active" if "--active" in OS.get_cmdline_user_args() else "idle"), FileAccess.WRITE)
+	var file := FileAccess.open("res://build/profiles/core-%s.json" % (("stress-%du-%ds-" % [initial_counts.x, initial_counts.y] if stress else "") + ("active" if "--active" in OS.get_cmdline_user_args() else "idle")), FileAccess.WRITE)
 	file.store_string(JSON.stringify(results, "\t")); file.close()
 	quit()
+
+func stress_fixture(world: WorldState, scale: int) -> bool:
+	# Exact population: legal, mixed structures; infantry, workers and hostile probes.
+	world.units.clear()
+	world.lightless_brain_time = -100000; world.lightless_expansion_time = -100000
+	for s in world.structures.values():
+		if s.kind == "medusa": s.passive = -100000
+	for resource in world.resources(0): world.resources(0)[resource] = 100000
+	var candidates := HexGrid.disk(Vector2i.ZERO, world.radius - 3)
+	var kinds := ["relay", "wall", "floodlight", "generator", "depot", "armory", "radar", "sentry"]
+	var cursor := 0
+	while world.structures.size() < 100 * scale:
+		var kind: String = kinds[(world.structures.size() - 2) % kinds.size()]
+		var placed := false
+		while cursor < candidates.size():
+			var cell: Vector2i = candidates[cursor]; cursor += 1
+			var clear := true
+			for occupied in HexGrid.disk(cell, int(world.cfg.structures[kind].footprintRadiusTiles) + 1):
+				if world.blocked(occupied) or world.structure_cells.has(occupied): clear = false; break
+			if not clear: continue
+			var id := world.add_structure(kind, cell, 0)
+			if kind == "armory": world.structures[id].kits.append({"kind": "marine", "progress": 0.0, "done": false})
+			placed = true; break
+		if not placed: printerr("Insufficient legal structure sites for scale ", scale); return false
+	world._rebuild_navigation(); world._update_power(0)
+	var cells: Array[Vector2i] = []
+	for cell in candidates:
+		if not world.blocked(cell): cells.append(cell)
+	if cells.size() < 200 * scale: printerr("Insufficient legal unit sites for scale ", scale); return false
+	var active := "--active" in OS.get_cmdline_user_args()
+	for i in range(200 * scale):
+		var hostile := active and i % 5 == 0
+		var kind := "scavenger" if hostile else "engineer" if i % 7 == 0 else "marine"
+		var cell: Vector2i = cells[i]
+		var id := world.add_unit(kind, HexGrid.world(cell), -1 if hostile else 0)
+		if not active: world.units[id].stance = "neutral"
+		if active and not hostile and i % 3 == 0:
+			var goal := HexGrid.world(cells[(i + 100) % cells.size()])
+			world.command(0, {"action": "patrol", "ids": [id], "x": goal.x, "z": goal.y})
+	# Preserve combat workload/population throughout the short timing window.
+	for definition in world.cfg.units.values(): definition.health *= 1000
+	for definition in world.cfg.structures.values(): definition.health *= 1000
+	for u in world.units.values(): u.hp = float(world.cfg.units[u.kind].health)
+	for s in world.structures.values(): s.hp = float(world.cfg.structures[s.kind].health)
+	world.update_visibility()
+	return true

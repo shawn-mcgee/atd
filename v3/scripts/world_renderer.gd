@@ -14,6 +14,19 @@ var vapor_material := ShaderMaterial.new()
 var footing_material := ShaderMaterial.new()
 var light_wash_material := ShaderMaterial.new()
 var bodies: Dictionary = {}
+var body_views: Dictionary = {}
+var terrain_stamp: Array = []
+
+class BodyView:
+	extends RefCounted
+	var root: Node3D
+	var model: Node3D
+	var ring: Node3D
+	var parts: Dictionary
+	var bounds: AABB
+	var last_position: Vector2
+	var structure_signature: Array = []
+
 var view_camera: Camera3D
 var friendly_silhouette := ShaderMaterial.new()
 var hostile_silhouette := ShaderMaterial.new()
@@ -220,7 +233,7 @@ func initialize(world: WorldState, local_owner: int) -> void:
 	memory_overlay.albedo_color = Color("334752")
 	memory_overlay.albedo_color.a = float(state.cfg.presentation.get("structureMemoryTintStrength", 0.75))
 	for node in bodies.values(): node.queue_free()
-	bodies.clear()
+	bodies.clear(); body_views.clear(); terrain_stamp.clear()
 	visual_shots.clear(); particles.clear(); impact_rings.clear(); destroyed_ids.clear(); feedback_cursor = 0
 	for effect in death_effects: effect.node.queue_free()
 	death_effects.clear()
@@ -252,6 +265,9 @@ func initialize(world: WorldState, local_owner: int) -> void:
 
 func refresh_tiles() -> void:
 	if state == null: return
+	var stamp: Array = [state.known.get(viewer_owner, {}).hash(), state.visible.get(viewer_owner, {}).hash(), state.illuminated.hash(), state.gloom.keys().hash(), state.tiles.hash()]
+	if stamp == terrain_stamp: return
+	terrain_stamp = stamp
 	var explored: Dictionary = state.known.get(viewer_owner, {})
 	var active: Dictionary = state.visible.get(viewer_owner, {})
 	var light: Dictionary = {}
@@ -398,6 +414,15 @@ func _body(e: Dictionary) -> Node3D:
 		var part: AABB = local * surface.get_aabb()
 		bounds = part if first else bounds.merge(part); first = false
 	root.set_meta("model_bounds", bounds.grow(0.2))
+	var view := BodyView.new()
+	view.root = root; view.model = root.get_node("Model"); view.ring = ring; view.parts = parts; view.bounds = bounds.grow(0.2); view.last_position = state.entity_position(e)
+	body_views[e.id] = view
+	var claws: Array = []
+	for side in [-1, 1]:
+		for i in range(3):
+			var key := "Claw%d_%d" % [side, i]
+			if parts.has(key): claws.append({"node": parts[key], "side": side, "index": i})
+	root.set_meta("claws", claws)
 	return root
 
 func refresh_entities() -> void:
@@ -409,36 +434,46 @@ func refresh_entities() -> void:
 	destroyed_ids.clear()
 	_consume_feedback()
 	var live: Dictionary = {}
+	var planes: Array = view_camera.get_frustum() if is_instance_valid(view_camera) else []
+	var interpolation := 1.0 - exp(-delta / float(Settings.data.presentation.motionInterpolationSeconds))
+	var rotation_blend := 1.0 - exp(-delta * 18)
 	for e in state.units.values() + state.observed_structures(viewer_owner):
 		live[e.id] = true
+		if e.has("pos") and (int(e.get("vehicle", 0)) != 0 or not WorldState.TargetRules.identifiable(state, e, viewer_owner)):
+			if bodies.has(e.id): bodies[e.id].hide()
+			continue
 		if bodies.has(e.id) and bodies[e.id].get_meta("kind") != e.kind:
 			bodies[e.id].queue_free(); bodies.erase(e.id)
 		if not bodies.has(e.id): bodies[e.id] = _body(e)
 		var body: Node3D = bodies[e.id]
+		var view: BodyView = body_views[e.id]
 		var pos := state.entity_position(e)
 		var target := Vector3(pos.x, 0, pos.y)
 		if not body.has_meta("placed"):
 			body.position = target; body.rotation.y = float(e.get("heading", 0)); body.set_meta("placed", true)
-		body.position = body.position.lerp(target, 1.0 - exp(-delta / float(Settings.data.presentation.motionInterpolationSeconds)))
-		body.visible = true if e.has("cell") else WorldState.TargetRules.identifiable(state, e, viewer_owner)
-		if e.get("vehicle", 0) != 0: body.visible = false
-		body.get_node("Selection").visible = e.id in selection
-		if e.has("heading"): body.rotation.y = lerp_angle(body.rotation.y, float(e.heading), 1.0 - exp(-delta * 18))
+		body.position = body.position.lerp(target, interpolation)
+		body.visible = true
+		view.ring.visible = e.id in selection
+		if e.has("heading"): body.rotation.y = lerp_angle(body.rotation.y, float(e.heading), rotation_blend)
 		if e.has("built") and not e.built: body.scale = Vector3(1, 0.12 + 0.88 * float(e.hp) / float(state.cfg.structures[e.kind].health), 1)
 		else: body.scale = Vector3.ONE
-		if e.get("buried", false): body.get_node("Model").position.y = -0.2
-		elif e.get("transition", "") != "": body.get_node("Model").position.y = -0.1 + sin(display_time * 14) * 0.025
-		else: body.get_node("Model").position.y = 0
+		if e.get("buried", false): view.model.position.y = -0.2
+		elif e.get("transition", "") != "": view.model.position.y = -0.1 + sin(display_time * 14) * 0.025
+		else: view.model.position.y = 0
 		var remembered: bool = e.get("remembered", false)
+		var on_screen := _body_in_frustum(view, planes)
+		body.set_meta("on_screen", on_screen)
 		body.set_meta("remembered", remembered)
 		if body.has_node("Worklight"): body.get_node("Worklight").visible = not remembered and bool(e.get("powered", false)) and bool(e.get("built", true))
 		if remembered:
 			if body.has_node("LightWash"): body.get_node("LightWash").hide()
 			for rack in ["KitRack", "PersonnelRack"]:
-				if body.get_node("Model").has_node(rack): body.get_node("Model").get_node(rack).hide()
+				if view.model.has_node(rack): view.model.get_node(rack).hide()
 			body.set_meta("hit_flash", 0.0); body.set_meta("flash_fresh", false)
 			_set_overlay(body, memory_overlay)
-		elif body.visible: _animate(body, e, pos, delta)
+		else:
+			if on_screen: _animate(body, e, pos, delta)
+			else: _advance_flashes(body, delta)
 	for id in bodies.keys():
 		if not live.has(id):
 			var node: Node3D = bodies[id]
@@ -448,7 +483,7 @@ func refresh_entities() -> void:
 				node.get_node("Selection").hide()
 				death_effects.append({"node": node, "time": float(state.cfg.presentation.feedback.deathSeconds)})
 			else: node.queue_free()
-			bodies.erase(id)
+			bodies.erase(id); body_views.erase(id)
 	for effect in death_effects:
 		effect.time -= delta
 		var progress := 1.0 - maxf(0, float(effect.time)) / float(state.cfg.presentation.feedback.deathSeconds)
@@ -474,7 +509,7 @@ func _highlight_occluded_units() -> void:
 	var scene: Array = [view_camera.global_transform, view_camera.get_camera_projection(), view_camera.get_viewport().get_visible_rect()]
 	var structures: Array[Node3D] = []
 	for body in bodies.values():
-		if body.visible and body.get_meta("structure", false):
+		if body.visible and body.get_meta("on_screen", true) and body.get_meta("structure", false):
 			structures.append(body)
 			scene.append([body.get_instance_id(), body.global_transform])
 			var parts: Dictionary = body.get_meta("parts", {})
@@ -491,7 +526,7 @@ func _highlight_occluded_units() -> void:
 			occluders.append({"body": body, "inverse": body.global_transform.affine_inverse(), "bounds": bounds, "screen": rect})
 	for id in bodies:
 		var body: Node3D = bodies[id]
-		if not body.visible:
+		if not body.visible or not body.get_meta("on_screen", true):
 			body.set_meta("occluded", false)
 			if body.has_meta("occlusion_query"): body.remove_meta("occlusion_query")
 			continue
@@ -530,6 +565,16 @@ func _set_overlay(body: Node3D, overlay: Material) -> void:
 	for surface in body.get_meta("surfaces"): surface.material_overlay = overlay
 
 func _animate(body: Node3D, e: Dictionary, pos: Vector2, delta: float) -> void:
+	if e.has("cell") and e.kind in ["wall", "relay", "depot"]:
+		var view: BodyView = body_views[e.id]
+		_advance_flashes(body, delta)
+		var signature: Array = [e.built, e.enabled, e.powered, e.brownout, e.blackout]
+		if signature != view.structure_signature:
+			view.structure_signature = signature
+			_animate_facility(view.model, e)
+		return
+	if int(e.owner) >= 0 and e.has("pos") and e.kind in ["operator", "engineer", "marine", "flamer", "lancer"]:
+		_animate_person(body_views[e.id], e, pos, delta); return
 	var parts: Dictionary = body.get_meta("parts")
 	var model: Node3D = body.get_node("Model")
 	var previous: Vector2 = body.get_meta("last_position")
@@ -545,10 +590,8 @@ func _animate(body: Node3D, e: Dictionary, pos: Vector2, delta: float) -> void:
 	if e.owner < 0 and e.has("pos"):
 		var anatomy: Vector3 = model.get_meta("base_scale", Vector3.ONE)
 		model.scale = Vector3(anatomy.x, anatomy.y * (1.0 + sin(display_time * 3 + int(e.id)) * 0.025), anatomy.z)
-		for side in [-1, 1]:
-			for i in range(3):
-				var claw := model.get_node_or_null("Claw%d_%d" % [side, i])
-				if claw: claw.rotation.y = side * (i - 1) * -0.45 + (sin(phase * 1.3 + i * 2) * 0.35 if walking else 0.0)
+		for claw in body.get_meta("claws"):
+			claw.node.rotation.y = int(claw.side) * (int(claw.index) - 1) * -0.45 + (sin(phase * 1.3 + int(claw.index) * 2) * 0.35 if walking else 0.0)
 	var recoil := float(body.get_meta("recoil")) if body.get_meta("recoil_fresh") else maxf(0, float(body.get_meta("recoil")) - delta * 9)
 	body.set_meta("recoil_fresh", false)
 	body.set_meta("recoil", recoil)
@@ -582,16 +625,7 @@ func _animate(body: Node3D, e: Dictionary, pos: Vector2, delta: float) -> void:
 	if parts.has("RadarDish") and e.get("powered", false) and not state.paused: parts["RadarDish"].rotation.y = display_time * 0.65
 	if parts.has("ShieldCore"): parts["ShieldCore"].visible = e.get("powered", false) and e.get("enabled", false)
 	if parts.has("Headlights"): parts["Headlights"].visible = int(e.get("driver", 0)) != 0
-	if parts.has("Tool"):
-		var working: bool = not state.paused and e.job.kind in ["mine", "repair", "build"] and e.route.is_empty()
-		if e.job.kind == "mine":
-			working = working and not e.job.get("delivering", false) and state.cargo_amount(e) < int(state.cfg.units[e.kind].cargoCapacity)
-			var facility := int(e.job.get("facility", 0))
-			if facility != 0: working = working and state.structures.has(facility) and int(state.structures[facility].buffer) > 0
-			elif e.job.has("source"): working = working and int(state.tiles.get(HexGrid.unkey(e.job.source), {}).get("amount", 0)) > 0
-		if e.job.kind == "repair": working = working and (float(e.work) > 0 or int(state.resources(e.owner).get("ore", 0)) > 0)
-		parts["Tool"].rotation.x = sin(display_time * 18) * 0.12 if working else 0.0
-		if working and int(display_time * 12) != int((display_time - delta) * 12): _burst(pos + Vector2(-sin(body.rotation.y), -cos(body.rotation.y)) * 0.35, Color("e5b968"), 1)
+	if parts.has("Tool"): _animate_tool(body, e, pos, delta, parts["Tool"])
 	if parts.has("Drill") and not state.paused:
 		var drilling: bool = (int(e.get("driver", 0)) != 0 and e.get("job", {}).get("kind", "") == "excavate" and e.route.is_empty()) if e.has("pos") else bool(e.powered) and state._wants_power(e)
 		if drilling:
@@ -607,6 +641,51 @@ func _animate(body: Node3D, e: Dictionary, pos: Vector2, delta: float) -> void:
 	if parts.has("Turret") and state.entity(int(e.get("target", 0))).size() > 0:
 		var target_position := state.entity_position(state.entity(int(e.target)))
 		parts["Turret"].rotation.y = lerp_angle(parts["Turret"].rotation.y, atan2(pos.x - target_position.x, pos.y - target_position.y), 1 - exp(-delta * 15))
+
+func _body_in_frustum(view: BodyView, planes: Array) -> bool:
+	var center := view.root.global_transform * view.bounds.get_center()
+	var radius := view.bounds.size.length() * 0.5 * maxf(view.root.scale.x, maxf(view.root.scale.y, view.root.scale.z))
+	for plane in planes:
+		if plane.distance_to(center) > radius: return false
+	return true
+
+func _advance_flashes(body: Node3D, delta: float) -> void:
+	var recoil := float(body.get_meta("recoil"))
+	if recoil > 0:
+		if body.get_meta("recoil_fresh"): body.set_meta("recoil_fresh", false)
+		else: body.set_meta("recoil", maxf(0, recoil - delta * 9))
+	var flash := float(body.get_meta("hit_flash"))
+	if flash > 0:
+		if body.get_meta("flash_fresh"): body.set_meta("flash_fresh", false)
+		else: flash = maxf(0, flash - delta); body.set_meta("hit_flash", flash)
+	if not is_instance_valid(view_camera): _set_overlay(body, (shield_overlay if body.get_meta("shielded") else hit_overlay) if flash > 0 else null)
+
+func _animate_person(view: BodyView, e: Dictionary, pos: Vector2, delta: float) -> void:
+	var body := view.root
+	var parts := view.parts
+	var visual_position := Vector2(body.position.x, body.position.z)
+	var walking := not state.paused and view.last_position.distance_squared_to(visual_position) > 0.00000025
+	view.last_position = visual_position
+	var phase := display_time * 12 + int(e.id) * 0.7
+	parts["LegL"].rotation.x = sin(phase) * 0.55 if walking else lerpf(parts["LegL"].rotation.x, 0, delta * 12)
+	parts["LegR"].rotation.x = -sin(phase) * 0.55 if walking else lerpf(parts["LegR"].rotation.x, 0, delta * 12)
+	view.model.position.y = absf(sin(phase)) * 0.025 if walking else sin(display_time * 2 + int(e.id)) * 0.006
+	view.model.rotation.x = -0.07 if walking else 0.0
+	_advance_flashes(body, delta)
+	if parts.has("Weapon"): parts["Weapon"].position.z = float(body.get_meta("recoil")) * float(body.get_meta("kick"))
+	parts["Cargo"].visible = state.cargo_amount(e) > 0
+	if parts.has("Tool"): _animate_tool(body, e, pos, delta, parts["Tool"])
+
+func _animate_tool(body: Node3D, e: Dictionary, pos: Vector2, delta: float, tool: Node3D) -> void:
+	var working: bool = not state.paused and e.job.kind in ["mine", "repair", "build"] and e.route.is_empty()
+	if e.job.kind == "mine":
+		working = working and not e.job.get("delivering", false) and state.cargo_amount(e) < int(state.cfg.units[e.kind].cargoCapacity)
+		var facility := int(e.job.get("facility", 0))
+		if facility != 0: working = working and state.structures.has(facility) and int(state.structures[facility].buffer) > 0
+		elif e.job.has("source"): working = working and int(state.tiles.get(HexGrid.unkey(e.job.source), {}).get("amount", 0)) > 0
+	if e.job.kind == "repair": working = working and (float(e.work) > 0 or int(state.resources(e.owner).get("ore", 0)) > 0)
+	tool.rotation.x = sin(display_time * 18) * 0.12 if working else 0.0
+	if working and int(display_time * 12) != int((display_time - delta) * 12): _burst(pos + Vector2(-sin(body.rotation.y), -cos(body.rotation.y)) * 0.35, Color("e5b968"), 1)
 
 func _burst(point: Vector2, color: Color, count: int) -> void:
 	var limit := int(state.cfg.presentation.feedback.particleLimit)

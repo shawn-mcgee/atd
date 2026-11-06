@@ -16,6 +16,8 @@ var selection_pulse := 0.0
 var marker_color := Color("85e4cd")
 var map_texture: ImageTexture
 var map_timer := 0.0
+var map_stamp: Array = []
+var map_splats: Dictionary = {}
 var clock := 0.0
 var drag_selection := Rect2()
 var placement_kind := ""
@@ -27,7 +29,7 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 func reset() -> void:
-	health_trails.clear(); selection_pulse = 0; feedback_cursor = 0; damage_numbers.clear(); marker_time = 0; map_timer = 0; map_texture = null
+	health_trails.clear(); selection_pulse = 0; feedback_cursor = 0; damage_numbers.clear(); marker_time = 0; map_timer = 0; map_texture = null; map_stamp.clear(); map_splats.clear()
 
 func minimap_rect() -> Rect2:
 	return Rect2(14, size.y - 198, 208, 184)
@@ -55,30 +57,41 @@ func _process(delta: float) -> void:
 		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
 		if not health_trails.has(e.id): health_trails[e.id] = {"hp": float(e.hp), "trail": float(e.hp), "hold": 0.0}
 		var bar: Dictionary = health_trails[e.id]
+		if float(e.hp) == float(bar.hp) and float(bar.trail) == float(bar.hp) and float(bar.hold) <= 0: continue
 		if float(e.hp) < float(bar.hp): bar.hold = 0.12
 		bar.hp = float(e.hp)
 		bar.hold = maxf(0, float(bar.hold) - delta)
 		if bar.hold <= 0: bar.trail = lerpf(float(bar.trail), float(e.hp), 1 - exp(-delta / maxf(0.001, float(world.cfg.presentation.feedback.healthTrailSeconds))))
 		bar.trail = maxf(float(e.hp), float(bar.trail))
 	for id in health_trails.keys():
-		if _observed_entity(int(id)).is_empty(): health_trails.erase(id)
+		if not renderer.bodies.has(id) or not renderer.bodies[id].visible: health_trails.erase(id)
 	map_timer -= delta
 	if map_timer <= 0: _refresh_map(); map_timer = 0.4
 	queue_redraw()
 
 func _refresh_map() -> void:
-	var image := Image.create(144, 144, false, Image.FORMAT_RGB8)
-	image.fill(Color("070d15"))
+	var stamp: Array = [world.known.get(owner_id, {}).hash(), world.visible.get(owner_id, {}).hash(), world.illuminated.hash(), world.tiles.hash()]
+	if stamp == map_stamp: return
+	map_stamp = stamp
+	var pixels := PackedInt32Array(); pixels.resize(144 * 144); pixels.fill(Color("070d15").to_abgr32() - (1 << 32))
+	var light: Dictionary = {}
+	for area in world.illuminated.values(): light.merge(area, true)
 	for cell in world.known.get(owner_id, {}):
 		var p := HexGrid.world(cell) / (world.radius * 2.15) * 144 + Vector2(72, 72)
 		var color := Color("293d48") if world.visible.get(owner_id, {}).has(cell) else Color("17242f")
-		if world.is_lit(cell): color = Color("779a91")
+		if light.has(cell): color = Color("779a91")
 		if world.tiles[cell].cliff: color = Color("5a6873")
 		elif world.tiles[cell].resource != "" and int(world.tiles[cell].amount) > 0: color = Color("cda365") if world.tiles[cell].resource == "ore" else Color("55c9ca")
-		for x in range(-1, 2):
-			for y in range(-1, 2):
-				var pixel := Vector2i(p) + Vector2i(x, y)
-				if pixel.x >= 0 and pixel.y >= 0 and pixel.x < 144 and pixel.y < 144: image.set_pixelv(pixel, color)
+		if not map_splats.has(cell):
+			var splat := PackedInt32Array()
+			for x in range(-1, 2):
+				for y in range(-1, 2):
+					var pixel := Vector2i(p) + Vector2i(x, y)
+					if pixel.x >= 0 and pixel.y >= 0 and pixel.x < 144 and pixel.y < 144: splat.append(pixel.y * 144 + pixel.x)
+			map_splats[cell] = splat
+		var value := color.to_abgr32() - (1 << 32)
+		for index in map_splats[cell]: pixels[index] = value
+	var image := Image.create_from_data(144, 144, false, Image.FORMAT_RGBA8, pixels.to_byte_array())
 	if map_texture == null: map_texture = ImageTexture.create_from_image(image)
 	else: map_texture.update(image)
 
