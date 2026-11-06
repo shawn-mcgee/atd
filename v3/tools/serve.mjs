@@ -11,7 +11,7 @@ const server=createServer(async(req,res)=>{
   try {
     const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname)
     if(pathname==='/favicon.ico'){res.writeHead(204);res.end();return}
-    const target=path.resolve(root,'.'+(pathname==='/'?'/index.html':pathname))
+    const target=path.resolve(root,'.'+(pathname.endsWith('/')?pathname+'index.html':pathname))
     if (!target.startsWith(root+path.sep) && target!==root) {res.writeHead(403);res.end();return}
     if (!(await stat(target)).isFile()) throw new Error('Not a file')
     res.writeHead(200,{'Content-Type':types[path.extname(target)] || 'application/octet-stream','Cache-Control':'no-store'})
