@@ -186,7 +186,18 @@ test('real Trystero room: cross-origin clients, host orders and host loss',async
   await control(guest,'order',JSON.stringify({action:'move',ids:[unit.id],x:unit.x+1,z:unit.z}))
   await expect.poll(async()=> (await diagnostics(guest)).units.find(u=>u.id===unit.id).x).toBeGreaterThan(unit.x+.4)
   await hostContext.close()
-  await expect.poll(async()=> (await diagnostics(guest)).ended,{timeout:30000}).toBe(true)
+  // Closing a window can occlude the survivor in headless Linux. Model the
+  // remaining player's foreground game, including Godot's animation frames.
+  await guest.bringToFront()
+  try {
+    await expect.poll(async()=> (await diagnostics(guest)).ended,{timeout:30000}).toBe(true)
+  } catch (error) {
+    console.error('Guest after host closure', JSON.stringify(await guest.evaluate(() => ({
+      game: window.ATDNetwork.inspect(), visibility: document.visibilityState, focused: document.hasFocus()
+    }))))
+    console.error('Game errors', hostErrors, guestErrors)
+    throw error
+  }
   expect((await diagnostics(guest)).result).toContain('Host disconnected')
   expect([...hostErrors,...guestErrors]).toEqual([])
   await guestContext.close()

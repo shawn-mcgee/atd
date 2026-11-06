@@ -135,7 +135,13 @@ export function createBridge() {
       snapshots.clear()
       if (clearEvents) events = []
     },
-    inspect() { return api.diagnostics },
+    inspect() {
+      return {...api.diagnostics, transport: {
+        active, mode, session,
+        queuedEvents: events.map(event => event.type),
+        peers: health ? [...health.seen].map(([peer, seen]) => ({peer, silentMs: performance.now() - seen})) : []
+      }}
+    },
     updateDiagnostics(value) { api.diagnostics = JSON.parse(value) },
     test(command, value = '') {
       if (!parameters.has('test')) throw new Error('Test controls are disabled')
