@@ -1,0 +1,8 @@
+.godot/
+.tools/
+node_modules/
+build/
+test-results/
+playwright-report/
+.env
+export_credentials.cfg

@@ -1,0 +1,1469 @@
+{
+  "metadata": {
+    "version": 1,
+    "status": "proposed_browser_alpha_defaults",
+    "units": {
+      "time": "simulation_seconds",
+      "distance": "tile_inner_diameters",
+      "angles": "degrees",
+      "inventory": "whole_resource_units"
+    },
+    "note": "Prototype gameplay definitions loaded by the Godot foundation. Implemented coverage is listed in docs/implementation-status.md; remaining values are proposed tuning."
+  },
+  "features": {
+    "multiplayer": true,
+    "lightlessTestingControl": true,
+    "complexMiningCommands": true,
+    "extractionBoss": false,
+    "commanderDifferences": false,
+    "betweenMatchPurchases": false,
+    "nativeDesktopExports": false
+  },
+  "match": {
+    "maxCommonwealthPlayers": 5,
+    "simulationTicksPerSecond": 20,
+    "defaultSpeed": 1,
+    "singlePlayerSpeedOptions": [
+      0.5,
+      1,
+      1.5,
+      2
+    ],
+    "anchorLimitPerPlayer": 1,
+    "extractionMinimumNacre": 500,
+    "anchorNacreCapacity": 1000,
+    "extractionSeconds": 90,
+    "eliminationVictory": true,
+    "harvestingCutoffRequiresBossSpawn": true
+  },
+  "map": {
+    "radiusTiles": 36,
+    "anchorEdgeInsetTiles": 6,
+    "cliffTileFraction": 0.18,
+    "resourcePatchAmounts": {
+      "ore": 10000,
+      "gas": 10000
+    },
+    "additionalFieldsPerPlayer": {
+      "ore": 6,
+      "gas": 4
+    },
+    "fieldSizes": [
+      1,
+      3,
+      7
+    ],
+    "fieldSizeWeights": [
+      3,
+      2,
+      1
+    ],
+    "startingOrePatches": 3,
+    "startingGasPatches": 1,
+    "startingResources": {
+      "ore": 100,
+      "gas": 100,
+      "alloy": 0,
+      "polymer": 0,
+      "crystal": 0,
+      "nacre": 0
+    },
+    "anchorStorage": {
+      "ore": 100,
+      "gas": 100,
+      "alloy": 10,
+      "polymer": 10,
+      "crystal": 10
+    },
+    "cliffHealth": 200,
+    "cliffYield": {
+      "ore": 20
+    }
+  },
+  "economy": {
+    "depotCapacityPerResource": 200,
+    "depotReconfigureSeconds": 5,
+    "interactionRangeTiles": 1,
+    "workerCycleSeconds": 1,
+    "operatorItemsPerCycle": 1,
+    "engineerItemsPerCycle": 2,
+    "extractorBufferCapacity": 50,
+    "processorBufferCapacity": 20,
+    "recipes": {
+      "extractor": {
+        "cycleSeconds": 1,
+        "outputUnits": 4
+      },
+      "foundry": {
+        "cycleSeconds": 4,
+        "inputs": {
+          "ore": 4
+        },
+        "outputs": {
+          "alloy": 2
+        }
+      },
+      "refinery": {
+        "cycleSeconds": 4,
+        "inputs": {
+          "gas": 4
+        },
+        "outputs": {
+          "polymer": 2
+        }
+      },
+      "synthesizer": {
+        "cycleSeconds": 6,
+        "inputs": {
+          "ore": 4,
+          "gas": 4
+        },
+        "outputs": {
+          "crystal": 1
+        }
+      }
+    }
+  },
+  "construction": {
+    "startingHealth": 1,
+    "engineerHealthPerSecond": 20,
+    "repairHealthPerSecond": 10,
+    "repairOrePerCycle": 1,
+    "repairCycleSeconds": 1,
+    "engineerWorkRangeTiles": 1,
+    "additionalEngineerMultiplier": 1,
+    "gateOpenSeconds": 0.5,
+    "gateCloseDelaySeconds": 1
+  },
+  "personnel": {
+    "operatorCost": {
+      "ore": 10,
+      "gas": 5
+    },
+    "anchorOperatorSeconds": 12,
+    "cradleOperatorSeconds": 6,
+    "operatorQueueLimit": 10,
+    "kitQueueLimit": 5,
+    "vehicleQueueLimit": 5,
+    "upgradeQueueLimit": 5,
+    "personnelRequestDefaultEnabled": true,
+    "kits": {
+      "engineer": {
+        "cost": {
+          "ore": 10,
+          "gas": 5
+        },
+        "seconds": 8,
+        "sources": [
+          "anchor",
+          "cradle"
+        ]
+      },
+      "marine": {
+        "cost": {
+          "ore": 10,
+          "gas": 5
+        },
+        "seconds": 8,
+        "sources": [
+          "armory"
+        ]
+      },
+      "flamer": {
+        "cost": {
+          "ore": 10,
+          "polymer": 5
+        },
+        "seconds": 12,
+        "sources": [
+          "armory"
+        ]
+      },
+      "lancer": {
+        "cost": {
+          "alloy": 5,
+          "crystal": 5
+        },
+        "seconds": 15,
+        "sources": [
+          "armory"
+        ]
+      }
+    }
+  },
+  "expeditions": {
+    "driverPreference": [
+      "operator",
+      "marine",
+      "flamer",
+      "lancer",
+      "engineer"
+    ],
+    "passengerVehiclePreference": [
+      "ranger",
+      "scout"
+    ],
+    "workerBoardingPreference": [
+      "engineer",
+      "operator"
+    ],
+    "gatherRadiusTiles": 6,
+    "resourceSearchRadiusTiles": 8,
+    "regroupRadiusTiles": 3,
+    "escortRadiusTiles": 4,
+    "boardingTimeoutSeconds": 8,
+    "regroupTimeoutSeconds": 8,
+    "repathIntervalSeconds": 1,
+    "stuckTimeoutSeconds": 8,
+    "siteInactivitySeconds": 5,
+    "allocationRecheckSeconds": 1,
+    "driverVehiclePreference": [
+      "ranger",
+      "excavator",
+      "scout",
+      "reaper",
+      "cremator",
+      "javelin"
+    ]
+  },
+  "power": {
+    "blackoutRatio": 1.2,
+    "blackoutThresholdRounding": "floor",
+    "recoveryRatio": 1,
+    "brownout": {
+      "illuminationRangeMultiplier": 0.75,
+      "resourceProductionRateMultiplier": 0.5,
+      "productionRateMultiplier": 0.5,
+      "turretAttackIntervalMultiplier": 2,
+      "turretTargetingSecondsMultiplier": 2
+    },
+    "generatorFuel": {
+      "resource": "gas",
+      "unitsPerCycle": 1,
+      "cycleSeconds": 10
+    },
+    "reactorFuel": {
+      "resource": "crystal",
+      "unitsPerCycle": 1,
+      "cycleSeconds": 20
+    }
+  },
+  "combat": {
+    "minimumDamageMode": "zero_floor",
+    "minimumDamagePerHit": 0,
+    "defaultFriendlyFireForAreaAttacks": true,
+    "defensiveLeashTiles": 5,
+    "targetAcquireSeconds": 0.2,
+    "anchorBiologicalHealingPerSecond": 4,
+    "anchorHealingRangeBeyondFootprintTiles": 3,
+    "thresherBurrowSeconds": 2,
+    "thresherEmergeSeconds": 2,
+    "rampartArmorBonus": 3,
+    "rampartRangeBeyondFootprintTiles": 4,
+    "targetPriority": [
+      "explicit",
+      "attacker",
+      "nearest"
+    ],
+    "anchorHealsDuringCombat": true,
+    "rampartProtectsSelf": true,
+    "rampartProtectsOtherRamparts": true,
+    "targetSearchMarginTiles": 2,
+    "structureAimAllowanceTiles": 0.8
+  },
+  "gloom": {
+    "tileHealth": 20,
+    "spreadIntervalSeconds": 0.5,
+    "newTilesPerStructurePerInterval": 1,
+    "illuminationDamagePerSecond": 10,
+    "unsupportedWitherPerSecond": 1,
+    "unitRegenerationPerSecond": 2,
+    "structureRegenerationPerSecond": 2,
+    "regenerationDamageDelaySeconds": 0,
+    "spreadRandomness": "seeded"
+  },
+  "lightless": {
+    "startingScavengers": 5,
+    "startingChyme": 100,
+    "startingFathersCPU": 0,
+    "startingFathersTesting": 1,
+    "startingStance": "probe",
+    "medusaPassiveScavengerSeconds": 8,
+    "medusaChymePerCycle": 1,
+    "medusaChymeCycleSeconds": 1,
+    "chymeGlandChymePerCycle": 1,
+    "chymeGlandCycleSeconds": 3,
+    "manualQueueLimit": 10,
+    "glandSlotsPerWomb": 6,
+    "fatherRecruitLimit": 12,
+    "fatherLocalRangeTiles": 6,
+    "defendRadiusTiles": 5,
+    "probePressureSignalRangeTiles": 6,
+    "probeResistanceWindowSeconds": 3,
+    "probePressureDamageThreshold": 0,
+    "postMedusaChymeGrant": 500,
+    "postMedusaWombSpawnRateMultiplier": 2,
+    "glandGestationSeconds": 12,
+    "structureGestationSeconds": 20,
+    "extractionRecruitedOverrideAllowed": true,
+    "brainDecisionIntervalSeconds": 2,
+    "cpuMinimumChymeReserve": 25,
+    "cpuExpansionIntervalSeconds": 30,
+    "cpuWombPriority": [
+      "scavenger",
+      "stalker",
+      "ravager",
+      "thresher",
+      "shade",
+      "mother",
+      "father"
+    ],
+    "cpuDesiredFathers": 1,
+    "cpuDesiredMothers": 2,
+    "cpuArmorGlandsPerTypeBeforeMoreExpansion": 1,
+    "cpuChymeGlandsPerWombTarget": 1,
+    "cpuAutomaticFatherTransfer": false,
+    "extractionTargetPolicy": "lowest_remaining_countdown_then_path_distance",
+    "gloomDisconnectionPolicy": "retain_last_stance_until_reconnected_or_overridden",
+    "darkPathLightPenalty": 40
+  },
+  "units": {
+    "operator": {
+      "health": 60,
+      "armor": 0,
+      "speedTilesPerSecond": 1.8,
+      "visionRangeTiles": 2,
+      "illuminationRangeTiles": 0,
+      "defaultStance": "neutral",
+      "cargoCapacity": 20,
+      "weapon": null,
+      "biological": true,
+      "collisionRadiusTiles": 0.15
+    },
+    "engineer": {
+      "health": 80,
+      "armor": 0,
+      "speedTilesPerSecond": 1.8,
+      "visionRangeTiles": 2,
+      "illuminationRangeTiles": 0,
+      "defaultStance": "neutral",
+      "cargoCapacity": 20,
+      "weapon": null,
+      "biological": true,
+      "collisionRadiusTiles": 0.15
+    },
+    "marine": {
+      "health": 100,
+      "armor": 1,
+      "speedTilesPerSecond": 1.8,
+      "visionRangeTiles": 2,
+      "illuminationRangeTiles": 0,
+      "defaultStance": "defensive",
+      "cargoCapacity": 0,
+      "weapon": "marine_rifle",
+      "biological": true,
+      "collisionRadiusTiles": 0.15
+    },
+    "flamer": {
+      "health": 130,
+      "armor": 2,
+      "speedTilesPerSecond": 1.6,
+      "visionRangeTiles": 2,
+      "illuminationRangeTiles": 0,
+      "defaultStance": "defensive",
+      "cargoCapacity": 0,
+      "weapon": "flamer_flame",
+      "biological": true,
+      "collisionRadiusTiles": 0.15
+    },
+    "lancer": {
+      "health": 100,
+      "armor": 1,
+      "speedTilesPerSecond": 1.5,
+      "visionRangeTiles": 2,
+      "illuminationRangeTiles": 0,
+      "defaultStance": "defensive",
+      "cargoCapacity": 0,
+      "weapon": "lancer_laser",
+      "biological": true,
+      "collisionRadiusTiles": 0.15
+    },
+    "scout": {
+      "health": 200,
+      "armor": 2,
+      "speedTilesPerSecond": 3.6,
+      "visionRangeTiles": 4,
+      "illuminationRangeTiles": 2,
+      "defaultStance": "neutral",
+      "driverSeats": 1,
+      "passengerSeats": 1,
+      "cargoCapacity": 0,
+      "weapon": null,
+      "cost": {
+        "ore": 40,
+        "alloy": 10
+      },
+      "productionSeconds": 20,
+      "biological": false,
+      "forwardIlluminationRangeTiles": 5,
+      "forwardConeDegrees": 90,
+      "visionForwardRangeTiles": 7,
+      "detectionRangeTiles": 8,
+      "collisionRadiusTiles": 0.35
+    },
+    "ranger": {
+      "health": 350,
+      "armor": 3,
+      "speedTilesPerSecond": 2.6,
+      "visionRangeTiles": 4,
+      "illuminationRangeTiles": 2,
+      "defaultStance": "neutral",
+      "driverSeats": 1,
+      "passengerSeats": 3,
+      "cargoCapacity": 100,
+      "weapon": null,
+      "cost": {
+        "ore": 60,
+        "alloy": 15,
+        "polymer": 10
+      },
+      "productionSeconds": 25,
+      "biological": false,
+      "forwardIlluminationRangeTiles": 4,
+      "forwardConeDegrees": 90,
+      "visionForwardRangeTiles": 6,
+      "collisionRadiusTiles": 0.35
+    },
+    "excavator": {
+      "health": 650,
+      "armor": 5,
+      "speedTilesPerSecond": 1.2,
+      "visionRangeTiles": 5,
+      "illuminationRangeTiles": 3,
+      "defaultStance": "neutral",
+      "driverSeats": 1,
+      "passengerSeats": 0,
+      "cargoCapacity": 250,
+      "weapon": null,
+      "cost": {
+        "ore": 80,
+        "alloy": 25,
+        "polymer": 10
+      },
+      "productionSeconds": 35,
+      "biological": false,
+      "forwardIlluminationRangeTiles": 0,
+      "forwardConeDegrees": 0,
+      "visionForwardRangeTiles": 0,
+      "cliffDamagePerSecond": 20,
+      "collisionRadiusTiles": 0.35
+    },
+    "reaper": {
+      "health": 550,
+      "armor": 5,
+      "speedTilesPerSecond": 1.4,
+      "visionRangeTiles": 5,
+      "illuminationRangeTiles": 3,
+      "defaultStance": "defensive",
+      "driverSeats": 1,
+      "passengerSeats": 0,
+      "cargoCapacity": 0,
+      "weapon": "reaper_gun",
+      "cost": {
+        "alloy": 40,
+        "polymer": 15
+      },
+      "productionSeconds": 35,
+      "biological": false,
+      "forwardIlluminationRangeTiles": 0,
+      "forwardConeDegrees": 0,
+      "visionForwardRangeTiles": 0,
+      "collisionRadiusTiles": 0.35
+    },
+    "cremator": {
+      "health": 650,
+      "armor": 6,
+      "speedTilesPerSecond": 1.2,
+      "visionRangeTiles": 5,
+      "illuminationRangeTiles": 3,
+      "defaultStance": "defensive",
+      "driverSeats": 1,
+      "passengerSeats": 0,
+      "cargoCapacity": 0,
+      "weapon": "cremator_flame",
+      "cost": {
+        "alloy": 40,
+        "polymer": 25
+      },
+      "productionSeconds": 40,
+      "biological": false,
+      "forwardIlluminationRangeTiles": 0,
+      "forwardConeDegrees": 0,
+      "visionForwardRangeTiles": 0,
+      "collisionRadiusTiles": 0.35
+    },
+    "javelin": {
+      "health": 450,
+      "armor": 4,
+      "speedTilesPerSecond": 1.2,
+      "visionRangeTiles": 5,
+      "illuminationRangeTiles": 3,
+      "defaultStance": "defensive",
+      "driverSeats": 1,
+      "passengerSeats": 0,
+      "cargoCapacity": 0,
+      "weapon": "javelin_laser",
+      "cost": {
+        "alloy": 50,
+        "crystal": 20
+      },
+      "productionSeconds": 45,
+      "biological": false,
+      "forwardIlluminationRangeTiles": 0,
+      "forwardConeDegrees": 0,
+      "visionForwardRangeTiles": 0,
+      "collisionRadiusTiles": 0.35
+    },
+    "scavenger": {
+      "health": 30,
+      "armor": 0,
+      "speedTilesPerSecond": 2.0,
+      "visionRangeTiles": 3,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 10,
+      "basePopulationCap": 20,
+      "wombPopulationIncrease": 20,
+      "manualSpawnCost": {
+        "chyme": 5
+      },
+      "manualSpawnSeconds": 4,
+      "wombPassiveSpawnSeconds": 10,
+      "weapon": "scavenger_bite",
+      "collisionRadiusTiles": 0.15
+    },
+    "stalker": {
+      "health": 90,
+      "armor": 1,
+      "speedTilesPerSecond": 2.8,
+      "visionRangeTiles": 4,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 20,
+      "basePopulationCap": 0,
+      "wombPopulationIncrease": 12,
+      "manualSpawnCost": {
+        "chyme": 20
+      },
+      "manualSpawnSeconds": 8,
+      "wombPassiveSpawnSeconds": 14,
+      "weapon": "stalker_claw",
+      "collisionRadiusTiles": 0.15
+    },
+    "ravager": {
+      "health": 650,
+      "armor": 6,
+      "speedTilesPerSecond": 1.0,
+      "visionRangeTiles": 4,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 60,
+      "basePopulationCap": 0,
+      "wombPopulationIncrease": 6,
+      "manualSpawnCost": {
+        "chyme": 80
+      },
+      "manualSpawnSeconds": 20,
+      "wombPassiveSpawnSeconds": 30,
+      "weapon": "ravager_melee",
+      "collisionRadiusTiles": 0.35
+    },
+    "thresher": {
+      "health": 250,
+      "armor": 3,
+      "speedTilesPerSecond": 1.0,
+      "visionRangeTiles": 4,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 30,
+      "basePopulationCap": 0,
+      "wombPopulationIncrease": 8,
+      "manualSpawnCost": {
+        "chyme": 60
+      },
+      "manualSpawnSeconds": 16,
+      "wombPassiveSpawnSeconds": 24,
+      "weapon": "thresher_melee",
+      "buriedWeapon": "thresher_tentacle",
+      "collisionRadiusTiles": 0.35
+    },
+    "shade": {
+      "health": 90,
+      "armor": 0,
+      "speedTilesPerSecond": 1.6,
+      "visionRangeTiles": 10,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 25,
+      "basePopulationCap": 0,
+      "wombPopulationIncrease": 8,
+      "manualSpawnCost": {
+        "chyme": 50
+      },
+      "manualSpawnSeconds": 15,
+      "wombPassiveSpawnSeconds": 22,
+      "weapon": "shade_attack",
+      "collisionRadiusTiles": 0.15
+    },
+    "mother": {
+      "health": 120,
+      "armor": 0,
+      "speedTilesPerSecond": 1.4,
+      "visionRangeTiles": 3,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 0,
+      "basePopulationCap": 4,
+      "wombPopulationIncrease": 4,
+      "manualSpawnCost": {
+        "chyme": 25
+      },
+      "manualSpawnSeconds": 12,
+      "wombPassiveSpawnSeconds": 20,
+      "weapon": null,
+      "collisionRadiusTiles": 0.15
+    },
+    "father": {
+      "health": 200,
+      "armor": 1,
+      "speedTilesPerSecond": 1.6,
+      "visionRangeTiles": 4,
+      "illuminationRangeTiles": 0,
+      "biological": true,
+      "chymeCapacity": 0,
+      "basePopulationCap": 2,
+      "wombPopulationIncrease": 2,
+      "manualSpawnCost": {
+        "chyme": 60
+      },
+      "manualSpawnSeconds": 20,
+      "wombPassiveSpawnSeconds": 30,
+      "weapon": null,
+      "collisionRadiusTiles": 0.15
+    }
+  },
+  "weapons": {
+    "marine_rifle": {
+      "damagePerHit": 8,
+      "intervalSeconds": 0.25,
+      "rangeTiles": 4,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "reaper_gun": {
+      "damagePerHit": 14,
+      "intervalSeconds": 0.15,
+      "rangeTiles": 5,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "sentry_gun": {
+      "damagePerHit": 10,
+      "intervalSeconds": 0.2,
+      "rangeTiles": 5,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "flamer_flame": {
+      "damagePerHit": 1,
+      "intervalSeconds": 0.05,
+      "rangeTiles": 2,
+      "mechanism": "cone",
+      "requiresUnobstructedShot": true,
+      "coneDegrees": 70,
+      "friendlyFire": true
+    },
+    "cremator_flame": {
+      "damagePerHit": 2,
+      "intervalSeconds": 0.05,
+      "rangeTiles": 3,
+      "mechanism": "cone",
+      "requiresUnobstructedShot": true,
+      "coneDegrees": 90,
+      "friendlyFire": true
+    },
+    "torch_flame": {
+      "damagePerHit": 2,
+      "intervalSeconds": 0.05,
+      "rangeTiles": 3,
+      "mechanism": "cone",
+      "requiresUnobstructedShot": true,
+      "coneDegrees": 90,
+      "friendlyFire": true
+    },
+    "lancer_laser": {
+      "damagePerHit": 100,
+      "intervalSeconds": 3,
+      "rangeTiles": 6,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "javelin_laser": {
+      "damagePerHit": 180,
+      "intervalSeconds": 3.5,
+      "rangeTiles": 7,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "lance_laser": {
+      "damagePerHit": 160,
+      "intervalSeconds": 3,
+      "rangeTiles": 7,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "scavenger_bite": {
+      "damagePerHit": 3,
+      "intervalSeconds": 0.75,
+      "rangeTiles": 0.75,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "stalker_claw": {
+      "damagePerHit": 12,
+      "intervalSeconds": 0.75,
+      "rangeTiles": 0.75,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "ravager_melee": {
+      "damagePerHit": 20,
+      "intervalSeconds": 1.5,
+      "rangeTiles": 1,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true,
+      "bonusDamageAgainstStructures": 60
+    },
+    "thresher_melee": {
+      "damagePerHit": 15,
+      "intervalSeconds": 1,
+      "rangeTiles": 0.75,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "thresher_tentacle": {
+      "damagePerHit": 20,
+      "intervalSeconds": 1.5,
+      "rangeTiles": 4,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    },
+    "shade_attack": {
+      "damagePerHit": 12,
+      "intervalSeconds": 2,
+      "rangeTiles": 10,
+      "mechanism": "unit_target",
+      "requiresUnobstructedShot": true
+    }
+  },
+  "structures": {
+    "anchor": {
+      "health": 2000,
+      "armor": 5,
+      "cost": null,
+      "footprintRadiusTiles": 1,
+      "powerDemand": 0,
+      "powerCapacity": 2,
+      "electricalRangeBeyondFootprintTiles": 3,
+      "illuminationRangeBeyondFootprintTiles": 3,
+      "visionRangeBeyondFootprintTiles": 5,
+      "collisionShape": "footprint_hex_union"
+    },
+    "wall": {
+      "health": 600,
+      "armor": 3,
+      "cost": {
+        "ore": 5
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 0,
+      "collisionShape": "footprint_hex_union"
+    },
+    "gate": {
+      "health": 600,
+      "armor": 3,
+      "cost": {
+        "ore": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 0,
+      "collisionShape": "footprint_hex_union"
+    },
+    "depot": {
+      "health": 400,
+      "armor": 1,
+      "cost": {
+        "ore": 20
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "cradle": {
+      "health": 600,
+      "armor": 2,
+      "cost": {
+        "ore": 40,
+        "gas": 20
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 1,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "armory": {
+      "health": 600,
+      "armor": 2,
+      "cost": {
+        "ore": 50,
+        "gas": 20
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 1,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "factory": {
+      "health": 900,
+      "armor": 3,
+      "cost": {
+        "ore": 70,
+        "alloy": 20,
+        "polymer": 10
+      },
+      "footprintRadiusTiles": 1,
+      "powerDemand": 4,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "generator": {
+      "health": 400,
+      "armor": 2,
+      "cost": {
+        "ore": 40,
+        "gas": 20
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 6,
+      "electricalRangeBeyondFootprintTiles": 3,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "reactor": {
+      "health": 600,
+      "armor": 3,
+      "cost": {
+        "alloy": 30,
+        "polymer": 10,
+        "crystal": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 20,
+      "electricalRangeBeyondFootprintTiles": 3,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "relay": {
+      "health": 250,
+      "armor": 1,
+      "cost": {
+        "ore": 10,
+        "gas": 5
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 1,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 8,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "floodlight": {
+      "health": 200,
+      "armor": 1,
+      "cost": {
+        "ore": 15,
+        "gas": 5
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 1,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 6,
+      "visionRangeBeyondFootprintTiles": 8,
+      "collisionShape": "footprint_hex_union"
+    },
+    "extractor": {
+      "health": 500,
+      "armor": 2,
+      "cost": {
+        "ore": 30,
+        "gas": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 2,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "sentry": {
+      "health": 400,
+      "armor": 2,
+      "cost": {
+        "ore": 20,
+        "gas": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 1,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "weapon": "sentry_gun",
+      "collisionShape": "footprint_hex_union"
+    },
+    "torch": {
+      "health": 450,
+      "armor": 2,
+      "cost": {
+        "ore": 30,
+        "polymer": 5
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 2,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "weapon": "torch_flame",
+      "collisionShape": "footprint_hex_union"
+    },
+    "lance": {
+      "health": 450,
+      "armor": 2,
+      "cost": {
+        "alloy": 20,
+        "crystal": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 3,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "weapon": "lance_laser",
+      "collisionShape": "footprint_hex_union"
+    },
+    "foundry": {
+      "health": 500,
+      "armor": 2,
+      "cost": {
+        "ore": 40,
+        "gas": 20
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 2,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "refinery": {
+      "health": 500,
+      "armor": 2,
+      "cost": {
+        "ore": 40,
+        "gas": 20
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 2,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "synthesizer": {
+      "health": 600,
+      "armor": 2,
+      "cost": {
+        "ore": 50,
+        "alloy": 10,
+        "polymer": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 3,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "rampart": {
+      "health": 600,
+      "armor": 3,
+      "cost": {
+        "alloy": 20,
+        "polymer": 10,
+        "crystal": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 3,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "collisionShape": "footprint_hex_union"
+    },
+    "radar": {
+      "health": 350,
+      "armor": 1,
+      "cost": {
+        "ore": 30,
+        "alloy": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 2,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "detectionRangeBeyondFootprintTiles": 12,
+      "collisionShape": "footprint_hex_union"
+    },
+    "fabricator": {
+      "health": 650,
+      "armor": 2,
+      "cost": {
+        "ore": 50,
+        "alloy": 10,
+        "polymer": 10
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 2,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 1,
+      "collisionShape": "footprint_hex_union"
+    },
+    "medusa": {
+      "health": 3000,
+      "armor": 5,
+      "cost": null,
+      "footprintRadiusTiles": 1,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 8,
+      "gloomRangeBeyondFootprintTiles": 8,
+      "collisionShape": "footprint_hex_union"
+    },
+    "stoma": {
+      "health": 300,
+      "armor": 1,
+      "cost": {
+        "chyme": 30
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 3,
+      "gloomRangeBeyondFootprintTiles": 3,
+      "collisionShape": "footprint_hex_union"
+    },
+    "womb": {
+      "health": 600,
+      "armor": 2,
+      "cost": {
+        "chyme": 60
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 4,
+      "gloomRangeBeyondFootprintTiles": 5,
+      "collisionShape": "footprint_hex_union"
+    },
+    "gland": {
+      "health": 200,
+      "armor": 0,
+      "cost": {
+        "chyme": 40
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "gloomRangeBeyondFootprintTiles": 3,
+      "collisionShape": "footprint_hex_union"
+    },
+    "chyme_gland": {
+      "health": 200,
+      "armor": 0,
+      "cost": {
+        "chyme": 50
+      },
+      "footprintRadiusTiles": 0,
+      "powerDemand": 0,
+      "powerCapacity": 0,
+      "electricalRangeBeyondFootprintTiles": 0,
+      "illuminationRangeBeyondFootprintTiles": 0,
+      "visionRangeBeyondFootprintTiles": 2,
+      "gloomRangeBeyondFootprintTiles": 3,
+      "collisionShape": "footprint_hex_union"
+    }
+  },
+  "upgrades": {
+    "fabricatorArmor": {
+      "types": [
+        "engineer",
+        "marine",
+        "flamer",
+        "lancer"
+      ],
+      "maxPurchasesPerType": 1,
+      "armorPerPurchase": 1,
+      "costPerType": {
+        "alloy": 10,
+        "polymer": 5
+      },
+      "engineerWorkSeconds": 20
+    },
+    "glandArmor": {
+      "types": [
+        "scavenger",
+        "stalker",
+        "ravager",
+        "thresher",
+        "shade",
+        "mother",
+        "father"
+      ],
+      "colonyCapPerType": 3,
+      "armorPerGland": 1
+    }
+  },
+  "camera": {
+    "projection": "perspective",
+    "pitchBelowHorizontalDegrees": 55,
+    "defaultYawDegrees": 0,
+    "rollDegrees": 0,
+    "verticalFieldOfViewDegrees": 40,
+    "defaultDistanceTiles": 24,
+    "minimumDistanceTiles": 12,
+    "maximumDistanceTiles": 32,
+    "wheelStepTiles": 2,
+    "panTilesPerRealSecondAtDefaultZoom": 18,
+    "scalePanWithZoom": true,
+    "edgeBandLogicalPixels": 12,
+    "rotationHoldDegrees": 90,
+    "zoomResponseSeconds": 0.12,
+    "rotationResponseSeconds": 0.12,
+    "edgeScrollingEnabled": true,
+    "keyboardPanningEnabled": true,
+    "mouseDraggingEnabled": true,
+    "wheelZoomEnabled": true,
+    "panBindings": {
+      "up": "W|Up",
+      "down": "S|Down",
+      "left": "A|Left",
+      "right": "D|Right"
+    },
+    "dragButton": "middle",
+    "rotateLeftBinding": "Insert",
+    "rotateRightBinding": "Delete",
+    "clampFocusToHexMap": true,
+    "availableWhilePaused": true,
+    "includeInSimulationSettingsHash": false,
+    "maxFrameDeltaSeconds": 0.1
+  },
+  "movement": {
+    "separationTilesPerSecond": 1.2,
+    "formationSpacingTiles": 0.55,
+    "routeOrders": {
+      "arrivalRadiusTiles": 0.3,
+      "escortDistanceTiles": 1.3,
+      "repathSeconds": 0.4,
+      "escortRearArcDegrees": 120,
+      "escortSlotsPerRing": 6
+    }
+  },
+  "presentation": {
+    "damageNumbers": true,
+    "soundEnabled": true,
+    "ambienceVolumeDb": -25,
+    "effectsVolumeDb": -13,
+    "uiVolumeDb": -12,
+    "motionInterpolationSeconds": 0.055,
+    "feedback": {
+      "eventHistoryLimit": 192,
+      "hitFlashSeconds": 0.055,
+      "healthTrailSeconds": 0.45,
+      "labelSeconds": 0.8,
+      "impactRingSeconds": 0.22,
+      "deathSeconds": 0.8,
+      "particleGravity": 3.8,
+      "particleLimit": 320,
+      "weaponProfiles": {
+        "marine_rifle": "rifle",
+        "reaper_gun": "heavy",
+        "sentry_gun": "rifle",
+        "flamer_flame": "flame",
+        "cremator_flame": "flame",
+        "torch_flame": "flame",
+        "lancer_laser": "laser",
+        "javelin_laser": "laser",
+        "lance_laser": "laser",
+        "scavenger_bite": "melee",
+        "stalker_claw": "melee",
+        "ravager_melee": "melee",
+        "thresher_melee": "melee",
+        "thresher_tentacle": "rifle",
+        "shade_attack": "rifle"
+      },
+      "profiles": {
+        "rifle": {
+          "visual": "rifle",
+          "traceSeconds": 0.1,
+          "traceWidthTiles": 0.035,
+          "recoilTiles": 0.08,
+          "sound": "rifle",
+          "gainDb": -2,
+          "impactParticles": 4,
+          "soundIntervalSeconds": 0.06
+        },
+        "heavy": {
+          "visual": "heavy",
+          "traceSeconds": 0.14,
+          "traceWidthTiles": 0.065,
+          "recoilTiles": 0.17,
+          "sound": "cannon",
+          "gainDb": -3,
+          "impactParticles": 8,
+          "soundIntervalSeconds": 0.06
+        },
+        "laser": {
+          "visual": "laser",
+          "traceSeconds": 0.19,
+          "traceWidthTiles": 0.085,
+          "recoilTiles": 0.13,
+          "sound": "laser",
+          "gainDb": -1,
+          "impactParticles": 10,
+          "soundIntervalSeconds": 0.06
+        },
+        "flame": {
+          "visual": "flame",
+          "traceSeconds": 0.16,
+          "traceWidthTiles": 0.45,
+          "recoilTiles": 0.025,
+          "sound": "flame",
+          "gainDb": -5,
+          "impactParticles": 3,
+          "soundIntervalSeconds": 0.14
+        },
+        "melee": {
+          "visual": "melee",
+          "traceSeconds": 0.13,
+          "traceWidthTiles": 0,
+          "recoilTiles": 0.06,
+          "sound": "impact",
+          "gainDb": -3,
+          "impactParticles": 3,
+          "soundIntervalSeconds": 0.06
+        }
+      },
+      "maxTraces": 64,
+      "maxCatchupTicks": 12,
+      "audioVoiceCount": 18,
+      "audioMaxDistanceTiles": 60,
+      "audioUnitSizeTiles": 16,
+      "maxLabels": 48,
+      "hitFlashGapSeconds": 0.14,
+      "muzzleFlashWidthTiles": 0.14,
+      "muzzleParticleCount": 3,
+      "hitParticleCount": 6,
+      "destructionParticleCount": 18,
+      "completionParticleCount": 5,
+      "maxImpactRings": 64,
+      "destructionRingSeconds": 0.45,
+      "completionRingSeconds": 0.6,
+      "hitFlashesEnabled": true,
+      "damageNumberGroupSeconds": 0.25,
+      "shieldSoundIntervalSeconds": 0.12,
+      "depositSoundIntervalSeconds": 0.1
+    },
+    "creatureScales": {
+      "scavenger": [
+        0.72,
+        0.8,
+        0.8
+      ],
+      "stalker": [
+        1.05,
+        1.15,
+        1.4
+      ],
+      "ravager": [
+        1.65,
+        1.85,
+        1.6
+      ],
+      "thresher": [
+        1.3,
+        0.85,
+        1.5
+      ],
+      "shade": [
+        0.65,
+        1.8,
+        1.2
+      ],
+      "mother": [
+        1.2,
+        1.2,
+        1.3
+      ],
+      "father": [
+        1.2,
+        1.5,
+        1.2
+      ]
+    },
+    "muzzleHeights": {
+      "marine": 0.42,
+      "flamer": 0.42,
+      "lancer": 0.42,
+      "scout": 0.9,
+      "reaper": 0.9,
+      "cremator": 0.9,
+      "javelin": 0.9,
+      "sentry": 0.83,
+      "torch": 0.83,
+      "lance": 0.83
+    }
+  },
+  "targeting": {
+    "buriedImmuneToArea": true,
+    "unitRules": {
+      "shade": {
+        "requiresIllumination": true,
+        "radarInvisible": true
+      }
+    },
+    "refreshIntervalTicks": 4
+  },
+  "controls": {
+    "commands": {
+      "build": "B",
+      "mine": "M",
+      "attack": "Q",
+      "stop": "X",
+      "patrol": "P",
+      "escort": "E",
+      "board": "G",
+      "loadCargo": "L",
+      "repair": "R",
+      "unload": "U",
+      "focusSelection": "Z",
+      "focusAnchor": "Home",
+      "pause": "Space",
+      "cancel": "Escape"
+    },
+    "buildHotkeys": {
+      "wall": "W",
+      "gate": "G",
+      "depot": "D",
+      "generator": "E",
+      "relay": "R",
+      "floodlight": "L",
+      "extractor": "X",
+      "sentry": "S",
+      "cradle": "C",
+      "armory": "A",
+      "foundry": "F",
+      "refinery": "I",
+      "factory": "Y",
+      "synthesizer": "H",
+      "reactor": "T",
+      "radar": "V",
+      "torch": "O",
+      "lance": "N",
+      "rampart": "P",
+      "fabricator": "U"
+    },
+    "selectionLimit": 128,
+    "dragThresholdPixels": 8,
+    "controlGroupCount": 9,
+    "groupDoubleTapSeconds": 0.32,
+    "selectionPulseSeconds": 0.3,
+    "buildOrder": [
+      "wall",
+      "gate",
+      "depot",
+      "generator",
+      "relay",
+      "floodlight",
+      "extractor",
+      "sentry",
+      "cradle",
+      "armory",
+      "foundry",
+      "refinery",
+      "factory",
+      "synthesizer",
+      "reactor",
+      "radar",
+      "torch",
+      "lance",
+      "rampart",
+      "fabricator"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "status": "foundation_adapter_implemented",
+    "note": "Browser-only Trystero adapter and host-authoritative foundation. Public relay/TURN deployment remains to be validated."
+  },
+  "platform": "web",
+  "hosting": "player",
+  "transport": "webrtc",
+  "library": {
+    "name": "trystero",
+    "version": "0.26.0"
+  },
+  "applicationId": "github.shawn-mcgee.atd",
+  "gameProtocolVersion": 1,
+  "authority": {
+    "model": "host_authoritative",
+    "status": "implemented_foundation"
+  },
+  "signaling": {
+    "strategy": "nostr",
+    "configuration": {}
+  },
+  "ice": {
+    "turnServers": []
+  },
+  "hostLossPolicy": "end_match",
+  "clientDisconnectPolicy": "eliminate_keep_assets_and_orders",
+  "hostMigrationEnabled": false,
+  "hostRecoveryEnabled": false
+}

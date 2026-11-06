@@ -1,0 +1,237 @@
+class_name TacticalOverlay
+extends Control
+
+var world: WorldState
+var camera: RTSCamera
+var renderer: WorldRenderer
+var selected: Array = []
+var hovered := 0
+var owner_id := 0
+var health_trails: Dictionary = {}
+var feedback_cursor := 0
+var damage_numbers: Array = []
+var marker_position := Vector2.ZERO
+var marker_time := 0.0
+var selection_pulse := 0.0
+var marker_color := Color("85e4cd")
+var map_texture: ImageTexture
+var map_timer := 0.0
+var clock := 0.0
+var drag_selection := Rect2()
+var placement_kind := ""
+var placement_cell := Vector2i.ZERO
+const FONT := preload("res://assets/fonts/BarlowSemiCondensed-Medium.ttf")
+
+func _ready() -> void:
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+func reset() -> void:
+	health_trails.clear(); selection_pulse = 0; feedback_cursor = 0; damage_numbers.clear(); marker_time = 0; map_timer = 0; map_texture = null
+
+func minimap_rect() -> Rect2:
+	return Rect2(14, size.y - 198, 208, 184)
+
+func map_point(point: Vector2) -> Vector2:
+	var rect := minimap_rect().grow(-12)
+	return rect.get_center() + Vector2(point.x, point.y) / (world.radius * 2.15) * rect.size
+
+func minimap_world(point: Vector2) -> Vector2:
+	var rect := minimap_rect().grow(-12)
+	return (point - rect.get_center()) / rect.size * (world.radius * 2.15)
+
+func mark(point: Vector2, color: Color = Color("85e4cd")) -> void:
+	marker_position = point; marker_time = 0.7; marker_color = color
+
+func _process(delta: float) -> void:
+	if not visible or world == null: return
+	clock += delta
+	selection_pulse = maxf(0, selection_pulse - delta)
+	marker_time = maxf(0, marker_time - delta)
+	for effect in damage_numbers: effect.time -= delta
+	damage_numbers = damage_numbers.filter(func(effect): return effect.time > 0)
+	_consume_feedback()
+	for e in world.units.values() + world.structures.values():
+		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
+		if not health_trails.has(e.id): health_trails[e.id] = {"hp": float(e.hp), "trail": float(e.hp), "hold": 0.0}
+		var bar: Dictionary = health_trails[e.id]
+		if float(e.hp) < float(bar.hp): bar.hold = 0.12
+		bar.hp = float(e.hp)
+		bar.hold = maxf(0, float(bar.hold) - delta)
+		if bar.hold <= 0: bar.trail = lerpf(float(bar.trail), float(e.hp), 1 - exp(-delta / maxf(0.001, float(world.cfg.presentation.feedback.healthTrailSeconds))))
+		bar.trail = maxf(float(e.hp), float(bar.trail))
+	for id in health_trails.keys():
+		if world.entity(int(id)).is_empty(): health_trails.erase(id)
+	map_timer -= delta
+	if map_timer <= 0: _refresh_map(); map_timer = 0.4
+	queue_redraw()
+
+func _refresh_map() -> void:
+	var image := Image.create(144, 144, false, Image.FORMAT_RGB8)
+	image.fill(Color("070d15"))
+	for cell in world.known.get(owner_id, {}):
+		var p := HexGrid.world(cell) / (world.radius * 2.15) * 144 + Vector2(72, 72)
+		var color := Color("293d48") if world.visible.get(owner_id, {}).has(cell) else Color("17242f")
+		if world.is_lit(cell): color = Color("779a91")
+		if world.tiles[cell].cliff: color = Color("5a6873")
+		elif world.tiles[cell].resource != "" and int(world.tiles[cell].amount) > 0: color = Color("cda365") if world.tiles[cell].resource == "ore" else Color("55c9ca")
+		for x in range(-1, 2):
+			for y in range(-1, 2):
+				var pixel := Vector2i(p) + Vector2i(x, y)
+				if pixel.x >= 0 and pixel.y >= 0 and pixel.x < 144 and pixel.y < 144: image.set_pixelv(pixel, color)
+	if map_texture == null: map_texture = ImageTexture.create_from_image(image)
+	else: map_texture.update(image)
+
+func _project(point: Vector2, height: float = 0.15) -> Vector2:
+	return camera.unproject_position(Vector3(point.x, height, point.y))
+
+func _draw() -> void:
+	if world == null or camera == null: return
+	var font := FONT
+	if selection_pulse > 0:
+		var ratio := selection_pulse / float(world.cfg.controls.selectionPulseSeconds)
+		for id in selected.slice(0, 32):
+			var entity_data := world.entity(int(id))
+			if not entity_data.is_empty(): draw_arc(_project(world.entity_position(entity_data)), 17 + ratio * 10, 0, TAU, 24, Color(0.77, 0.83, 0.68, ratio * 0.65), 1.5, true)
+	var contact_color := Color("e4ae68")
+	for cell in world.unknown_contacts(owner_id):
+		var position := _project(HexGrid.world(cell))
+		var extent := 8.0 + sin(clock * 3) * 1.5
+		draw_rect(Rect2(position - Vector2.ONE * extent, Vector2.ONE * extent * 2), Color(contact_color, 0.7), false, 1.5)
+		draw_circle(position, 2, contact_color)
+		if position.distance_to(get_viewport().get_mouse_position()) < 24:
+			draw_string(font, position + Vector2(14, -8), "UNIDENTIFIED CONTACT", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, contact_color)
+	for id in selected:
+		var emitter := world.entity(int(id))
+		if emitter.is_empty() or emitter.owner != owner_id: continue
+		if emitter.has("pos"):
+			var definition: Dictionary = world.cfg.units[emitter.kind]
+			if int(definition.get("detectionRangeTiles", 0)) > 0:
+				_range_outline(HexGrid.cell(emitter.pos), int(definition.detectionRangeTiles), Color("e4ae68") if int(emitter.get("driver", 0)) != 0 else Color("657470"))
+		if emitter.kind == "radar": _range_outline(emitter.cell, int(world.cfg.structures.radar.detectionRangeBeyondFootprintTiles) + int(world.cfg.structures.radar.footprintRadiusTiles), Color("e4ae68"))
+		if emitter.kind == "rampart": _range_outline(emitter.cell, int(world.cfg.combat.rampartRangeBeyondFootprintTiles) + int(world.cfg.structures.rampart.footprintRadiusTiles), Color("91c5bc"))
+	if placement_kind != "":
+		if placement_kind == "radar": _range_outline(placement_cell, int(world.cfg.structures.radar.detectionRangeBeyondFootprintTiles) + int(world.cfg.structures.radar.footprintRadiusTiles), Color("e4ae68"))
+		if placement_kind == "rampart": _range_outline(placement_cell, int(world.cfg.combat.rampartRangeBeyondFootprintTiles) + int(world.cfg.structures.rampart.footprintRadiusTiles), Color("91c5bc"))
+		var definition: Dictionary = world.cfg.structures[placement_kind]
+		if int(definition.powerDemand) > 0 or int(definition.powerCapacity) > 0:
+			var reach := int(definition.footprintRadiusTiles) + int(definition.electricalRangeBeyondFootprintTiles)
+			for structure in world.structures.values():
+				if structure.owner != owner_id or not structure.built or not structure.enabled: continue
+				var d: Dictionary = world.cfg.structures[structure.kind]
+				if int(d.powerDemand) == 0 and int(d.powerCapacity) == 0: continue
+				var existing_reach := int(d.footprintRadiusTiles) + int(d.electricalRangeBeyondFootprintTiles)
+				if HexGrid.distance(structure.cell, placement_cell) > reach + existing_reach: continue
+				var tint := Color(0.7, 0.75, 0.55, 0.65) if structure.powered else Color(0.8, 0.45, 0.3, 0.65)
+				draw_dashed_line(_project(HexGrid.world(structure.cell)), _project(HexGrid.world(placement_cell)), tint, 1.5, 5, true, true)
+				var outline := PackedVector2Array()
+				for i in range(7): outline.append(_project(HexGrid.world(structure.cell) + HexGrid.world(HexGrid.DIRECTIONS[i % 6]) * (existing_reach + 0.5)))
+				draw_polyline(outline, Color(tint, 0.25), 1, true)
+	if drag_selection.size.length() > 8:
+		draw_rect(drag_selection, Color(0.72, 0.78, 0.64, 0.08))
+		draw_rect(drag_selection, Color("a5b7a1"), false, 1)
+	for id in selected.slice(0, 8):
+		var u := world.entity(int(id))
+		if u.is_empty() or not u.has("route") or u.owner != owner_id: continue
+		if u.job.kind == "patrol":
+			var a := Vector2(float(u.job.a[0]), float(u.job.a[1]))
+			var b := Vector2(float(u.job.b[0]), float(u.job.b[1]))
+			draw_dashed_line(_project(a), _project(b), Color(0.75, 0.7, 0.48, 0.5), 1.5, 6, true, true)
+			for endpoint in [a, b]: draw_circle(_project(endpoint), 5, Color("c3b47c"), false, 1.5)
+		if u.job.kind == "escort":
+			var target := world.entity(int(u.job.target))
+			if not target.is_empty(): draw_dashed_line(_project(u.pos), _project(world.entity_position(target)), Color(0.5, 0.75, 0.73, 0.55), 1.5, 5, true, true)
+		var previous := _project(u.pos)
+		for point in u.route:
+			var screen := _project(point)
+			draw_dashed_line(previous, screen, Color(0.7, 0.77, 0.65, 0.24), 1, 4, true, true)
+			previous = screen
+	for e in world.units.values() + world.structures.values():
+		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
+		var maximum := float(world.cfg.structures[e.kind].health) if e.has("cell") else float(world.cfg.units[e.kind].health)
+		var selected_here: bool = e.id in selected or e.id == hovered
+		if e.owner == owner_id and e.has("cell") and e.built and int(world.cfg.structures[e.kind].powerDemand) > 0 and e.enabled and not e.powered:
+			var warning := _project(world.entity_position(e), 1.65)
+			draw_string(font, warning + Vector2(-8, -6), "! BLACKOUT" if e.get("blackout", false) and selected_here else "! NO POWER" if selected_here else "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("df937a"))
+		if e.owner == owner_id and e.has("pos") and world.cfg.units[e.kind].has("driverSeats") and int(e.driver) == 0 and selected_here:
+			draw_string(font, _project(e.pos, 1.2) + Vector2(-35, -10), "DRIVER REQUIRED", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("d7ae73"))
+		if not (selected_here or float(e.hp) < maximum): continue
+		var point := _project(world.entity_position(e), 2.7 if e.kind == "anchor" else 1.35 if e.has("cell") else 0.9)
+		var width := 62.0 if e.has("cell") else 38.0
+		var rect := Rect2(point - Vector2(width / 2, 0), Vector2(width, 5))
+		draw_rect(rect.grow(1), Color("080f18"))
+		var trail := float(health_trails.get(e.id, {}).get("trail", e.hp))
+		draw_rect(Rect2(rect.position, Vector2(width * clampf(trail / maximum, 0, 1), 5)), Color("c4ae83"))
+		var color := Color("adc3a7") if e.owner == owner_id else Color("c38573")
+		if e.has("built") and not e.built: color = Color("e3b56c")
+		draw_rect(Rect2(rect.position, Vector2(width * clampf(float(e.hp) / maximum, 0, 1), 5)), color)
+		if e.id == hovered: draw_string(font, point + Vector2(-width / 2, -6), str(e.kind).capitalize(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("c9e1e4"))
+		if e.has("cargo") and e.id in selected and world.cargo_amount(e) > 0:
+			draw_string(font, point + Vector2(-width / 2, 19), "%d / %d cargo" % [world.cargo_amount(e), world.cfg.units[e.kind].cargoCapacity], HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("e3b56c"))
+	for effect in damage_numbers:
+		var life := float(world.cfg.presentation.feedback.labelSeconds)
+		var point := _project(effect.position, 1.0) + Vector2(8, -(life - float(effect.time)) * 27)
+		var label := str(effect.label)
+		if effect.kind == "hit": label = "-%d" % ceili(effect.amount) if float(effect.amount) > 0 else "ARMOR"
+		draw_string(font, point + Vector2.ONE, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.02, 0.04, 0.05, minf(1, float(effect.time) * 4)))
+		draw_string(font, point, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(effect.color, minf(1, float(effect.time) * 4)))
+	if marker_time > 0:
+		var point := _project(marker_position)
+		var radius := 9 + marker_time * 18
+		draw_arc(point, radius * 0.65, 0, TAU, 32, Color(marker_color, marker_time * 0.5), 1, true)
+		for i in range(4):
+			var angle := i * PI / 2
+			var direction := Vector2(cos(angle), sin(angle))
+			var tip := point + direction * radius
+			var side := direction.rotated(PI / 2) * 4
+			draw_line(tip + direction * 5 + side, tip, Color(marker_color, marker_time * 1.4), 2, true)
+			draw_line(tip + direction * 5 - side, tip, Color(marker_color, marker_time * 1.4), 2, true)
+	var map_rect := minimap_rect()
+	draw_style_box(_map_style(), map_rect)
+	if map_texture != null: draw_texture_rect(map_texture, map_rect.grow(-12), false)
+	for e in world.units.values() + world.structures.values():
+		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
+		var point := map_point(world.entity_position(e))
+		var color := Color("80e5d0") if e.owner == owner_id else Color("ec7c8d")
+		if e.has("cell"): draw_rect(Rect2(point - Vector2(2, 2), Vector2(4, 4)), color)
+		else: draw_circle(point, 1.7, color)
+	for cell in world.unknown_contacts(owner_id):
+		draw_rect(Rect2(map_point(HexGrid.world(cell)) - Vector2.ONE * 2, Vector2.ONE * 4), Color("e4ae68"), false, 1)
+	var viewport_points := PackedVector2Array()
+	for point in [Vector2.ZERO, Vector2(size.x, 0), size, Vector2(0, size.y), Vector2.ZERO]:
+		var ground := camera.ground(point)
+		var mapped := map_point(Vector2(ground.x, ground.z))
+		viewport_points.append(mapped.clamp(map_rect.position + Vector2(2, 2), map_rect.end - Vector2(2, 2)))
+	draw_polyline(viewport_points, Color(0.65, 0.91, 0.86, 0.65), 1, true)
+	draw_string(font, map_rect.position + Vector2(10, 16), "TACTICAL / CLICK TO PAN", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("8aa6b2"))
+
+func _map_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("0a141e"); style.border_color = Color("314c58"); style.set_border_width_all(1); style.set_corner_radius_all(5)
+	return style
+
+func _range_outline(cell: Vector2i, reach: int, color: Color) -> void:
+	var points := PackedVector2Array()
+	for i in range(7): points.append(_project(HexGrid.world(cell) + HexGrid.world(HexGrid.DIRECTIONS[i % 6]) * (reach + 0.5)))
+	draw_colored_polygon(points.slice(0, 6), Color(color, 0.035))
+	draw_polyline(points, Color(color, 0.5), 1.5, true)
+
+func _consume_feedback() -> void:
+	for event in world.feedback_for(owner_id, feedback_cursor):
+		feedback_cursor = maxi(feedback_cursor, int(event.serial))
+		if world.tick - int(event.tick) > int(world.cfg.presentation.feedback.maxCatchupTicks): continue
+		if event.kind == "hit" and not world.cfg.presentation.damageNumbers: continue
+		if not event.kind in ["hit", "deposit", "ready"]: continue
+		var color := Color("9fc9b4")
+		var label := str(event.get("label", ""))
+		if event.kind == "deposit": label = "+%d DELIVERED" % int(event.amount)
+		if event.kind == "hit": color = Color("9ed8d0") if event.shielded else Color("e4b58e")
+		var combined := false
+		if event.kind in ["hit", "deposit"]:
+			for entry in damage_numbers:
+				if entry.kind == event.kind and int(entry.target) == int(event.target) and int(event.tick) - int(entry.first_tick) <= ceili(float(world.cfg.presentation.feedback.damageNumberGroupSeconds) * float(world.cfg.match.simulationTicksPerSecond)):
+					entry.amount += float(event.amount); entry.time = float(world.cfg.presentation.feedback.labelSeconds)
+					if event.kind == "deposit": entry.label = "+%d DELIVERED" % int(entry.amount)
+					combined = true; break
+		if not combined: damage_numbers.append({"kind": event.kind, "first_tick": event.tick, "position": event.at, "target": int(event.get("target", 0)), "amount": float(event.get("amount", 0)), "label": label, "color": color, "time": float(world.cfg.presentation.feedback.labelSeconds)})
+		while damage_numbers.size() > int(world.cfg.presentation.feedback.maxLabels): damage_numbers.pop_front()
