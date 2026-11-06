@@ -75,7 +75,7 @@ Use one version identifier, source revision, pinned networking-library version, 
 5. Deploy that alpha to GitHub Pages and itch.io.
 6. Verify both hosted copies and cross-site Trystero rooms in actual browsers.
 
-The Godot project, web export preset, Trystero bundle, headless checks, browser tests, ZIP packager, and build/test workflow now exist. See [implementation status](implementation-status.md) for coverage and local commands. Public deployment remains pending; the itch.io destination and publication credentials have not been configured.
+The Godot project, web export preset, Trystero bundle, headless checks, browser tests, ZIP packager, and build/test workflow now exist. See [implementation status](implementation-status.md) for coverage and local commands. The main-branch browser-alpha workflow tests and deploys the root project to GitHub Pages. The itch.io destination and publication credentials have not been configured.
 
 ## Multiplayer hosting
 
