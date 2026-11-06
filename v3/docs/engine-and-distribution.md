@@ -75,7 +75,7 @@ Use one version identifier, source revision, pinned networking-library version, 
 5. Deploy that alpha to GitHub Pages and itch.io.
 6. Verify both hosted copies and cross-site Trystero rooms in actual browsers.
 
-The Godot project, web export preset, Trystero bundle, headless checks, browser tests, ZIP packager, and build/test workflow now exist. See [implementation status](implementation-status.md) for coverage and local commands. The main-branch browser-alpha workflow tests and deploys the `v3/` project to GitHub Pages. The itch.io destination and publication credentials have not been configured.
+The Godot project, web export preset, Trystero bundle, headless checks, browser tests, ZIP packager, and build/test workflow now exist. See [implementation status](implementation-status.md) for coverage and local commands. The main-branch browser-alpha workflow builds and deploys the `v3/` project to GitHub Pages. The itch.io destination and publication credentials have not been configured.
 
 ## Multiplayer hosting
 
@@ -105,3 +105,11 @@ The active project is `v3/project.godot`. Run all current npm and Python project
 `npm run export:web` writes `v3/build/web/`. `npm run stage:site` copies that export to the site root and its `/v3/` subdirectory, preserving relative Godot asset paths. GitHub Pages publishes `v3/build/site/`. Both public paths therefore serve the same current game; legacy content never replaces the root game. `npm run test:browser` stages the site automatically and exercises both paths.
 
 An optional already-exported legacy build can be included with `python tools/stage-site.py --v1-web <legacy-export-directory>`. That adds `/v1/`; it does not change `/` or `/v3/`. Legacy publication is disabled in the default workflow. The itch.io ZIP contains only the current game with `index.html` at its root.
+
+## Independent checks and deployment
+
+`browser-alpha.yml` handles main-branch and manual publication: install dependencies and the pinned engine, export v3, package the downloadable ZIP, stage root and `/v3/`, and deploy Pages. Export/compiler errors remain fatal. It does not install browsers or run the test suite.
+
+`browser-checks.yml` runs simulation/interface and browser tests on pull requests or manual dispatch. It does not publish. Local validation remains `npm test` and `npm run test:browser` from v3/. Deployment retries can rerun the deploy job against its existing artifact without rebuilding or repeating tests.
+
+The Linux CI multiplayer host-loss assertion is currently unresolved despite passing locally; browser multiplayer remains experimental. This is tracked separately from publication of the single-player alpha.

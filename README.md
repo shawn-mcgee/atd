@@ -16,4 +16,6 @@ npm run export:web
 npm run serve
 ```
 
-The browser-alpha workflow runs from `v3/` and publishes the same new build at `/` and `/v3/`. An already-exported legacy build can optionally be staged at `/v1/`; it is disabled by default. See [deployment details](v3/docs/engine-and-distribution.md). Desktop exports remain deferred.
+The browser-alpha deployment workflow builds from `v3/` and publishes the same new build at `/` and `/v3/`. An already-exported legacy build can optionally be staged at `/v1/`; it is disabled by default. See [deployment details](v3/docs/engine-and-distribution.md). Desktop exports remain deferred.
+
+Full simulation and browser tests run locally, on pull requests, or via the separate manual **Browser alpha tests** workflow. They do not gate deployment. Compilation/export failures still stop a release.

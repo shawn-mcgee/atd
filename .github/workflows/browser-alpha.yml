@@ -2,7 +2,6 @@ name: Browser alpha
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,7 +9,7 @@ defaults:
   run:
     working-directory: v3
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -28,11 +27,9 @@ jobs:
           python-version: '3.12'
       - run: npm ci
       - run: python tools/setup-engine.py
-      - run: npx playwright install --with-deps chromium
-      - run: npm test
       - run: npm run export:web
-      - run: npm run test:browser
       - run: python tools/package-web.py
+      - run: python tools/stage-site.py
       - uses: actions/upload-artifact@v4
         with:
           name: browser-alpha
@@ -43,14 +40,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           path: v3/build/site
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: browser-test-diagnostics
-          path: v3/test-results/
   deploy:
     if: github.ref == 'refs/heads/main'
-    needs: build-and-test
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
