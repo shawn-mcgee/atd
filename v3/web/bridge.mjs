@@ -1,5 +1,6 @@
 import {joinRoom as joinNostr, selfId} from 'trystero'
 import {joinRoom as joinLocal} from '@trystero-p2p/ws-relay'
+import {PeerHealth} from './peer-health.mjs'
 
 // The browser transport never owns simulation state. Godot polls queued events.
 export function createBridge() {
@@ -12,6 +13,10 @@ export function createBridge() {
   let outbound = []
   let snapshots = new Map()
   let sending = false
+  let health = null
+  let healthTimer = null
+  let session = 0
+  const departed = new Set()
   const parameters = new URLSearchParams(location.search)
   const emit = event => events.push(event)
   async function drain() {
@@ -36,6 +41,11 @@ export function createBridge() {
     start(role, invite, configuration) {
       api.leave()
       const config = JSON.parse(configuration)
+      const intervalMs = config.liveness?.heartbeatIntervalMs ?? 1000
+      const timeoutMs = config.liveness?.peerTimeoutMs ?? 10000
+      if (!Number.isFinite(intervalMs) || intervalMs <= 0 || !Number.isFinite(timeoutMs) || timeoutMs <= intervalMs)
+        return JSON.stringify({error: 'Peer timeout must exceed a positive heartbeat interval'})
+      const currentSession = session
       mode = role
       const roomId = role === 'host' ? crypto.randomUUID() : invite.split(':')[0]
       hostId = role === 'host' ? selfId : invite.split(':')[1]
@@ -52,23 +62,44 @@ export function createBridge() {
         return JSON.stringify({error: String(error)})
       }
       action = room.makeAction('atd-packet-v1')
+      const heartbeat = room.makeAction('atd-health-v1')
+      const validPeer = peer => active && session === currentSession && !departed.has(peer)
+      const lostPeer = peer => {
+        if (!validPeer(peer)) return
+        departed.add(peer)
+        health?.forget(peer)
+        if (mode === 'guest' && peer === hostId) {
+          api.leave()
+          emit({type: 'host_lost'})
+        } else emit({type: 'peer_leave', peer})
+      }
+      health = new PeerHealth(timeoutMs, lostPeer)
+      heartbeat.onMessage = (_payload, {peerId}) => {
+        if (validPeer(peerId)) health.observe(peerId)
+      }
+      // Independent action/timer: state backlogs, pause, and game speed cannot
+      // delay liveness. Late packets never resurrect a departed peer or match.
+      healthTimer = setInterval(() => {
+        if (!active || session !== currentSession) return
+        health.check()
+        if (active) void heartbeat.send('alive').catch(() => {})
+      }, intervalMs)
       action.onReceive = ({byteLength}) => byteLength <= 4 * 1024 * 1024
       action.onMessage = (payload, {peerId}) => {
-        if (!active) return
+        if (!validPeer(peerId)) return
+        health.observe(peerId)
         try {
           const message = typeof payload === 'string' ? JSON.parse(payload) : JSON.parse(new TextDecoder().decode(payload))
           emit({type: 'packet', peer: peerId, message})
         } catch { emit({type: 'error', message: 'Malformed network packet ignored'}) }
       }
-      room.onPeerJoin = peer => emit({type: 'peer_join', peer})
-      room.onPeerLeave = peer => {
-        if (!active) return
-        if (mode === 'guest' && peer === hostId) {
-          // Discard even the final in-flight state: it must never reopen an ended match.
-          api.leave()
-          emit({type: 'host_lost'})
-        } else emit({type: 'peer_leave', peer})
+      room.onPeerJoin = peer => {
+        if (!validPeer(peer)) return
+        health.observe(peer)
+        emit({type: 'peer_join', peer})
+        void heartbeat.send('alive', {target: peer}).catch(() => {})
       }
+      room.onPeerLeave = lostPeer
       return JSON.stringify({self: selfId, host: hostId, invitation: `${roomId}:${hostId}`})
     },
     send(peer, packet) {
@@ -90,7 +121,13 @@ export function createBridge() {
       return JSON.stringify([...batch, ...latest.values()])
     },
     leave(clearEvents = true) {
+      session++
       active = false
+      clearInterval(healthTimer)
+      healthTimer = null
+      health?.clear()
+      health = null
+      departed.clear()
       room?.leave()
       room = null
       action = null

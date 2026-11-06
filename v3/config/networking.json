@@ -12,6 +12,10 @@
   },
   "applicationId": "github.shawn-mcgee.atd",
   "gameProtocolVersion": 1,
+  "liveness": {
+    "heartbeatIntervalMs": 1000,
+    "peerTimeoutMs": 10000
+  },
   "authority": {
     "model": "host_authoritative",
     "status": "implemented_foundation"

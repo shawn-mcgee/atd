@@ -78,3 +78,9 @@ Before full multiplayer gameplay is built:
 7. Verify host departure or detected connection loss ends every client's match without migration, retry, or resumption. Separately test a host player being eliminated while staying connected, browser focus changes, and non-host departure according to its eventual policy.
 
 The local prototype now demonstrates cross-origin browser room formation, binary transport with five peers, host-confirmed movement, and terminal host loss. Command sequencing and ownership checks are implemented, but hostile-protocol testing remains pending. Full gameplay replication, actual Pages/itch.io rooms, different networks, TURN, and measured five-player load remain release gates; desktop interoperability is deferred.
+
+## Transport liveness
+
+`config/networking.json` exposes `liveness.heartbeatIntervalMs` (1000 ms) and `liveness.peerTimeoutMs` (10000 ms). The timeout must exceed the heartbeat interval. Peers exchange small health messages on a separate Trystero action; any gameplay packet also refreshes that peer's deadline. The monotonic browser timer runs independently of simulation pause and speed.
+
+A missing host ends the guest match without recovery. A missing guest is eliminated by the host under the existing keep-assets-and-orders policy. Explicit departure and timeout share one deduplicated path; late packets from an expired peer are ignored. Leaving a session clears its timer and deadlines, and callbacks from older sessions cannot affect a new one. Browser/device suspension longer than the configured timeout is treated as disconnection. This bounds host-loss detection without depending on WebRTC's eventual peer-leave event.
