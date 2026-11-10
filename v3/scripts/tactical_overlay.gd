@@ -20,6 +20,10 @@ var map_stamp: Array = []
 var map_splats: Dictionary = {}
 var clock := 0.0
 var drag_selection := Rect2()
+signal map_toggle_requested
+var map_expanded := false
+var map_toggle: Button
+var expanded_view: ExpandedMap
 var placement_kind := ""
 var placement_cell := Vector2i.ZERO
 const FONT := preload("res://assets/fonts/BarlowSemiCondensed-Medium.ttf")
@@ -27,11 +31,27 @@ const FONT := preload("res://assets/fonts/BarlowSemiCondensed-Medium.ttf")
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	map_toggle = Button.new(); map_toggle.text = "Map"; map_toggle.tooltip_text = "Open full-screen tactical map"
+	map_toggle.focus_mode = Control.FOCUS_NONE; map_toggle.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	map_toggle.custom_minimum_size = Vector2(44, 24); map_toggle.add_theme_font_size_override("font_size", 12)
+	map_toggle.pressed.connect(func(): map_toggle_requested.emit()); add_child(map_toggle)
+	var map_layer := CanvasLayer.new(); map_layer.layer = 3; add_child(map_layer)
+	expanded_view = ExpandedMap.new(); expanded_view.overlay = self; map_layer.add_child(expanded_view); expanded_view.hide()
 
 func reset() -> void:
+	set_map_expanded(false)
 	health_trails.clear(); selection_pulse = 0; feedback_cursor = 0; damage_numbers.clear(); marker_time = 0; map_timer = 0; map_texture = null; map_stamp.clear(); map_splats.clear()
 
+func set_map_expanded(value: bool) -> void:
+	map_expanded = value
+	if expanded_view != null: expanded_view.visible = value
+	if map_toggle != null: map_toggle.visible = not value
+	queue_redraw()
+
 func minimap_rect() -> Rect2:
+	if map_expanded:
+		var side := maxf(100, minf(size.x - 64, size.y - 144))
+		return Rect2((size - Vector2.ONE * side) * 0.5 + Vector2(0, 8), Vector2.ONE * side)
 	return Rect2(14, size.y - 198, 208, 184)
 
 func map_point(point: Vector2) -> Vector2:
@@ -47,6 +67,8 @@ func mark(point: Vector2, color: Color = Color("85e4cd")) -> void:
 
 func _process(delta: float) -> void:
 	if not visible or world == null: return
+	map_toggle.position = Vector2(170, size.y - 194)
+	if map_expanded: expanded_view.queue_redraw()
 	clock += delta
 	selection_pulse = maxf(0, selection_pulse - delta)
 	marker_time = maxf(0, marker_time - delta)
@@ -103,6 +125,7 @@ func _project(point: Vector2, height: float = 0.15) -> Vector2:
 
 func _draw_activities() -> void:
 	var marker_size := float(world.cfg.presentation.activityIndicators.sizePixels)
+	var shown_groups: Dictionary = {}
 	for id in selected:
 		var e := _observed_entity(int(id))
 		if e.is_empty() or e.owner != owner_id or e.get("remembered", false): continue
@@ -111,6 +134,13 @@ func _draw_activities() -> void:
 		var point := _project(world.entity_position(e), 1.5) - Vector2(0, marker_size)
 		draw_circle(point, marker_size * 0.7, Color("0c1c23"))
 		draw_texture_rect(CommandSkin.icon(CommandSkin.task_icon(str(a.task))), Rect2(point - Vector2.ONE * marker_size * 0.5, Vector2.ONE * marker_size), false, color)
+		if a.has("group") and not shown_groups.has(int(a.group)):
+			shown_groups[int(a.group)] = true
+			var source := _project(Vector2(float(a.source[0]), float(a.source[1])))
+			draw_arc(source, marker_size * 1.3, 0, TAU, 24, color, 2, true)
+			draw_texture_rect(CommandSkin.icon(CommandSkin.task_icon(str(a.task))), Rect2(source - Vector2.ONE * 8, Vector2.ONE * 16), false, color)
+			var dropoff := world.observed_entity(int(a.get("destination", 0)), owner_id)
+			if not dropoff.is_empty(): draw_dashed_line(source, _project(world.entity_position(dropoff)), Color(color, 0.45), 1, 8, true)
 		if a.phase != "waiting": continue
 		var pulse := 0.55 + 0.45 * (sin(clock * TAU / float(world.cfg.presentation.activityIndicators.pulseSeconds)) * 0.5 + 0.5)
 		draw_arc(point, marker_size * 0.8, 0, TAU, 24, Color(color, pulse), 2, true)
@@ -125,7 +155,7 @@ func _draw_activities() -> void:
 			if world.known.get(owner_id, {}).has(cell): draw_arc(_project(HexGrid.world(cell)), marker_size, 0, TAU, 24, Color(color, pulse), 2, true)
 
 func _draw() -> void:
-	if world == null or camera == null: return
+	if world == null or camera == null or map_expanded: return
 	var font := FONT
 	_draw_activities()
 	if selection_pulse > 0:
@@ -228,24 +258,55 @@ func _draw() -> void:
 			var side := direction.rotated(PI / 2) * 4
 			draw_line(tip + direction * 5 + side, tip, Color(marker_color, marker_time * 1.4), 2, true)
 			draw_line(tip + direction * 5 - side, tip, Color(marker_color, marker_time * 1.4), 2, true)
+	_draw_map(self)
+
+func _draw_map(canvas: Control) -> void:
+	var font := FONT
 	var map_rect := minimap_rect()
-	draw_style_box(_map_style(), map_rect)
-	if map_texture != null: draw_texture_rect(map_texture, map_rect.grow(-12), false)
+	canvas.draw_style_box(_map_style(), map_rect)
+	if map_texture != null: canvas.draw_texture_rect(map_texture, map_rect.grow(-12), false)
 	for e in world.units.values() + world.observed_structures(owner_id):
 		if not renderer.bodies.has(e.id) or not renderer.bodies[e.id].visible: continue
 		var point := map_point(world.entity_position(e))
 		var color := Color("697d87") if e.get("remembered", false) else Color("80e5d0") if e.owner == owner_id else Color("ec7c8d")
-		if e.has("cell"): draw_rect(Rect2(point - Vector2(2, 2), Vector2(4, 4)), color)
-		else: draw_circle(point, 1.7, color)
+		if e.has("cell"): canvas.draw_rect(Rect2(point - Vector2(2, 2), Vector2(4, 4)), color)
+		else: canvas.draw_circle(point, 3 if map_expanded else 1.7, color)
 	for cell in world.unknown_contacts(owner_id):
-		draw_rect(Rect2(map_point(HexGrid.world(cell)) - Vector2.ONE * 2, Vector2.ONE * 4), Color("e4ae68"), false, 1)
+		canvas.draw_rect(Rect2(map_point(HexGrid.world(cell)) - Vector2.ONE * 2, Vector2.ONE * 4), Color("e4ae68"), false, 1)
 	var viewport_points := PackedVector2Array()
 	for point in [Vector2.ZERO, Vector2(size.x, 0), size, Vector2(0, size.y), Vector2.ZERO]:
 		var ground := camera.ground(point)
 		var mapped := map_point(Vector2(ground.x, ground.z))
 		viewport_points.append(mapped.clamp(map_rect.position + Vector2(2, 2), map_rect.end - Vector2(2, 2)))
-	draw_polyline(viewport_points, Color(0.65, 0.91, 0.86, 0.65), 1, true)
-	draw_string(font, map_rect.position + Vector2(10, 16), "TACTICAL / CLICK TO PAN", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("8aa6b2"))
+	canvas.draw_polyline(viewport_points, Color(0.65, 0.91, 0.86, 0.65), 1, true)
+	canvas.draw_string(font, map_rect.position + Vector2(10, 16), "TACTICAL MAP" if map_expanded else "TACTICAL", HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("8aa6b2"))
+
+class ExpandedMap:
+	extends Control
+	var overlay: TacticalOverlay
+	var close_button: Button
+
+	func _ready() -> void:
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		close_button = Button.new(); close_button.text = "Close map  [Esc]"
+		close_button.focus_mode = Control.FOCUS_NONE
+		close_button.add_theme_font_override("font", TacticalOverlay.FONT)
+		add_child(close_button)
+		close_button.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		close_button.offset_left = -180; close_button.offset_right = -24; close_button.offset_top = 20; close_button.offset_bottom = 54
+		close_button.pressed.connect(func(): overlay.map_toggle_requested.emit())
+
+	func _draw() -> void:
+		draw_rect(Rect2(Vector2.ZERO, size), Color("060d13"))
+		draw_string(TacticalOverlay.FONT, Vector2(28, 42), "TACTICAL MAP", HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color("d1ddd2"))
+		overlay._draw_map(self)
+		draw_string(TacticalOverlay.FONT, Vector2(28, size.y - 24), "Drag to pan  /  Right click to order  /  Shift to queue", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("90aaa7"))
+		var x := size.x - 420
+		for entry in [["Allies", Color("80e5d0")], ["Enemies", Color("ec7c8d")], ["Contacts", Color("e4ae68")], ["Ore", Color("cda365")], ["Gas", Color("55c9ca")]]:
+			draw_circle(Vector2(x, size.y - 28), 3, entry[1])
+			draw_string(TacticalOverlay.FONT, Vector2(x + 9, size.y - 24), entry[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("90aaa7"))
+			x += 78
 
 func _map_style() -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()

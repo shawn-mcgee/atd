@@ -130,7 +130,7 @@ func _signal(m: Dictionary) -> void:
 		if error != OK: _failure("Cannot initialize Godot multiplayer peer"); return
 		peer.peer_connected.connect(_joined); peer.peer_disconnected.connect(_lost)
 		self_id = "1" if role == "host" else str(coordinator_id); host_id = "1"
-		invitation = "%s:%d" % [room_code, coordinator_host]
+		invitation = room_code
 		room_ready = true
 		received.emit({"type": "room_ready", "self": self_id, "host": host_id, "invitation": invitation})
 		if role == "guest":

@@ -63,3 +63,7 @@ Blockers distinguish full storage, absent drop-offs, missing recipe/repair resou
 Multiplayer Host/Join now work in the native Godot runtime and web export. Wait for the coordinator to create the room before sharing its invitation. Guests may paste the full invitation or the room code.
 
 Pause and speed controls are shown only in single player. Multiplayer hosts and guests do not display them; the pause shortcut remains disabled during network matches.
+
+The main menu separates Expedition, Field missions and Multiplayer. Map seeds are optional under ?Choose map seed.? Multiplayer displays a plain room code without a host suffix; use Copy to share it.
+
+Click **Map** on the minimap to open the full-screen tactical map. Drag to pan, right-click to issue context orders, or hold Shift to queue. Use **Close map** or **Escape** to return. The map uses the same fog, remembered structures and anonymous radar contacts as the minimap; opening it does not pause the match.

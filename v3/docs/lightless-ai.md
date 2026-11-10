@@ -30,6 +30,14 @@ Glands, Father recruitment, full Gather/Defend coordination, and post-Medusa CPU
 expansion remain pending. The existing unit combat/concealment/burrow rules apply
 to the newly produced types; this pass does not complete their tactical AI.
 
+## Multiplayer pressure
+
+Combat units receive persistent player assignments, balanced separately for each unit type across surviving players. The least-served player receives the next dispatch; total dispatches across unit types break equal-count ties, followed by distance and deterministic owner ID. This also spreads small mixed-type cohorts instead of sending the first of every new type to the same closest base. Counts track dispatched units rather than surviving units, so losses at a nearby base do not pull every reinforcement away from distant players. Mothers and Fathers retain their existing support behavior.
+
+Probes approach their assigned Anchor and evaluate that player's visible assets. Local commitment recruits only probes with the same player assignment. Attacks after Medusa death retain those assignments instead of reverting to the nearest Anchor. Retreats and wall breaching preserve the assigned player; eliminated players are excluded even when their Anchors survive disconnection. Raid assignments remain host-side and are omitted from enemy snapshots.
+
+This balances intended pressure, not identical arrival times: travel distances, defenses, interception and terrain can still change when a raiding force reaches each base. Spawn placement is unchanged.
+
 | State | Behavior |
 | --- | --- |
 | Probe | Approach a known Anchor using dark-weighted navigation. Look for visible enemy units and structures, excluding vehicle occupants. Stop before entering an illuminated waypoint. |

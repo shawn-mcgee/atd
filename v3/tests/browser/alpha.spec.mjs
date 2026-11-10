@@ -72,6 +72,7 @@ test('window fill and edge pan feedback',async({page},testInfo)=>{
 })
 test('mission menu deploys every unlocked contract and renders its objectives',async({page},testInfo)=>{
   const errors=await open(page)
+  await page.mouse.click(...(await diagnostics(page)).mission_menu.nav)
   await page.screenshot({path:testInfo.outputPath('mission-menu.png')})
   for(const [id,title] of [['foothold','FIRST FOOTHOLD'],['industry','SUPPLY AND STEEL'],['extraction','THE LAST LIGHT']]){
     const menu=(await diagnostics(page)).mission_menu

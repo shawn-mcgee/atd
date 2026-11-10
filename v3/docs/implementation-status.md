@@ -8,6 +8,8 @@ The current art pass combines procedural industrial models, basic procedural ani
 
 ## Single-player interaction pass
 
+Multiplayer CPU raiders now balance dispatches by unit type across surviving players, retain their assignments through probing and post-Medusa attacks, and recruit only within the assigned group. This prevents the nearest spawn from drawing the entire colony. Travel times and terrain remain meaningful. See [Lightless AI](lightless-ai.md).
+
 Selection now uses icon-led task cards, progress and health/cargo meters, specific amber waiting reasons, and resource-by-resource cargo chips. Groups summarize tasks, blocked counts and mixed cargo. World task icons and pulsing known-target markers connect a selected worker to its blocker. Detailed stats and guidance remain available on hover; repeated inspector paragraphs and objective instructions are no longer permanently displayed. Status queries do not mutate the simulation, and owning clients receive authoritative activity data because host routes are omitted from snapshots.
 
 The viewport now expands to the window aspect ratio without side letterboxing. Edge-pan bands are 32 logical pixels, with pulsing directional double arrows drawn above the HUD. HUD hover no longer shrinks the edge bands; minimap interaction and captured drags retain priority.

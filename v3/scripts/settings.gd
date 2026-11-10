@@ -80,6 +80,21 @@ class ConfigRules:
 			if not config.get(section) is Dictionary: errors.append(section + ": required object is missing")
 		if not errors.is_empty(): return errors
 		_check_numbers(config, "", errors)
+		var expeditions = config.get("expeditions")
+		if not expeditions is Dictionary:
+			errors.append("expeditions: required object is missing")
+		else:
+			for field in ["gatherRadiusTiles", "resourceSearchRadiusTiles", "regroupRadiusTiles", "escortRadiusTiles", "boardingTimeoutSeconds", "regroupTimeoutSeconds", "repathIntervalSeconds", "stuckTimeoutSeconds", "siteInactivitySeconds", "allocationRecheckSeconds"]:
+				var value = expeditions.get(field)
+				if not (value is int or value is float) or not is_finite(float(value)) or float(value) <= 0: errors.append("expeditions." + field + ": must be positive")
+			for field in ["driverPreference", "driverVehiclePreference", "passengerVehiclePreference", "workerBoardingPreference"]:
+				var kinds = expeditions.get(field)
+				if not kinds is Array or kinds.is_empty(): errors.append("expeditions." + field + ": expected unit preferences"); continue
+				var seen: Array = []
+				for kind in kinds:
+					if not kind is String or not config.units.has(kind) or seen.has(kind): errors.append("expeditions." + field + ": expected unique unit types")
+					seen.append(kind)
+
 		var missions = config.get("missions")
 		if not missions is Dictionary:
 			errors.append("missions: required object is missing")

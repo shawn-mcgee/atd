@@ -59,6 +59,10 @@ static func description(world: WorldState, e: Dictionary) -> String:
 			var facility: Dictionary = world.structures.get(int(e.job.facility), {})
 			if not facility.is_empty() and not facility.powered: text += "\nFACILITY HAS NO POWER"
 			elif not facility.is_empty() and int(facility.buffer) == 0: text += "\nWaiting for facility output"
+		var group_status := world.activity(e)
+		if group_status.has("group"):
+			text += "\nGROUP %d: %s / %s (%d members)" % [int(group_status.group), str(group_status.role).to_upper(), str(group_status.group_phase).to_upper(), int(group_status.members)]
+			text += "\nSOURCE %s / DESTINATION #%d" % [str(group_status.source), int(group_status.destination)]
 		return text
 	var d: Dictionary = world.cfg.structures[e.kind]
 	var text := "HEALTH %d / %d     ARMOR %d\n" % [ceili(e.hp), d.health, int(WorldState.TargetRules.armor(world, e))]
@@ -111,10 +115,12 @@ static func task_icon(task: String) -> String:
 static func task_text(a: Dictionary) -> String:
 	var text: String = {"idle": "Idle", "standby": "Standing by", "move": "Moving", "mine": "Mining", "deposit": "Delivering cargo", "build": "Building", "repair": "Repairing", "research": "Researching", "equip": "Equipping", "produce": "Producing", "crew_wait": "Awaiting vehicle", "riding": "Aboard vehicle", "board": "Boarding", "load_cargo": "Loading cargo", "attack": "Attacking", "escort": "Escorting", "patrol": "Patrolling", "excavate": "Clearing cliff", "configure": "Configuring", "remembered": "Last seen"}.get(str(a.task), str(a.task).capitalize())
 	if a.task in ["mine", "produce"] and not str(a.resource).is_empty(): text += " " + str(a.resource).capitalize()
+	if a.has("group"):
+		text = "%s: %s" % ["Expedition" if a.task == "mine" else text, str(a.get("role", "escort")).capitalize()]
 	return text
 
 static func blocker_text(a: Dictionary) -> String:
-	var names := {"no_driver": "Needs driver", "buried": "Buried", "vehicle_pending": "Vehicle not ready", "no_route": "Cannot reach target", "depleted": "Deposit depleted", "switched_off": "Switched off", "no_power": "No power", "output_pending": "Waiting for output", "no_dropoff": "No drop-off available", "storage_full": "Storage full", "anchor_required": "Nacre needs an Anchor", "target_lost": "Target unavailable", "site_blocked": "Site obstructed", "site_occupied": "Clear the footprint", "no_resources": "Needs resources", "no_research": "No research queued", "unload_cargo": "Unload cargo first", "no_kit": "No kit queued", "kit_pending": "Kit not ready", "cargo_full": "Vehicle cargo full", "no_engineer": "Needs Engineer", "buffer_full": "Output buffer full", "exit_blocked": "Vehicle exit blocked", "line_blocked": "Line of fire blocked", "kit_pickup": "Kits ready for pickup"}
+	var names := {"no_workers": "No gatherers remaining", "no_driver": "Needs driver", "buried": "Buried", "vehicle_pending": "Vehicle not ready", "no_route": "Cannot reach target", "depleted": "Deposit depleted", "switched_off": "Switched off", "no_power": "No power", "output_pending": "Waiting for output", "no_dropoff": "No drop-off available", "storage_full": "Storage full", "anchor_required": "Nacre needs an Anchor", "target_lost": "Target unavailable", "site_blocked": "Site obstructed", "site_occupied": "Clear the footprint", "no_resources": "Needs resources", "no_research": "No research queued", "unload_cargo": "Unload cargo first", "no_kit": "No kit queued", "kit_pending": "Kit not ready", "cargo_full": "Vehicle cargo full", "no_engineer": "Needs Engineer", "buffer_full": "Output buffer full", "exit_blocked": "Vehicle exit blocked", "line_blocked": "Line of fire blocked", "kit_pickup": "Kits ready for pickup"}
 	var text: String = names.get(str(a.blocker), "")
 	if a.blocker in ["storage_full", "no_resources"] and not str(a.get("blocker_resource", a.resource)).is_empty(): text = ("Storage full: " if a.blocker == "storage_full" else "Needs ") + str(a.get("blocker_resource", a.resource)).capitalize()
 	return text
@@ -175,6 +181,7 @@ class StatusPanel:
 		if entities.size() == 1 and float(a.progress) >= 0:
 			draw_rect(Rect2(30, 23, size.x - 30, 3), Color("1b3036"))
 			draw_rect(Rect2(30, 23, (size.x - 30) * clampf(float(a.progress), 0, 1), 3), color)
+		if reason.is_empty() and a.has("group"): reason = "%s ? %d members" % [str(a.get("group_phase", "working")).capitalize(), int(a.get("members", 0))]
 		if reason.is_empty(): reason = "On the way" if a.phase == "moving" else "Working" if a.phase == "working" else "Ready for orders"
 		draw_style_box(_pill(color), Rect2(0, 33, size.x, 24))
 		if a.phase == "waiting" or (entities.size() > 1 and reason.contains("blocked")):

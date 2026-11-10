@@ -549,6 +549,10 @@ func colony_fixture() -> WorldState:
 
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	if "--missions-only" in OS.get_cmdline_user_args():
+		mission_playthrough_checks(); print("Mission checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	if "--complex-only" in OS.get_cmdline_user_args():
+		complex_command_checks(); print("Complex command checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--performance-only" in OS.get_cmdline_user_args():
 		performance_cache_checks(); print("Performance cache checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--spawns-only" in OS.get_cmdline_user_args():
@@ -564,7 +568,7 @@ func run() -> void:
 	if "--orders-only" in OS.get_cmdline_user_args():
 		queued_order_checks(); print("Queued order checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--ai-only" in OS.get_cmdline_user_args():
-		lightless_behavior_checks(); print("Lightless checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+		multiplayer_pressure_checks(); lightless_behavior_checks(); print("Lightless checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--movement-only" in OS.get_cmdline_user_args():
 		movement_checks(); print("Movement checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--memory-only" in OS.get_cmdline_user_args():
@@ -576,7 +580,7 @@ func run() -> void:
 		quit(0 if errors.is_empty() else 1); return
 	if "--routes-only" in OS.get_cmdline_user_args():
 		route_order_checks(); print("Route checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
-	activity_checks(); blueprint_recovery_checks(); mission_checks(); mission_playthrough_checks()
+	complex_command_checks(); multiplayer_pressure_checks(); activity_checks(); blueprint_recovery_checks(); mission_checks(); mission_playthrough_checks()
 	power_balance_checks(); colony_production_checks(); queued_order_checks(); visibility_optimization_checks(); idle_engineer_checks(); wall_line_checks(); medusa_spawn_checks(); performance_cache_checks()
 	for cell in HexGrid.disk(Vector2i.ZERO, 10): verify(HexGrid.cell(HexGrid.world(cell)) == cell, "Hex round trip")
 	var a := world(5)
@@ -1206,6 +1210,52 @@ func ai_world() -> WorldState:
 	w._rebuild_navigation(); w.update_visibility()
 	return w
 
+func multiplayer_pressure_checks() -> void:
+	for count in range(2, 6):
+		var w := world(count)
+		w.lightless_dispatches.clear()
+		var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+		var position := HexGrid.world(anchor.cell + Vector2i(2, 0))
+		for kind in ["scavenger", "stalker"]:
+			var assignments: Dictionary = {}
+			for i in range(count * 3):
+				var id := w.add_unit(kind, position, -1)
+				var owner := int(w.units[id].raid_owner)
+				assignments[owner] = int(assignments.get(owner, 0)) + 1
+				verify(WorldState.LightlessTactics.assigned_anchor(w, w.units[id]).owner == owner, "Raid assignments stay stable on repeated decisions")
+			verify(assignments.size() == count and assignments.values().all(func(amount): return amount == 3), "Each unit type is evenly dispatched despite every spawn being closest to player one")
+		var old := w.lightless_dispatches.duplicate(true)
+		for u in w.units.values():
+			if u.owner == -1 and u.get("raid_owner", -1) == 0: w.units.erase(u.id)
+		for i in range(count): w.add_unit("scavenger", position, -1)
+		for owner in range(count): verify(int(w.lightless_dispatches.scavenger[owner]) == int(old.scavenger[owner]) + 1, "Casualties do not redirect all replacements toward the closest player")
+	var mixed := world(5); mixed.lightless_dispatches.clear()
+	for kind in ["scavenger", "stalker", "ravager", "thresher", "shade"]:
+		var id := mixed.add_unit(kind, Vector2.ZERO, -1)
+		WorldState.LightlessTactics.assigned_anchor(mixed, mixed.units[id])
+	verify(mixed.lightless_dispatches._total.size() == 5 and mixed.lightless_dispatches._total.values().all(func(amount): return amount == 1), "Small mixed-type cohorts spread across all players rather than giving each new type to the nearest base")
+	var w := world(3); w.lightless_dispatches.clear()
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	var raiders: Array = []
+	for i in range(3): raiders.append(w.units[w.add_unit("scavenger", HexGrid.world(anchor.cell + Vector2i(2, 0)), -1)])
+	var leader: Dictionary = raiders.filter(func(u): return int(u.raid_owner) == 0)[0]
+	w._probe_step(leader, float(w.cfg.lightless.probeResistanceWindowSeconds) + 0.1)
+	verify(leader.job.kind == "attack", "The closest player's assigned probe still commits normally")
+	verify(raiders.filter(func(u): return int(u.raid_owner) != 0).all(func(u): return u.stance == "probe" and u.job.kind == "idle"), "Local recruitment cannot hijack probes assigned to other players")
+	for s in w.structures.values():
+		if s.kind == "medusa": w._destroy(s); break
+	for u in raiders:
+		w._unit_step(u, 0.05)
+		verify(w.entity(int(u.target)).get("owner", -2) == int(u.raid_owner), "Post-Medusa attackers retain their assigned player instead of choosing the nearest Anchor")
+	w.eliminate(0)
+	var reassigned := WorldState.LightlessTactics.assigned_anchor(w, leader)
+	verify(not reassigned.is_empty() and reassigned.owner != 0, "Raiders retarget after elimination even when the eliminated Anchor survives")
+	var snapshot: Dictionary = w.snapshot(1)
+	verify(snapshot.units.all(func(u): return u.owner >= 0 or not u.has("raid_owner")), "Enemy raid assignments are not exposed in player snapshots")
+	w.reset(472, 3)
+	var replay := WorldState.new(w.cfg); replay.reset(472, 3)
+	verify(w.lightless_dispatches == replay.lightless_dispatches and w.units == replay.units, "Seeded raid assignments reset and replay deterministically")
+
 func lightless_behavior_checks() -> void:
 	var w := ai_world()
 	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
@@ -1406,3 +1456,77 @@ func structure_memory_checks() -> void:
 	w._remember_structures(); w.structures[enemy].hp = 123
 	w.update_visibility()
 	verify(w.observed_entity(enemy, 0).get("remembered", false) and float(w.observed_entity(enemy, 0).hp) == 123, "Losing sight captures the latest observed state rather than an older refresh")
+
+func complex_fixture() -> WorldState:
+	var w := movement_world()
+	for cell in w.tiles:
+		w.tiles[cell].resource = ""; w.tiles[cell].amount = 0; w.known[0][cell] = true
+	var anchor := w.add_structure("anchor", Vector2i(-5, 0), 0)
+	w.players[0].anchor = anchor
+	w.resources(0).ore = 0
+	w.tiles[Vector2i(3, 0)].resource = "ore"; w.tiles[Vector2i(3, 0)].amount = 500
+	return w
+
+func complex_command_checks() -> void:
+	var w := complex_fixture()
+	var worker := w.add_unit("engineer", Vector2.ZERO, 0)
+	var guard := w.add_unit("marine", Vector2(0, 1), 0)
+	var unrelated := w.add_unit("operator", Vector2(1, 1), 0)
+	w.command(0, {"action": "mine", "ids": [guard, worker], "q": 3, "r": 0})
+	verify(w.command_groups.size() == 1 and w.units[guard].get("group_role") == "escort", "Mixed mining selections create a persistent expedition with military escorts")
+	verify(not w.units[unrelated].has("command_group"), "Expeditions never recruit nearby unselected workers")
+	advance(w, 30)
+	verify(w.resources(0).ore > 0, "Foot expeditions gather and physically deliver resources")
+	verify(w.units[guard].pos.distance_to(HexGrid.world(Vector2i(3, 0))) < 7 or w.units[guard].pos.distance_to(w.units[worker].pos) < 7, "Guards travel with workers and defend the current worksite or delivery")
+	verify(w.units[guard].stance == "defensive", "Complex commands preserve combat stance")
+	var a := w.activity(w.units[guard])
+	verify(a.get("group", 0) > 0 and a.get("role") == "escort" and a.has("source"), "Selected guards expose their expedition role, phase and source")
+	var old: Dictionary = w.units[worker].job.duplicate(true)
+	w.command(0, {"action": "mine", "ids": [worker, guard], "q": 11, "r": 0})
+	verify(w.units[worker].job == old and w.command_groups.size() == 1, "Invalid complex targets leave current orders intact")
+	w.command(0, {"action": "stop", "ids": [worker]})
+	advance(w, 2)
+	verify(not w.units[worker].has("command_group") and w.activity(w.units[guard]).blocker == "no_workers", "Interrupted workers permanently leave while escorts retain the expedition and report no workers")
+	w = complex_fixture()
+	worker = w.add_unit("engineer", Vector2.ZERO, 0)
+	guard = w.add_unit("marine", Vector2(0, 1), 0)
+	var ranger := w.add_unit("ranger", Vector2(0, 2), 0)
+	w.command(0, {"action": "mine", "ids": [worker, guard, ranger], "q": 3, "r": 0})
+	advance(w, 10)
+	verify(int(w.units[ranger].driver) == guard and w.units[worker].get("group_role") == "worker", "Military drives a Ranger while the only Engineer remains a gatherer")
+	w.cfg.units.ranger.cargoCapacity = 10
+	advance(w, 120)
+	var total := int(w.resources(0).ore) + int(w.tiles[Vector2i(3, 0)].amount)
+	for u in w.units.values(): total += int(u.cargo.get("ore", 0))
+	verify(w.resources(0).ore > 20, "Vehicle expedition performs repeated physical hauling cycles")
+	verify(total == 500, "Repeated convoy hauling conserves every resource item")
+	verify(int(w.units[ranger].driver) == guard, "Deploying and unloading workers retains the real driver")
+	w.command(0, {"action": "move", "ids": [ranger], "x": -4, "z": 4})
+	verify(w.units[ranger].get("command_group", 0) != 17 and w.units[guard].get("command_group", 0) != 17, "Manually redirecting a vehicle also releases its actual crew")
+	w = complex_fixture()
+	worker = w.add_unit("engineer", Vector2.ZERO, 0); ranger = w.add_unit("ranger", Vector2(0, 1), 0)
+	w.command(0, {"action": "mine", "ids": [worker, ranger], "q": 3, "r": 0})
+	advance(w, 30)
+	verify(int(w.units[ranger].driver) == 0 and w.resources(0).ore > 0 and w.activity(w.units[ranger]).blocker == "no_driver", "One Engineer plus an empty Ranger falls back to a foot expedition with a visible staffing blocker")
+	w = complex_fixture()
+	worker = w.add_unit("engineer", Vector2.ZERO, 0); guard = w.add_unit("marine", Vector2(0, 1), 0)
+	var wall := w.add_structure("wall", Vector2i(3, 0), 0)
+	w.structures[wall].hp = 10; w.resources(0).ore = 100
+	w.command(0, {"action": "repair", "ids": [guard, worker], "target": wall})
+	advance(w, 2)
+	verify(w.units[guard].has("command_group") and w.units[guard].home.distance_to(w.entity_position(w.structures[wall])) < 6, "Repair orders place military into defensive positions around the repair target")
+	advance(w, 65)
+	verify(float(w.structures[wall].hp) == float(w.cfg.structures.wall.health) and w.command_groups.is_empty(), "Repair groups finish the actual repair and release participants")
+	w.command(0, {"action": "patrol", "ids": [worker, guard], "x": -7, "z": 0})
+	advance(w, 8)
+	verify(w.command_groups.size() == 1 and w.units[worker].pos.distance_to(w.units[guard].pos) < 5, "Mixed patrol groups follow a common route together")
+	var snap: Dictionary = JSON.parse_string(JSON.stringify(w.snapshot(0)))
+	var client := WorldState.new(w.cfg); client.apply_snapshot(snap, 0)
+	verify(client.activity(client.units[guard]).get("group", 0) > 0, "Group activity survives multiplayer snapshot serialization")
+	w.command(0, {"action": "stop", "ids": [worker, guard]})
+	w.command(0, {"action": "move", "ids": [worker], "x": 0, "z": 0})
+	w.command(0, {"action": "move", "ids": [guard], "x": 0, "z": 1})
+	w.command(0, {"action": "repair", "ids": [worker, guard], "target": wall, "queued": true})
+	advance(w, 20)
+	verify(w.command_groups.is_empty() and w.units[worker].orders.is_empty() and w.units[guard].orders.is_empty(), "Queued group commands synchronize participants after their preceding orders")
+

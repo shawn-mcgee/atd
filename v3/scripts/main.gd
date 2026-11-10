@@ -76,6 +76,14 @@ var last_group_time := -10000
 var placement_strip: PanelContainer
 var placement_text: Label
 var controls_panel: PanelContainer
+var menu_pages: Dictionary = {}
+var menu_nav: Dictionary = {}
+var selected_menu_page := "expedition"
+var seed_controls: VBoxContainer
+var host_room_button: Button
+var join_room_button: Button
+var copy_room_button: Button
+var leave_room_button: Button
 var menu_backdrop: TextureRect
 var selected_mission := ""
 var mission_choices: Dictionary = {}
@@ -157,6 +165,7 @@ func _build_ui() -> void:
 	tactical = TacticalOverlay.new()
 	tactical.world = state; tactical.camera = camera; tactical.renderer = renderer
 	hud.add_child(tactical)
+	tactical.map_toggle_requested.connect(_toggle_fullscreen_map)
 	var top := PanelContainer.new()
 	top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	top.offset_left = 14
@@ -302,59 +311,78 @@ func _build_ui() -> void:
 	menu = PanelContainer.new()
 	menu.theme = theme
 	menu.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
-	menu.offset_left = 60
-	menu.offset_right = 460
-	menu.offset_top = -335
-	menu.offset_bottom = 335
-	var menu_style := _style(Color(0.035, 0.045, 0.05, 0.55), Color("625f4c"))
-	menu_style.set_border_width_all(0); menu_style.border_width_left = 2
+	menu.offset_left = 48; menu.offset_right = 728
+	menu.offset_top = -280; menu.offset_bottom = 280
+	var menu_style := _style(Color(0.028, 0.043, 0.048, 0.94), Color("3f514e"))
+	menu_style.set_corner_radius_all(5)
 	menu_style.content_margin_left = 24; menu_style.content_margin_right = 24
+	menu_style.content_margin_top = 28; menu_style.content_margin_bottom = 24
 	menu.add_theme_stylebox_override("panel", menu_style)
 	ui.add_child(menu)
-	var panel := VBoxContainer.new()
-	panel.add_theme_constant_override("separation", 12)
-	menu.add_child(panel)
-	var title := _label("E R E B U S", 64, Color("d6d5bb"))
+	var layout := HBoxContainer.new(); layout.add_theme_constant_override("separation", 28); menu.add_child(layout)
+	var navigation := VBoxContainer.new(); navigation.custom_minimum_size.x = 172; navigation.add_theme_constant_override("separation", 8); layout.add_child(navigation)
+	var title := _label("EREBUS", 43, Color("d6d5bb"))
 	title.add_theme_font_override("font", preload("res://assets/fonts/BarlowSemiCondensed-SemiBold.ttf"))
-	panel.add_child(title)
-	panel.add_child(_label("SOLAR COMMONWEALTH  /  EXPEDITION COMMAND", 12, Color("baac88")))
-	panel.add_child(_label("Establish a foothold. Hold the light.", 16))
-	panel.add_child(_label("DEPLOYMENT SEED", 10, Color("9a9f8d")))
-	seed_edit = LineEdit.new()
-	seed_edit.placeholder_text = "Map seed (blank: random)"
-	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout."
-	panel.add_child(seed_edit)
-	var deploy := _button("DEPLOY EXPEDITION", func(): network.leave(); local_owner = 0; _start_game(_deployment_seed(), 1), panel)
-	deploy.add_theme_font_size_override("font_size", 20)
-	deploy.add_theme_color_override("font_color", Color("1c2829"))
-	deploy.add_theme_stylebox_override("normal", _style(Color("c4b48a"), Color("c4b48a")))
-	deploy.add_theme_stylebox_override("hover", _style(Color("e2d2a5"), Color("e2d2a5")))
-	panel.add_child(_label("SINGLE-PLAYER MISSIONS / ALL AVAILABLE", 10, Color("9a9f8d")))
+	navigation.add_child(title)
+	navigation.add_child(_label("EXPEDITION COMMAND", 11, Color("a69c7c")))
+	var gap := Control.new(); gap.custom_minimum_size.y = 28; navigation.add_child(gap)
+	var nav_group := ButtonGroup.new()
+	for item in [["expedition", "Expedition", "anchor"], ["missions", "Field missions", "marine"], ["multiplayer", "Multiplayer", "scout"]]:
+		var key: String = item[0]
+		var button := _button(str(item[1]), func(): _show_menu_page(key), navigation)
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT; button.custom_minimum_size.y = 48
+		button.icon = CommandSkin.icon(str(item[2])); button.add_theme_constant_override("icon_max_width", 22)
+		button.toggle_mode = true; button.button_group = nav_group
+		button.add_theme_stylebox_override("pressed", _style(Color("35413a"), Color("a99d73")))
+		menu_nav[key] = button
+	var nav_space := Control.new(); nav_space.size_flags_vertical = Control.SIZE_EXPAND_FILL; navigation.add_child(nav_space)
+	navigation.add_child(_label("EARLY ALPHA  /  0.1", 11, Color("788a82")))
+	var separator := VSeparator.new(); layout.add_child(separator)
+	var content := VBoxContainer.new(); content.size_flags_horizontal = Control.SIZE_EXPAND_FILL; content.add_theme_constant_override("separation", 12); layout.add_child(content)
+	for key in ["expedition", "missions", "multiplayer"]:
+		var page := VBoxContainer.new(); page.size_flags_vertical = Control.SIZE_EXPAND_FILL; page.add_theme_constant_override("separation", 12); content.add_child(page); menu_pages[key] = page
+	var expedition: VBoxContainer = menu_pages.expedition
+	_menu_heading(expedition, "Into the dark", "Establish a foothold. Hold the light.")
+	expedition.add_child(_label("A fresh expedition on a new world.\nBuild your base, recover Nacre, and extract.", 16, Color("a5b5ab")))
+	var expedition_space := Control.new(); expedition_space.size_flags_vertical = Control.SIZE_EXPAND_FILL; expedition.add_child(expedition_space)
+	expedition.add_child(_label("SINGLE PLAYER  /  PROCEDURAL MAP", 11, Color("9caa8e")))
+	_menu_primary("Deploy expedition", func(): network.leave(); local_owner = 0; _start_game(_deployment_seed(), 1), expedition)
+	var missions: VBoxContainer = menu_pages.missions
+	_menu_heading(missions, "Field missions", "Choose an operation. All missions are available.")
 	var mission_keys: Array = Settings.data.missions.keys()
 	selected_mission = str(mission_keys[0])
-	var mission_row := HBoxContainer.new(); panel.add_child(mission_row)
 	var mission_group := ButtonGroup.new()
-	var briefing := _label(str(Settings.data.missions[selected_mission].briefing), 13)
-	briefing.custom_minimum_size.x = 330; briefing.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var briefing := _label(str(Settings.data.missions[selected_mission].briefing), 14, Color("a5b5ab"))
+	briefing.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; briefing.custom_minimum_size.y = 44
 	for key in mission_keys:
-		var choice := _button(str(Settings.data.missions[key].title), func(): selected_mission = str(key); briefing.text = str(Settings.data.missions[key].briefing), mission_row)
-		choice.add_theme_font_size_override("font_size", 13)
+		var choice := _button(str(Settings.data.missions[key].title), func(): selected_mission = str(key); briefing.text = str(Settings.data.missions[key].briefing), missions)
+		choice.alignment = HORIZONTAL_ALIGNMENT_LEFT; choice.custom_minimum_size.y = 44
+		choice.icon = CommandSkin.icon({"foothold": "mine", "industry": "foundry", "extraction": "extract"}.get(key, "anchor")); choice.add_theme_constant_override("icon_max_width", 22)
 		choice.toggle_mode = true; choice.button_group = mission_group; choice.button_pressed = str(key) == selected_mission
 		mission_choices[key] = choice
-	panel.add_child(briefing)
-	mission_deploy_button = _button("Deploy selected mission", func(): _start_game(_deployment_seed(), 1, selected_mission), panel)
-	panel.add_child(_label("PLAYER-HOSTED MATCH", 10, Color("9a9f8d")))
-	var room_row := HBoxContainer.new()
-	panel.add_child(room_row)
-	_button("Host match", _host, room_row)
-	_button("Join room", _join, room_row)
-	invitation_edit = LineEdit.new()
-	invitation_edit.placeholder_text = "Paste full room invitation here"
-	panel.add_child(invitation_edit)
-	lobby_label = _label("Share an invitation to assemble your expedition.\nEARLY ALPHA / 0.1", 12, Color("8e9e98"))
-	panel.add_child(lobby_label)
-	start_button = _button("Launch hosted match", _launch_hosted, panel)
-	start_button.visible = false
+	missions.add_child(briefing)
+	var mission_space := Control.new(); mission_space.size_flags_vertical = Control.SIZE_EXPAND_FILL; missions.add_child(mission_space)
+	mission_deploy_button = _menu_primary("Deploy mission", func(): _start_game(_deployment_seed(), 1, selected_mission), missions)
+	var multiplayer_page: VBoxContainer = menu_pages.multiplayer
+	_menu_heading(multiplayer_page, "Bring your crew", "Host a room or join an existing expedition.")
+	host_room_button = _button("Create a room", _host, multiplayer_page); host_room_button.custom_minimum_size.y = 46
+	multiplayer_page.add_child(_label("ROOM CODE", 11, Color("9caa8e")))
+	var room_row := HBoxContainer.new(); room_row.add_theme_constant_override("separation", 8); multiplayer_page.add_child(room_row)
+	invitation_edit = LineEdit.new(); invitation_edit.placeholder_text = "Enter room code"; invitation_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL; invitation_edit.custom_minimum_size.y = 40; room_row.add_child(invitation_edit)
+	invitation_edit.text_submitted.connect(func(_text):
+		if network.role == "solo": _join())
+	join_room_button = _button("Join", _join, room_row)
+	copy_room_button = _button("Copy", func(): DisplayServer.clipboard_set(network.invitation), room_row); copy_room_button.tooltip_text = "Copy room code"
+	lobby_label = _label("", 14, Color("a5b5ab")); lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; lobby_label.custom_minimum_size.y = 56; multiplayer_page.add_child(lobby_label)
+	var room_space := Control.new(); room_space.size_flags_vertical = Control.SIZE_EXPAND_FILL; multiplayer_page.add_child(room_space)
+	start_button = _menu_primary("Launch expedition", _launch_hosted, multiplayer_page); start_button.hide()
+	leave_room_button = _button("Leave room", func(): network.leave(); accepted_peers.clear(); invitation_edit.clear(); lobby_label.text = ""; _refresh_lobby_controls(), multiplayer_page)
+	seed_controls = VBoxContainer.new(); content.add_child(seed_controls)
+	var seed_toggle := CheckButton.new(); seed_toggle.text = "Choose map seed"; seed_toggle.focus_mode = Control.FOCUS_NONE; seed_toggle.add_theme_font_size_override("font_size", 13); seed_controls.add_child(seed_toggle)
+	seed_edit = LineEdit.new(); seed_edit.placeholder_text = "Random if left blank"; seed_edit.tooltip_text = "Enter a seed to replay a map."; seed_controls.add_child(seed_edit); seed_edit.hide()
+	seed_toggle.toggled.connect(func(value): seed_edit.visible = value)
+	_show_menu_page("expedition")
+	_refresh_lobby_controls()
 	result_panel = PanelContainer.new()
 	result_panel.theme = theme
 	result_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
@@ -371,6 +399,34 @@ func _build_ui() -> void:
 	_button("Return to expedition menu", _leave, results)
 	result_panel.hide()
 	hud.visible = false
+
+func _menu_heading(parent: Control, title: String, caption: String) -> void:
+	var heading := _label(title, 32, Color("dedbc3"))
+	heading.add_theme_font_override("font", preload("res://assets/fonts/BarlowSemiCondensed-SemiBold.ttf")); parent.add_child(heading)
+	var subtitle := _label(caption, 14, Color("9bad9f")); subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; parent.add_child(subtitle)
+
+func _menu_primary(text: String, call: Callable, parent: Node) -> Button:
+	var button := _button(text, call, parent); button.custom_minimum_size.y = 50
+	button.add_theme_font_size_override("font_size", 18)
+	button.add_theme_color_override("font_color", Color("1c2829")); button.add_theme_color_override("font_hover_color", Color("1c2829")); button.add_theme_color_override("font_pressed_color", Color("1c2829"))
+	button.add_theme_stylebox_override("normal", _style(Color("c4b48a"), Color("c4b48a")))
+	button.add_theme_stylebox_override("hover", _style(Color("e2d2a5"), Color("e2d2a5")))
+	button.add_theme_stylebox_override("pressed", _style(Color("ae9c70"), Color("ae9c70")))
+	return button
+
+func _show_menu_page(key: String) -> void:
+	selected_menu_page = key
+	for name in menu_pages: menu_pages[name].visible = name == key; menu_nav[name].button_pressed = name == key
+	if seed_controls != null: seed_controls.visible = key != "multiplayer" or network.role == "host"
+
+func _refresh_lobby_controls() -> void:
+	host_room_button.disabled = network.role != "solo"
+	join_room_button.visible = network.role != "host"; join_room_button.disabled = network.role == "guest"
+	copy_room_button.visible = network.role == "host" and not network.invitation.is_empty()
+	leave_room_button.visible = network.role != "solo"
+	invitation_edit.editable = network.role == "solo"
+	start_button.visible = network.role == "host" and not network.invitation.is_empty()
+	seed_controls.visible = selected_menu_page != "multiplayer" or network.role == "host"
 
 func _cost_text(cost: Dictionary) -> String:
 	var parts: Array[String] = []
@@ -431,14 +487,16 @@ func _host() -> void:
 	var error := network.start("host")
 	if error != "": lobby_label.text = error; return
 	invitation_edit.text = network.invitation
-	lobby_label.text = "Creating room with your coordinator..."
+	lobby_label.text = "Creating room..."
 	start_button.visible = false
+	_refresh_lobby_controls()
 
 func _join() -> void:
 	var error := network.start("guest", invitation_edit.text.strip_edges())
 	if error != "": lobby_label.text = error; return
-	lobby_label.text = "Connecting through the coordinator..."
+	lobby_label.text = "Connecting..."
 	start_button.visible = false
+	_refresh_lobby_controls()
 
 func _launch_hosted() -> void:
 	if network.role != "host" or network.self_id.is_empty(): return
@@ -455,9 +513,9 @@ func _network_event(event: Dictionary) -> void:
 	if type == "room_ready":
 		invitation_edit.text = network.invitation
 		if network.role == "host":
-			lobby_label.text = "Room open. Share the invitation above.\n1 / 5 players; host starts when ready."
+			lobby_label.text = "Share this room code with your crew.\n1 / 5 players connected."
 			start_button.show()
-		else: lobby_label.text = "Room found. Establishing WebRTC connection..."
+		else: lobby_label.text = "Room found. Connecting to host..."
 	elif type == "connection_failed":
 		lobby_label.text = str(event.message); start_button.hide()
 	elif type == "error":
@@ -511,6 +569,8 @@ func _network_event(event: Dictionary) -> void:
 			var order = JSON.parse_string(str(event.value))
 			if order is Dictionary: _issue(order)
 
+	_refresh_lobby_controls()
+
 func _issue(order: Dictionary) -> void:
 	if not active: return
 	if order.get("action", "") == "depot_type" and Settings.data.controls.depotHotkeys.has(str(order.get("resource", ""))): depot_resource = str(order.resource)
@@ -550,10 +610,10 @@ func _process(delta: float) -> void:
 	tactical.hovered = _pick(get_viewport().get_mouse_position()) if active and get_viewport().gui_get_hovered_control() == null else 0
 	if active: renderer.refresh_entities()
 	if active: audio.update(state, local_owner, delta)
-	camera.enabled = active
+	camera.enabled = active and not tactical.map_expanded
 	camera.pointer_captured = minimap_dragging or wall_dragging or tactical.minimap_rect().has_point(get_viewport().get_mouse_position()) or (get_viewport().gui_get_hovered_control() != null and camera.edge_direction(get_viewport().get_mouse_position(), get_viewport().get_visible_rect().size) == Vector2.ZERO)
 	camera.letter_pan_blocked = build_panel.visible or depot_panel.visible
-	camera.keyboard_pan_blocked = controls_panel.visible
+	camera.keyboard_pan_blocked = controls_panel.visible or tactical.map_expanded
 	group_bar.visible = not build_panel.visible and not depot_panel.visible
 	placement_strip.visible = build_kind != ""
 	if selecting:
@@ -622,7 +682,13 @@ func _process(delta: float) -> void:
 		for card in queue_view.cards:
 			var point: Vector2 = card.button.get_global_rect().get_center()
 			queue_cards.append({"key": card.key, "index": card.index, "screen": [point.x, point.y]})
-		network.diagnostics({"ready": true, "active": active, "role": network.role, "invitation": network.invitation, "peers": accepted_peers.size(), "owner": local_owner, "tick": state.tick, "ended": state.ended, "result": state.result, "units": own, "structures": structures, "fields": fields, "resources": state.players.get(local_owner, {}).get("resources", {}), "paused": state.paused, "camera": {"viewport": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y], "edge": [camera.edge_pan.x, camera.edge_pan.y], "distance": camera.distance, "x": camera.focus.x, "z": camera.focus.z, "yaw": camera.yaw}, "selected": selection, "commands": commands, "queue_cards": queue_cards, "controls": {"timeControls": [paused_button.visible, speed_button.visible], "buildMenu": build_panel.visible, "attack": attack_mode, "interaction": interaction_mode, "groups": control_groups, "ghost": ghost_model_visible()}, "feedback": {"cursor": renderer.feedback_cursor, "events": state.feedback_for(local_owner).map(func(event): return event.kind), "traces": renderer.visual_shots.size(), "particles": renderer.particles.size(), "labels": tactical.damage_numbers.size()}, "activity_card": {"visible": selection_status.visible, "cargo": selection_status.cargo_contents, "activities": selection_status.activities, "screen": [selection_status.get_global_rect().get_center().x, selection_status.get_global_rect().get_center().y]}, "inspection": detail_label.text, "build_kind": build_kind, "build_buttons": buttons, "build_sites": sites, "mission": mission_label.text, "mission_id": state.mission.get("id", ""), "mission_menu": {"selected": selected_mission, "deploy": [mission_deploy_button.get_global_rect().get_center().x, mission_deploy_button.get_global_rect().get_center().y], "choices": mission_keys_for_diagnostics()}, "status": status_label.text})
+		network.diagnostics({"ready": true, "active": active, "role": network.role, "invitation": network.invitation, "peers": accepted_peers.size(), "owner": local_owner, "tick": state.tick, "ended": state.ended, "result": state.result, "units": own, "structures": structures, "fields": fields, "resources": state.players.get(local_owner, {}).get("resources", {}), "paused": state.paused, "camera": {"viewport": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y], "edge": [camera.edge_pan.x, camera.edge_pan.y], "distance": camera.distance, "x": camera.focus.x, "z": camera.focus.z, "yaw": camera.yaw}, "selected": selection, "commands": commands, "queue_cards": queue_cards, "controls": {"fullscreenMap": tactical.map_expanded, "mapToggle": [tactical.map_toggle.get_global_rect().get_center().x, tactical.map_toggle.get_global_rect().get_center().y], "mapClose": [tactical.expanded_view.close_button.get_global_rect().get_center().x, tactical.expanded_view.close_button.get_global_rect().get_center().y], "timeControls": [paused_button.visible, speed_button.visible], "buildMenu": build_panel.visible, "attack": attack_mode, "interaction": interaction_mode, "groups": control_groups, "ghost": ghost_model_visible()}, "feedback": {"cursor": renderer.feedback_cursor, "events": state.feedback_for(local_owner).map(func(event): return event.kind), "traces": renderer.visual_shots.size(), "particles": renderer.particles.size(), "labels": tactical.damage_numbers.size()}, "activity_card": {"visible": selection_status.visible, "cargo": selection_status.cargo_contents, "activities": selection_status.activities, "screen": [selection_status.get_global_rect().get_center().x, selection_status.get_global_rect().get_center().y]}, "inspection": detail_label.text, "build_kind": build_kind, "build_buttons": buttons, "build_sites": sites, "menu_navigation": menu_navigation_for_diagnostics(), "mission": mission_label.text, "mission_id": state.mission.get("id", ""), "mission_menu": {"nav": [menu_nav.missions.get_global_rect().get_center().x, menu_nav.missions.get_global_rect().get_center().y], "selected": selected_mission, "deploy": [mission_deploy_button.get_global_rect().get_center().x, mission_deploy_button.get_global_rect().get_center().y], "choices": mission_keys_for_diagnostics()}, "status": status_label.text})
+
+func menu_navigation_for_diagnostics() -> Dictionary:
+	var buttons: Dictionary = {}
+	for key in menu_nav:
+		var point: Vector2 = menu_nav[key].get_global_rect().get_center(); buttons[key] = [point.x, point.y]
+	return buttons
 
 func mission_keys_for_diagnostics() -> Dictionary:
 	var choices: Dictionary = {}
@@ -635,6 +701,7 @@ func _pause() -> void:
 	if network.role == "solo": state.paused = not state.paused; paused_button.text = "Resume" if state.paused else "Pause"
 
 func _leave() -> void:
+	tactical.set_map_expanded(false)
 	network.leave()
 	audio.stop()
 	active = false
@@ -645,7 +712,8 @@ func _leave() -> void:
 	hud.visible = false
 	start_button.visible = false
 	result_panel.hide(); build_panel.hide(); build_kind = ""
-	lobby_label.text = "Session closed."
+	lobby_label.text = ""
+	_refresh_lobby_controls()
 
 func _update_hud() -> void:
 	if not state.players.has(local_owner): return
@@ -799,6 +867,11 @@ func _refresh_actions() -> void:
 		if Settings.data.units[e.kind].has("buriedWeapon"):
 			_command("Emerge" if e.get("buried", false) else "Burrow", "build", {"action": "burrow"}, {}, e.get("transition", "") == "", "Transitions cannot be interrupted. Buried Threshers cannot move.")
 		if Settings.data.units[e.kind].has("driverSeats"):
+			var crew_ids := WorldState.ComplexCommands.selection(state, local_owner, selection)
+			if crew_ids.any(func(id): return state.units[id].kind in ["operator", "engineer"]):
+				_target_button("Mine [%s]" % _binding("mine"), "mine", func(): interaction_mode = ""; mining_mode = true; attack_mode = false, "Choose a revealed resource patch or production facility for the entire group.")
+			if crew_ids.any(func(id): return state.units[id].kind == "engineer"):
+				_target_button("Repair [%s]" % _binding("repair"), "repair", func(): _target_interaction("repair"), "Engineers repair while the group provides protection.")
 			_command("Unload [%s]" % _binding("unload"), "unload", {"action": "unload"}, {}, int(e.driver) != 0 or not e.passengers.is_empty(), "Unload passengers first. Press again to unload the driver. Lighting and operation require a driver.")
 		if Settings.data.units[e.kind].weapon != null or e.kind == "scout":
 			_target_button("Attack [%s]" % _binding("attack"), "aggressive", _begin_attack, "Choose an explicit eligible target; this is not attack-move.")
@@ -873,6 +946,7 @@ func _pick(screen: Vector2) -> int:
 func _unhandled_input(event: InputEvent) -> void:
 	if not active: return
 	if _minimap_input(event): get_viewport().set_input_as_handled(); return
+	if tactical.map_expanded: return
 	if _text_entry_focused(): return
 	if controls_panel.visible:
 		if event is InputEventKey and event.pressed and _key_is(event, "cancel"): controls_panel.hide()
@@ -924,6 +998,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_dispatch_context(event.position, cell, p, -1, event.shift_pressed)
 
 func _input(event: InputEvent) -> void:
+	if active and tactical.map_expanded and event is InputEventKey and event.pressed and _key_is(event, "cancel"):
+		_toggle_fullscreen_map(); get_viewport().set_input_as_handled(); return
 	if active and wall_dragging:
 		if event is InputEventMouseMotion:
 			wall_end = _wall_cell(event.position); get_viewport().set_input_as_handled(); return
@@ -949,6 +1025,12 @@ func _finish_wall_line(screen: Vector2, queued: bool) -> void:
 	wall_dragging = false; renderer.show_wall_line([])
 	if not queued: _cancel_modes()
 
+func _toggle_fullscreen_map() -> void:
+	minimap_dragging = false; selecting = false
+	_cancel_modes(); controls_panel.hide()
+	tactical.set_map_expanded(not tactical.map_expanded)
+	camera.drag = false
+
 func _pan_minimap(screen: Vector2) -> void:
 	var rect := tactical.minimap_rect().grow(-12)
 	var clamped := screen.clamp(rect.position, rect.end)
@@ -972,6 +1054,7 @@ func _minimap_input(event: InputEvent) -> bool:
 	if not event is InputEventMouseButton: return false
 	if event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and minimap_dragging:
 		minimap_dragging = false; return true
+	if tactical.map_toggle.visible and tactical.map_toggle.get_global_rect().has_point(event.position): return false
 	if not event.pressed or not tactical.minimap_rect().has_point(event.position): return false
 	if event.button_index not in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]: return false
 	if event.button_index == MOUSE_BUTTON_LEFT and not (attack_mode or mining_mode or interaction_mode != ""):
@@ -1028,7 +1111,7 @@ func _context_order(screen: Vector2, cell: Vector2i, point: Vector3, target_over
 		if e.has("cell") and not e.built: _issue({"action": "work", "target": target}); return
 		var has_cargo := false
 		var has_engineer := false
-		for id in selection:
+		for id in WorldState.ComplexCommands.selection(state, local_owner, selection):
 			var unit := _observed_entity(int(id))
 			if unit.has("cargo") and state.cargo_amount(unit) > 0: has_cargo = true
 			if unit.get("kind", "") == "engineer": has_engineer = true

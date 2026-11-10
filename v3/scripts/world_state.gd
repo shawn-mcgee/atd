@@ -25,6 +25,7 @@ var ended := false
 var result := ""
 var paused := false
 var speed := 1.0
+var command_groups: Dictionary = {}
 var next_id := 1
 var random := RandomNumberGenerator.new()
 var navigation := MovementGraph.new()
@@ -37,6 +38,7 @@ var lightless_chyme := 0
 var lightless_brain_time := 0.0
 var lightless_expansion_time := 0.0
 var lightless_income_time := 0.0
+var lightless_dispatches: Dictionary = {}
 var _sight_blockers: Dictionary = {}
 var _sight_areas: Dictionary = {}
 var _sight_topology_valid := false
@@ -56,6 +58,8 @@ func _init(settings: Dictionary = {}) -> void:
 
 func reset(map_seed: int, count: int = 1) -> void:
 	mission.clear()
+	command_groups.clear()
+	lightless_dispatches.clear()
 	_sight_areas.clear(); _sight_blockers.clear(); _sight_unions.clear(); _sight_topology_valid = false
 	_opponents.clear(); _power_signature.clear(); _power_groups.clear(); _open_movement_cells.clear(); _clearance_neighborhoods.clear(); _dark_clearance_neighborhoods.clear(); _separation_signature.clear()
 	_radar_coverage.clear()
@@ -235,6 +239,8 @@ func add_unit(kind: String, position: Vector2, owner: int) -> int:
 	units[id] = {"id": id, "kind": kind, "pos": position, "owner": owner, "hp": float(definition.health), "job": {"kind": "idle"}, "route": [], "cargo": {}, "cooldown": 0.0, "work": 0.0, "stance": str(definition.get("defaultStance", cfg.lightless.startingStance)), "home": position, "last_damage": -999, "target": 0, "driver": 0, "vehicle": 0, "heading": 0.0}
 	units[id].passengers = []
 	units[id].orders = []
+	if owner == -1 and definition.get("weapon") != null:
+		LightlessTactics.assigned_anchor(self, units[id])
 	return id
 
 func add_structure(kind: String, cell: Vector2i, owner: int, built: bool = true, depot_type: String = "ore") -> int:
@@ -347,7 +353,7 @@ func move_to(u: Dictionary, destination: Vector2) -> void:
 func _move(u: Dictionary, delta: float) -> bool:
 	if u.vehicle != 0 or u.get("buried", false) or u.get("transition", "") != "": return false
 	if cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: return false
-	var budget := float(cfg.units[u.kind].speedTilesPerSecond) * delta
+	var budget := minf(float(cfg.units[u.kind].speedTilesPerSecond), float(u.get("group_speed", INF))) * delta
 	var moved := false
 	while budget > 0 and not u.route.is_empty():
 		var goal: Vector2 = u.route[0]
@@ -395,7 +401,8 @@ func open_movement_cell(cell: Vector2i) -> bool:
 func activity(e: Dictionary) -> Dictionary:
 	# Read-only status shared by local inspection and owner-filtered snapshots.
 	if e.has("activity"): return e.activity.duplicate(true)
-	return ActivityRules.inspect(self, e)
+	var status := ActivityRules.inspect(self, e)
+	return ComplexCommands.activity(self, e, status)
 
 class ActivityRules:
 	extends RefCounted
@@ -559,12 +566,18 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 	var ids: Array = order.get("ids", [])
 	for raw_id in ids:
 		if not (raw_id is int or raw_id is float): return "Invalid unit selection"
+	if action == "mine" and not ComplexCommands.replacement_valid(self, owner, order): return "Choose a revealed resource patch or production facility"
 	if action == "global_personnel":
 		if not order.get("enabled") is bool: return "Invalid personnel setting"
 		players[owner].request_personnel = order.enabled
 		for facility in structures.values():
 			if facility.owner == owner: facility.request_personnel = order.enabled
 		return "Global Operator requests enabled" if order.enabled else "Global Operator requests disabled"
+	if action == "complex_start": return ComplexCommands.start_queued(self, owner, int(order.get("group", 0)))
+	if action in ComplexCommands.ACTIONS and not order.get("internal", false):
+		var members := ComplexCommands.selection(self, owner, ids)
+		if (members.size() > 1 or (action == "mine" and not members.is_empty())) and (ids.size() > 1 or action not in ["move", "attack"]):
+			return ComplexCommands.issue(self, owner, order, members, from_queue)
 	if bool(order.get("queued", false)) and action in ["move", "attack", "mine", "repair", "deposit", "work", "equip", "board", "load_cargo", "excavate", "patrol", "escort", "unload"]:
 		if order.has("target"):
 			var target := observed_entity(int(order.target), owner)
@@ -579,6 +592,10 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 			var next := order.duplicate(true); next.erase("queued"); next.ids = [unit.id]
 			unit.orders.append(next); queued += 1
 		return "Order queued for %d units" % queued if queued > 0 else "No eligible units or order queue full"
+	if action in ["stop", "move", "attack", "mine", "repair", "deposit", "work", "equip", "board", "load_cargo", "excavate", "patrol", "escort", "unload"] and not order.get("internal", false) and ComplexCommands.replacement_valid(self, owner, order):
+		for raw_id in ids:
+			var member: Dictionary = units.get(int(raw_id), {})
+			if not member.is_empty() and member.owner == owner: ComplexCommands.detach(self, member)
 	if action in ["patrol", "escort"]:
 		var target := entity(int(order.get("target", 0)))
 		if action == "escort" and (target.is_empty() or target.owner != owner): return "Choose a friendly unit or structure to escort"
@@ -730,7 +747,7 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 			if not site.valid: continue
 			var queued: bool = bool(order.get("queued", false)) or placed > 0
 			if queued and builder.orders.size() >= int(cfg.movement.orderQueueLimit): break
-			var result := command(owner, {"action": "build", "kind": "wall", "ids": [builder.id], "q": site.cell.x, "r": site.cell.y, "queued": queued})
+			var result := command(owner, {"action": "build", "kind": "wall", "ids": ids, "q": site.cell.x, "r": site.cell.y, "queued": queued})
 			if result == "Blueprint placed": placed += 1
 		return "%d wall blueprints placed; blocked, unaffordable or excess cells skipped" % placed
 	if action == "build":
@@ -738,7 +755,7 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 		if not cfg.structures.has(kind) or kind in ["anchor", "medusa", "womb", "gland", "chyme_gland", "stoma"]: return "Unavailable structure"
 		var builder := _build_engineer(owner, ids)
 		if builder.is_empty(): return "Select an Engineer"
-		if bool(order.get("queued", false)) and builder.orders.size() >= int(cfg.movement.orderQueueLimit): return "Order queue full"
+		if bool(order.get("queued", false)) and ComplexCommands.selection(self, owner, ids).any(func(member): return units[member].orders.size() >= int(cfg.movement.orderQueueLimit)): return "Order queue full"
 		var cell := Vector2i(int(order.q), int(order.r))
 		for c in HexGrid.disk(cell, int(cfg.structures[kind].footprintRadiusTiles)):
 			if not known[owner].has(c) or not tiles.has(c): return "Entire footprint must be revealed"
@@ -747,11 +764,16 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 		if not _pay(owner, cfg.structures[kind].cost): return "Not enough resources"
 		var id := add_structure(kind, cell, owner, false, str(order.get("depot_type", "ore")))
 		if bool(order.get("queued", false)):
-			builder.orders.append({"action": "work", "target": id, "ids": [builder.id]})
+			var members := ComplexCommands.selection(self, owner, ids)
+			if members.size() > 1: ComplexCommands.issue(self, owner, {"action": "work", "target": id, "ids": ids, "queued": true}, members, from_queue)
+			else: builder.orders.append({"action": "work", "target": id, "ids": [builder.id]})
 		else:
 			if not from_queue: builder.orders.clear()
+			ComplexCommands.detach(self, builder)
 			builder.job = {"kind": "build", "target": id}
 			move_to(builder, _work_position(structures[id], builder.pos))
+			var members := ComplexCommands.selection(self, owner, ids)
+			if members.size() > 1: ComplexCommands.issue(self, owner, {"action": "work", "target": id, "ids": ids}, members, from_queue)
 		return "Blueprint placed"
 	var target_id := int(order.get("target", 0))
 	if not structures.has(target_id) or structures[target_id].owner != owner: return "Select an owned structure"
@@ -949,13 +971,15 @@ func step(delta: float) -> void:
 	RadarSystem.update(self)
 	if mission.is_empty(): LightlessColony.update(self, delta)
 	for s in structures.values(): _production(s, delta)
+	ComplexCommands.update(self, delta)
 	for id in units.keys():
 		if units.has(id):
 			var unit: Dictionary = units[id]
 			if unit.owner >= 0 and int(unit.vehicle) == 0:
 				if unit.job.get("automatic", false) and not unit.orders.is_empty():
 					unit.job = {"kind": "idle"}; unit.route.clear(); unit.target = 0
-				while unit.job.kind == "idle" and not unit.orders.is_empty():
+				while unit.job.kind == "idle" and not unit.orders.is_empty() and int(unit.get("command_group", 0)) == 0:
+					if unit.orders[0].get("action", "") == "complex_start": break
 					var next: Dictionary = unit.orders.pop_front()
 					command(int(unit.owner), next, true)
 			_unit_step(unit, delta)
@@ -974,7 +998,7 @@ func step(delta: float) -> void:
 
 func _unit_step(u: Dictionary, delta: float) -> void:
 	if u.vehicle != 0: return
-	if u.owner >= 0 and u.kind == "engineer": _idle_engineer_work(u, delta)
+	if u.owner >= 0 and u.kind == "engineer" and int(u.get("command_group", 0)) == 0: _idle_engineer_work(u, delta)
 	if u.owner < 0 and u.kind == "mother":
 		LightlessColony.mother_step(self, u, delta); return
 	if BurrowRules.update(self, u, delta): return
@@ -988,12 +1012,7 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 		_probe_step(u, delta)
 		return
 	if u.owner == -1 and u.job.kind == "idle":
-		var target: Dictionary = {}
-		var distance := INF
-		for s in structures.values():
-			if s.kind != "anchor": continue
-			var d: float = u.pos.distance_to(HexGrid.world(s.cell))
-			if d < distance: distance = d; target = s
+		var target := LightlessTactics.assigned_anchor(self, u)
 		if not target.is_empty(): u.target = target.id; u.job = {"kind": "attack"}
 	if u.job.kind in ["patrol", "escort"]: RouteOrders.update(self, u, delta)
 	if u.owner < 0 and u.job.kind == "attack": LightlessTactics.prepare_attack(self, u)
@@ -1010,7 +1029,9 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 	if weapon != null and (u.job.kind == "attack" or u.stance in ["aggressive", "defensive", "attack", "defend"]):
 		if _fire(u, str(weapon), delta): return
 	if u.get("buried", false): return
-	if u.job.kind == "mine":
+	if u.job.kind == "group_mine":
+		ComplexCommands.mine(self, u, delta)
+	elif u.job.kind == "mine":
 		_mine(u, delta)
 	elif u.job.kind == "build":
 		_build(u, delta)
@@ -1112,13 +1133,14 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		u.job = {"kind": "retreat"}; u.target = 0; u.route.clear()
 		LightlessTactics.retreat(self, u)
 		return
-	var goal := LightlessTactics.known_anchor(self, u.pos)
+	var goal := LightlessTactics.assigned_anchor(self, u)
 	if u.route.is_empty() and not goal.is_empty(): move_to(u, entity_position(goal))
 	var candidate: Dictionary = {}
 	var nearest := INF
 	var vision := _cached_sight(HexGrid.cell(u.pos), int(cfg.units[u.kind].visionRangeTiles))
 	for e in _enemy_entities(int(u.owner)):
 		if e.owner < 0 or int(e.get("vehicle", 0)) != 0: continue
+		if not goal.is_empty() and e.owner != goal.owner: continue
 		var extent := int(cfg.structures[e.kind].footprintRadiusTiles) if e.has("cell") else 0
 		var reach := float(cfg.units[u.kind].visionRangeTiles) + extent + HexGrid.RADIUS * 2
 		if u.pos.distance_squared_to(entity_position(e)) > reach * reach: continue
@@ -1140,6 +1162,7 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		if float(u.job.pressure) >= float(cfg.lightless.probeResistanceWindowSeconds):
 			var target_id := int(candidate.id)
 			var nearby := units.values().filter(func(other): return other.owner < 0 and cfg.units[other.kind].get("weapon") != null and other.pos.distance_to(u.pos) <= float(cfg.lightless.probePressureSignalRangeTiles))
+			nearby = nearby.filter(func(other): return LightlessTactics.assigned_anchor(self, other).get("owner", -2) == goal.get("owner", -3))
 			for other in nearby:
 				if other.kind == "stalker" and nearby.size() < 2: continue
 				if other.stance == "probe" and other.job.kind in ["idle", "probe"]:
@@ -1358,9 +1381,9 @@ func _deposit_destination(u: Dictionary) -> int:
 	return best
 
 func _build_engineer(owner: int, ids: Array) -> Dictionary:
-	for raw_id in ids:
+	for raw_id in ComplexCommands.selection(self, owner, ids):
 		var unit: Dictionary = units.get(int(raw_id), {})
-		if not unit.is_empty() and unit.owner == owner and unit.kind == "engineer" and int(unit.vehicle) == 0: return unit
+		if not unit.is_empty() and unit.owner == owner and unit.kind == "engineer": return unit
 	return {}
 
 func wall_line_plan(owner: int, start: Vector2i, finish: Vector2i) -> Dictionary:
@@ -1933,7 +1956,8 @@ func snapshot(owner: int) -> Dictionary:
 		if u.owner != owner and not TargetRules.identifiable(self, u, owner): continue
 		var d: Dictionary = u.duplicate(true)
 		if u.owner == owner: d.activity = activity(u)
-		if u.owner != owner: d.erase("orders")
+		if u.owner != owner:
+			d.erase("orders"); d.erase("raid_owner"); d.erase("command_group"); d.erase("group_role"); d.erase("group_speed")
 		d.pos = [u.pos.x, u.pos.y]
 		d.home = [u.home.x, u.home.y]
 		d.erase("route")
@@ -2113,13 +2137,37 @@ class RouteNavigation:
 
 class LightlessTactics:
 	# Navigation and target decisions only; no renderer, input, or wall-clock state.
-	static func known_anchor(world: RefCounted, position: Vector2) -> Dictionary:
+	static func assigned_anchor(world: RefCounted, unit: Dictionary) -> Dictionary:
+		var owner := int(unit.get("raid_owner", -1))
+		var player: Dictionary = world.players.get(owner, {})
+		var current: Dictionary = world.structures.get(int(player.get("anchor", 0)), {})
+		if player.get("alive", false) and not current.is_empty(): return current
+		# Count dispatches, not surviving units: casualties at the closest base
+		# must not keep pulling every replacement away from distant players.
+		if not world.lightless_dispatches.has(unit.kind): world.lightless_dispatches[unit.kind] = {}
+		if not world.lightless_dispatches.has("_total"): world.lightless_dispatches._total = {}
+		var dispatched: Dictionary = world.lightless_dispatches[unit.kind]
+		var totals: Dictionary = world.lightless_dispatches._total
 		var result: Dictionary = {}
+		var least := 2147483647
+		var least_total := 2147483647
 		var nearest := INF
-		for structure in world.structures.values():
-			if structure.owner < 0 or structure.kind != "anchor": continue
-			var distance: float = position.distance_squared_to(world.entity_position(structure))
-			if distance < nearest: nearest = distance; result = structure
+		var owners: Array = world.players.keys(); owners.sort()
+		for candidate in owners:
+			if not world.players[candidate].alive: continue
+			var structure: Dictionary = world.structures.get(int(world.players[candidate].anchor), {})
+			if structure.is_empty(): continue
+			var count := int(dispatched.get(candidate, 0))
+			var total := int(totals.get(candidate, 0))
+			var distance: float = unit.pos.distance_squared_to(world.entity_position(structure))
+			if count < least or (count == least and (total < least_total or (total == least_total and distance < nearest))): least = count; least_total = total; nearest = distance; result = structure
+		unit.target = 0; unit.route.clear(); unit.job.erase("objective")
+		if unit.job.kind == "probe": unit.job.pressure = 0.0
+		if not result.is_empty():
+			unit.raid_owner = int(result.owner)
+			dispatched[result.owner] = int(dispatched.get(result.owner, 0)) + 1
+			totals[result.owner] = int(totals.get(result.owner, 0)) + 1
+		else: unit.erase("raid_owner")
 		return result
 
 	static func clear_shot(world: RefCounted, origin: Vector2, target: Vector2) -> bool:
@@ -2129,6 +2177,9 @@ class LightlessTactics:
 		return true
 
 	static func prepare_attack(world: RefCounted, unit: Dictionary) -> void:
+		var previous_owner := int(unit.get("raid_owner", -1))
+		var anchor := assigned_anchor(world, unit)
+		if int(unit.get("raid_owner", -1)) != previous_owner and not anchor.is_empty(): unit.target = anchor.id
 		var target: Dictionary = world.entity(int(unit.target))
 		if target.is_empty() and unit.job.has("objective"):
 			target = world.entity(int(unit.job.objective))
@@ -2556,3 +2607,465 @@ class RouteOrders:
 		if float(unit.job.repath) <= 0 and (unit.route.is_empty() or unit.route.back().distance_to(goal) > float(rules.arrivalRadiusTiles)):
 			world.move_to(unit, goal)
 			unit.job.repath = float(rules.repathSeconds)
+
+class ComplexCommands:
+	extends RefCounted
+	## Group membership is explicit. Jobs and cargo remain on real entities; this
+	## controller only allocates roles and advances the shared standing order.
+	const ACTIONS := ["mine", "repair", "work", "patrol", "escort", "move", "attack", "deposit", "excavate"]
+
+	static func replacement_valid(w: RefCounted, owner: int, order: Dictionary) -> bool:
+		var action := str(order.action)
+		if action in ["mine", "excavate"]:
+			var cell := Vector2i(int(order.q), int(order.r))
+			if not w.known.get(owner, {}).has(cell) or not w.tiles.has(cell): return false
+			return bool(w.tiles[cell].cliff) if action == "excavate" else w.tiles[cell].resource != "" or w.structures.has(int(order.get("facility", 0)))
+		if action in ["repair", "work", "escort", "deposit", "equip", "board", "load_cargo", "attack"]:
+			var target: Dictionary = w.entity(int(order.get("target", 0)))
+			if target.is_empty() or (action not in ["attack", "board"] and target.owner != owner): return false
+			if action == "repair": return (target.has("cell") and target.built) or (target.has("pos") and not w.cfg.units[target.kind].get("biological", false))
+			if action == "deposit": return target.has("cell") and target.built and target.kind in ["anchor", "depot"]
+		return true
+
+	static func selection(w: RefCounted, owner: int, ids: Array) -> Array:
+		var result: Array = []
+		for raw in ids:
+			var u: Dictionary = w.units.get(int(raw), {})
+			if u.is_empty() or u.owner != owner or u.get("buried", false) or u.get("transition", "") != "": continue
+			if not result.has(int(u.id)): result.append(int(u.id))
+			if w.cfg.units[u.kind].has("driverSeats"):
+				var crew: Array = u.passengers.duplicate(); crew.append(int(u.driver))
+				for id in crew:
+					if w.units.has(int(id)) and w.units[int(id)].owner == owner and not result.has(int(id)): result.append(int(id))
+		result.sort()
+		return result
+
+	static func issue(w: RefCounted, owner: int, order: Dictionary, members: Array, from_queue: bool) -> String:
+		var action := str(order.action)
+		var workers := 0
+		for id in members:
+			if w.units[id].kind in (["operator", "engineer"] if action == "mine" else ["engineer"]): workers += 1
+		if action in ["mine", "repair", "work"] and workers == 0: return "Select an Operator or Engineer" if action == "mine" else "Select an Engineer"
+		var point := Vector2.ZERO
+		var target: Dictionary = w.entity(int(order.get("target", 0)))
+		if action in ["repair", "work", "escort", "deposit", "attack"]:
+			if target.is_empty() or (action != "attack" and target.owner != owner): return "Select a friendly target"
+			if action == "attack" and w.observed_entity(int(target.id), owner).is_empty(): return "Select a visible target"
+			if action == "deposit" and (not target.has("cell") or target.kind not in ["anchor", "depot"] or not target.built): return "Select an Anchor or Depot"
+			if action == "repair" and ((target.has("cell") and not target.built) or (target.has("pos") and w.cfg.units[target.kind].get("biological", false))): return "Engineers repair completed structures and vehicles"
+			if action == "work" and not target.has("cell"): return "Select an owned structure"
+			point = w.entity_position(target)
+		elif action in ["mine", "excavate"]:
+			var cell := Vector2i(int(order.q), int(order.r))
+			if not w.known.get(owner, {}).has(cell) or not w.tiles.has(cell): return "Select a revealed tile"
+			point = HexGrid.world(cell)
+			if action == "mine":
+				var facility: Dictionary = w.structures.get(int(order.get("facility", 0)), {})
+				if int(order.get("facility", 0)) != 0 and (facility.is_empty() or facility.owner != owner or not facility.built or facility.cell != cell or w._output_resource(facility).is_empty()): return "Choose a friendly production facility"
+				if facility.is_empty() and (w.tiles[cell].resource == "" or int(w.tiles[cell].amount) <= 0): return "Choose a resource patch or production facility"
+			else:
+				if not w.tiles[cell].cliff or HexGrid.distance(cell) >= w.radius: return "Select a revealed cliff inside the map boundary"
+				if not members.any(func(id): return w.units[id].kind == "excavator"): return "Select an Excavator"
+		else: point = Vector2(float(order.x), float(order.z))
+		var reachable := false
+		for id in members:
+			var u: Dictionary = w.units[id]
+			if action in ["mine", "repair", "work"] and not u.kind in (["operator", "engineer"] if action == "mine" else ["engineer"]): continue
+			if not approach(w, u, point).is_empty(): reachable = true; break
+		if not reachable: return "Cannot reach target"
+		if order.get("queued", false):
+			for id in members:
+				if w.units[id].orders.size() >= int(w.cfg.movement.orderQueueLimit): return "Order queue full"
+		var group_id: int = w.next_id; w.next_id += 1
+		var g := {"id": group_id, "owner": owner, "action": action, "order": order.duplicate(true), "members": members.duplicate(), "phase": "assemble", "elapsed": 0.0, "repath": 0.0, "inactive": 0.0, "blocker": "", "seats": {}, "destination": 0, "point": point, "origin": w.units[members[0]].pos, "leg": 1, "queued": bool(order.get("queued", false)), "progress": {}}
+		g.order.erase("queued")
+		w.command_groups[group_id] = g
+		if g.queued:
+			for id in members: w.units[id].orders.append({"action": "complex_start", "group": group_id, "ids": [id]})
+			return "Group order queued"
+		activate(w, g, from_queue)
+		return "Mining expedition started" if action == "mine" else "%s group assigned" % action.capitalize()
+
+	static func start_queued(_w: RefCounted, _owner: int, _id: int) -> String:
+		# Barriers are handled together by update(), never split into per-unit jobs.
+		return "Waiting for group"
+
+	static func activate(w: RefCounted, g: Dictionary, from_queue: bool) -> void:
+		g.queued = false
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			detach(w, u, not from_queue)
+			if not from_queue: u.orders.clear()
+			if int(u.vehicle) != 0 and not g.members.has(int(u.vehicle)): unboard(w, u)
+			u.command_group = g.id; u.group_role = "escort"; u.target = 0; u.route.clear()
+			if int(u.vehicle) == 0: u.job = {"kind": "group_wait"}
+		allocate(w, g)
+
+	static func detach(w: RefCounted, u: Dictionary, clear_queued: bool = true) -> void:
+		var id := int(u.get("command_group", 0))
+		if w.command_groups.has(id): w.command_groups[id].members.erase(int(u.id)); w.command_groups[id].seats.erase(int(u.id))
+		u.erase("command_group"); u.erase("group_role"); u.erase("group_speed")
+		# Leaving with a selected vehicle also takes its actual occupants out.
+		if w.cfg.units[u.kind].has("driverSeats"):
+			var crew: Array = u.passengers.duplicate(); crew.append(int(u.driver))
+			for member in crew:
+				if w.units.has(int(member)) and int(w.units[int(member)].get("command_group", 0)) == id and id != 0: detach(w, w.units[int(member)], clear_queued)
+		for g in w.command_groups.values():
+			if clear_queued and g.queued: g.members.erase(int(u.id))
+
+	static func unboard(w: RefCounted, u: Dictionary) -> void:
+		var v: Dictionary = w.units.get(int(u.vehicle), {})
+		if v.is_empty(): u.vehicle = 0; return
+		if int(v.driver) == int(u.id): v.driver = 0
+		v.passengers.erase(int(u.id))
+		u.vehicle = 0; u.pos = HexGrid.world(w.nearest_free(HexGrid.cell(v.pos) + HexGrid.DIRECTIONS[int(u.id) % 6]))
+		u.job = {"kind": "group_wait"}; u.route.clear(); u.target = 0
+
+	static func allocate(w: RefCounted, g: Dictionary) -> void:
+		var vehicles: Array = []; var free: Array = []; var workers := 0
+		g.seats = g.seats.duplicate()
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if w.cfg.units[u.kind].has("driverSeats"):
+				if int(u.driver) != 0 and not w.units.has(int(u.driver)): u.driver = 0
+				u.passengers = u.passengers.filter(func(occupant): return w.units.has(int(occupant)))
+				vehicles.append(id); u.group_role = "vehicle"
+			elif int(u.vehicle) == 0:
+				free.append(id)
+				if u.kind in (["operator", "engineer"] if g.action == "mine" else ["engineer"]): workers += 1
+			else: u.group_role = "driver" if int(w.units[int(u.vehicle)].driver) == id else "worker" if u.kind in ["operator", "engineer"] else "escort"
+		var prefs: Array = w.cfg.expeditions.driverVehiclePreference
+		vehicles.sort_custom(func(a, b): return prefs.find(w.units[a].kind) < prefs.find(w.units[b].kind) if w.units[a].kind != w.units[b].kind else a < b)
+		var drivers: Array = w.cfg.expeditions.driverPreference
+		free.sort_custom(func(a, b): return drivers.find(w.units[a].kind) < drivers.find(w.units[b].kind) if w.units[a].kind != w.units[b].kind else a < b)
+		for vid in vehicles:
+			var v: Dictionary = w.units[vid]
+			if int(v.driver) != 0: continue
+			for id in free.duplicate():
+				var u: Dictionary = w.units[id]
+				var worker: bool = u.kind in (["operator", "engineer"] if g.action == "mine" else ["engineer"])
+				if worker and workers <= 1 and g.action in ["mine", "repair", "work"]: continue
+				if drivers.find(u.kind) < 0 or approach(w, u, v.pos).is_empty(): continue
+				g.seats[id] = vid; u.group_role = "driver"; free.erase(id)
+				u.job = {"kind": "board", "target": vid}; route(w, u, v.pos)
+				if worker: workers -= 1
+				break
+		for id in free: w.units[id].group_role = "worker" if w.units[id].kind in (["operator", "engineer"] if g.action == "mine" else ["engineer"]) else "escort"
+		# Drivers board first; native boarding makes the first occupant the driver.
+		for id in g.seats.keys():
+			if not w.units.has(int(id)) or not g.members.has(int(id)): g.seats.erase(id)
+
+	static func approach(w: RefCounted, u: Dictionary, point: Vector2) -> Array:
+		var center := HexGrid.cell(point)
+		var cells := HexGrid.disk(center, 3)
+		cells.sort_custom(func(a, b):
+			var da: float = HexGrid.world(a).distance_squared_to(point); var db: float = HexGrid.world(b).distance_squared_to(point)
+			return HexGrid.key(a) < HexGrid.key(b) if is_equal_approx(da, db) else da < db)
+		for cell in cells:
+			if w.blocked(cell): continue
+			var path: Array = w._route_path(u, w.nearest_free(HexGrid.cell(u.pos)), cell)
+			if not path.is_empty(): return path
+		return []
+
+	static func route(w: RefCounted, u: Dictionary, point: Vector2, force: bool = false) -> void:
+		u.home = point
+		if int(u.vehicle) != 0 or (w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0): u.route.clear(); return
+		if int(u.target) != 0: return
+		if u.pos.distance_to(point) < 0.45: u.route.clear(); return
+		if force or u.route.is_empty() or u.route.back().distance_to(point) > 1:
+			var path := approach(w, u, point)
+			if not path.is_empty(): RouteNavigation.assign(w, u, path)
+
+	static func phase(g: Dictionary, value: String) -> void:
+		g.phase = value; g.elapsed = 0.0; g.repath = 0.0; g.blocker = ""
+
+	static func finish(w: RefCounted, g: Dictionary) -> void:
+		for id in g.members.duplicate():
+			if not w.units.has(int(id)): continue
+			var u: Dictionary = w.units[id]
+			u.erase("command_group"); u.erase("group_role"); u.erase("group_speed")
+			u.job = {"kind": "riding" if int(u.vehicle) != 0 else "idle"}; u.route.clear(); u.target = 0; u.home = u.pos
+		w.command_groups.erase(int(g.id))
+
+	static func update(w: RefCounted, delta: float) -> void:
+		for g in w.command_groups.values():
+			g.members = g.members.filter(func(id): return w.units.has(int(id)) and w.units[int(id)].owner == g.owner)
+			if g.members.is_empty(): w.command_groups.erase(int(g.id)); continue
+			if g.queued:
+				g.members = g.members.filter(func(id): return w.units[id].orders.any(func(o): return o.get("action", "") == "complex_start" and int(o.get("group", 0)) == int(g.id)))
+				if g.members.is_empty(): w.command_groups.erase(int(g.id)); continue
+				var ready := true
+				for id in g.members:
+					var u: Dictionary = w.units[id]
+					if int(u.get("command_group", 0)) != 0 or (u.job.kind != "idle" and not u.job.get("automatic", false) and int(u.vehicle) == 0) or int(u.orders[0].get("group", 0)) != int(g.id): ready = false
+				if ready:
+					for id in g.members: w.units[id].orders.pop_front()
+					activate(w, g, true)
+				continue
+			g.elapsed += delta; g.inactive += delta; g.repath -= delta
+			if float(g.repath) > 0: continue
+			g.repath = float(w.cfg.expeditions.repathIntervalSeconds)
+			allocate(w, g)
+			if g.phase in ["assemble", "regroup"]:
+				if board(w, g) and float(g.elapsed) < float(w.cfg.expeditions.boardingTimeoutSeconds if g.phase == "assemble" else w.cfg.expeditions.regroupTimeoutSeconds): continue
+				phase(g, "deliver" if g.phase == "regroup" else "travel")
+			if g.action == "mine": expedition(w, g)
+			else: task(w, g)
+
+	static func board(w: RefCounted, g: Dictionary) -> bool:
+		var waiting := false
+		# Fill passenger seats only once an actual driver is aboard.
+		for vid in g.members:
+			var v: Dictionary = w.units[vid]
+			if not w.cfg.units[v.kind].has("driverSeats") or int(v.driver) == 0 or not w.cfg.expeditions.passengerVehiclePreference.has(v.kind): continue
+			var available: int = int(w.cfg.units[v.kind].passengerSeats) - v.passengers.size()
+			for assigned in g.seats:
+				if int(g.seats[assigned]) == vid and w.units.has(int(assigned)) and int(w.units[int(assigned)].vehicle) == 0 and w.units[int(assigned)].group_role != "driver": available -= 1
+			for kind in w.cfg.expeditions.workerBoardingPreference:
+				for id in g.members:
+					var u: Dictionary = w.units[id]
+					if available <= 0 or u.kind != kind or u.group_role != "worker" or int(u.vehicle) != 0 or g.seats.has(id): continue
+					g.seats[id] = vid; available -= 1
+		for id in g.seats.keys():
+			var u: Dictionary = w.units.get(int(id), {}); var v: Dictionary = w.units.get(int(g.seats[id]), {})
+			if u.is_empty() or v.is_empty() or not g.members.has(int(v.id)): g.seats.erase(id); continue
+			if int(u.vehicle) != 0: continue
+			if u.group_role != "driver" and int(v.driver) == 0: continue
+			if not w.can_board(u, int(v.id)): g.seats.erase(id); continue
+			waiting = true
+			u.job = {"kind": "board", "target": v.id}; route(w, u, v.pos)
+		return waiting
+
+	static func deploy(w: RefCounted, g: Dictionary) -> void:
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if int(u.vehicle) != 0 and u.group_role != "driver": unboard(w, u)
+
+	static func formation(w: RefCounted, g: Dictionary, point: Vector2, traveling: bool, extent: float = 0.0) -> bool:
+		var arrived := true; var slowest := INF; var center := Vector2.ZERO; var count := 0
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if int(u.vehicle) != 0 or (w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0): continue
+			var previous: Dictionary = g.progress.get(id, {"pos": u.pos, "time": w.time_seconds})
+			if u.pos.distance_to(previous.pos) > 0.2: previous = {"pos": u.pos, "time": w.time_seconds}
+			g.progress[id] = previous
+			if w.time_seconds - float(previous.time) < float(w.cfg.expeditions.stuckTimeoutSeconds):
+				slowest = minf(slowest, float(w.cfg.units[u.kind].speedTilesPerSecond)); center += u.pos; count += 1
+		if count > 0: center /= count
+		var index := 0
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if int(u.vehicle) != 0: continue
+			if u.group_role == "driver":
+				var v: Dictionary = w.units.get(int(g.seats.get(id, 0)), {})
+				if not v.is_empty(): u.job = {"kind": "board", "target": v.id}; route(w, u, v.pos)
+				continue
+			u.group_speed = slowest if traveling else INF
+			if not is_finite(slowest): u.group_speed = float(w.cfg.units[u.kind].speedTilesPerSecond)
+			if traveling and count > 1 and u.pos.distance_to(point) < center.distance_to(point) - float(w.cfg.expeditions.regroupRadiusTiles): u.group_speed = 0.0
+			var angle := index * TAU / maxi(1, count); index += 1
+			var distance := float(w.cfg.expeditions.escortRadiusTiles) + extent
+			var goal := point + Vector2(cos(angle), sin(angle)) * distance
+			if traveling: goal = point + Vector2(cos(angle), sin(angle)) * minf(1.5, distance)
+			if w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: u.job = {"kind": "group_wait"}; u.route.clear(); continue
+			if u.pos.distance_to(point) > (maxf(2.0, extent + 2.0) if traveling else distance + 1) and w.time_seconds - float(g.progress.get(id, {}).get("time", w.time_seconds)) < float(w.cfg.expeditions.stuckTimeoutSeconds): arrived = false
+			if u.group_role in ["escort", "vehicle"] or traveling:
+				u.job = {"kind": "group_guard"}; route(w, u, goal)
+				if not traveling: u.heading = atan2(-(point.x - u.pos.x), -(point.y - u.pos.y))
+		return arrived
+
+	static func task(w: RefCounted, g: Dictionary) -> void:
+		var target: Dictionary = w.entity(int(g.order.get("target", 0)))
+		if g.action in ["repair", "work", "escort", "deposit", "attack"] and target.is_empty(): finish(w, g); return
+		var point: Vector2 = w.entity_position(target) if not target.is_empty() else g.point
+		var extent := float(w.cfg.structures[target.kind].footprintRadiusTiles) if target.has("cell") else 0.0
+		if g.action == "patrol": point = g.point if int(g.leg) == 1 else g.origin
+		var arrived := formation(w, g, point, g.phase == "travel", extent)
+		if g.action == "patrol":
+			if arrived: g.leg = 1 - int(g.leg)
+			return
+		if g.action == "move":
+			if arrived: finish(w, g)
+			return
+		if g.action == "escort": g.phase = "working"; return
+		if g.action == "repair" and float(target.hp) >= float(w.cfg.structures[target.kind].health if target.has("cell") else w.cfg.units[target.kind].health): finish(w, g); return
+		if g.action == "work" and target.built and (target.kind != "fabricator" or target.upgrades.is_empty()): finish(w, g); return
+		if g.action == "excavate" and not w.tiles[Vector2i(int(g.order.q), int(g.order.r))].cliff: finish(w, g); return
+		if g.phase == "travel" and not arrived: return
+		deploy(w, g); g.phase = "working"
+		var active := 0; var pending := false
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if int(u.vehicle) != 0 or u.group_role == "driver": continue
+			var job := ""
+			if g.action == "repair" and u.kind == "engineer": job = "repair"
+			elif g.action == "work" and u.kind == "engineer": job = "research" if target.built else "build"
+			elif g.action == "deposit" and w.cargo_amount(u) > 0: job = "deposit"; pending = true
+			elif g.action == "excavate" and u.kind == "excavator": job = "excavate"
+			elif g.action == "attack" and (w.cfg.units[u.kind].get("weapon") != null or u.kind == "scout"): job = "attack"
+			if job.is_empty(): continue
+			active += 1
+			if u.job.kind != job:
+				u.job = {"kind": job, "target": int(g.order.get("target", 0)), "source": HexGrid.key(Vector2i(int(g.order.get("q", 0)), int(g.order.get("r", 0))))}; u.work = 0
+			if job == "attack": u.target = int(target.id)
+			else: route(w, u, w._work_position(target, u.pos) if job in ["build", "research"] else point)
+		if g.action == "deposit":
+			for id in g.members:
+				var u: Dictionary = w.units[id]
+				if u.group_role != "driver" or w.cargo_amount(u) <= 0: continue
+				pending = true
+				if u.pos.distance_to(point) <= extent + 1.2: w._deposit_cargo(u, target)
+		if g.action == "deposit" and not pending: finish(w, g)
+		elif active == 0: g.blocker = "no_engineer" if g.action in ["repair", "work"] else "no_driver"
+
+	static func expedition(w: RefCounted, g: Dictionary) -> void:
+		var source := Vector2i(int(g.order.q), int(g.order.r))
+		var facility: Dictionary = w.structures.get(int(g.order.get("facility", 0)), {})
+		if facility.is_empty():
+			for s in w.structures.values():
+				if s.owner == g.owner and s.kind == "extractor" and s.built and s.cell == source: facility = s; g.order.facility = int(s.id); break
+		var resource := str(w._output_resource(facility)) if not facility.is_empty() else str(w.tiles.get(source, {}).get("resource", ""))
+		g.resource = resource
+		var amount := int(facility.buffer) if not facility.is_empty() else int(w.tiles.get(source, {}).get("amount", 0))
+		var cargo := 0; var free := 0; var workers := 0
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			cargo += w.cargo_amount(u)
+			if u.group_role == "worker": workers += 1
+			if u.group_role == "worker" or (u.group_role == "vehicle" and int(u.driver) != 0): free += maxi(0, int(w.cfg.units[u.kind].cargoCapacity) - w.cargo_amount(u))
+		if workers == 0:
+			g.blocker = "no_workers"; formation(w, g, g.point, false); return
+		if g.phase == "travel":
+			if formation(w, g, g.point, true): deploy(w, g); phase(g, "gather"); g.inactive = 0.0
+			return
+		if g.phase == "deliver":
+			deliver(w, g, cargo); return
+		if g.phase != "gather": return
+		formation(w, g, g.point, false)
+		# Raw deposits can move within the explicitly selected worksite/search area.
+		if facility.is_empty() and amount <= 0:
+			var replacement: Array = []
+			for cell in HexGrid.disk(source, int(w.cfg.expeditions.resourceSearchRadiusTiles)):
+				if not w.known.get(g.owner, {}).has(cell) or not w.tiles.has(cell): continue
+				if w.tiles[cell].resource != resource or int(w.tiles[cell].amount) <= 0: continue
+				replacement.append(cell)
+			replacement.sort_custom(func(a, b): return HexGrid.key(a) < HexGrid.key(b) if HexGrid.distance(a, source) == HexGrid.distance(b, source) else HexGrid.distance(a, source) < HexGrid.distance(b, source))
+			for cell in replacement:
+				var reachable := false
+				for id in g.members:
+					if w.units[id].group_role == "worker" and not approach(w, w.units[id], HexGrid.world(cell)).is_empty(): reachable = true; break
+				if reachable:
+					g.order.q = cell.x; g.order.r = cell.y; g.point = HexGrid.world(cell); phase(g, "travel"); return
+		var running: bool = not facility.is_empty() and facility.enabled and facility.powered and w._wants_power(facility)
+		g.blocker = "output_pending" if amount == 0 and running else "depleted" if amount <= 0 else ""
+		if amount <= 0 and not running and cargo == 0 and g.members.any(func(id): return not w.units[id].orders.is_empty()): finish(w, g); return
+		if free == 0 or (cargo > 0 and ((amount <= 0 and not running) or float(g.inactive) >= float(w.cfg.expeditions.siteInactivitySeconds))):
+			for id in g.members:
+				var u: Dictionary = w.units[id]
+				if u.group_role == "worker": u.job = {"kind": "group_wait"}; u.route.clear()
+			phase(g, "regroup"); return
+		var patches: Array = [source]
+		if facility.is_empty():
+			patches.clear()
+			for cell in HexGrid.disk(source, int(w.cfg.expeditions.gatherRadiusTiles)):
+				if w.known.get(g.owner, {}).has(cell) and w.tiles.has(cell) and w.tiles[cell].resource == resource and int(w.tiles[cell].amount) > 0: patches.append(cell)
+			patches.sort_custom(func(a, b): return HexGrid.key(a) < HexGrid.key(b) if HexGrid.distance(a, source) == HexGrid.distance(b, source) else HexGrid.distance(a, source) < HexGrid.distance(b, source))
+		var worker_index := 0
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if u.group_role != "worker" or int(u.vehicle) != 0: continue
+			var work_cell: Vector2i = patches[worker_index % patches.size()] if not patches.is_empty() else source
+			worker_index += 1
+			u.job = {"kind": "group_mine", "source": HexGrid.key(work_cell)}
+			var carrier: Dictionary = {}
+			for vid in g.members:
+				var v: Dictionary = w.units[vid]
+				if v.group_role != "vehicle" or int(v.driver) == 0 or int(w.cfg.units[v.kind].cargoCapacity) <= w.cargo_amount(v): continue
+				if carrier.is_empty() or u.pos.distance_squared_to(v.pos) < u.pos.distance_squared_to(carrier.pos): carrier = v
+			if not carrier.is_empty() and w.cargo_amount(u) > 0:
+				if u.pos.distance_to(carrier.pos) <= float(w.cfg.economy.interactionRangeTiles):
+					var space: int = int(w.cfg.units[carrier.kind].cargoCapacity) - w.cargo_amount(carrier)
+					for r in u.cargo:
+						var count := mini(space, int(u.cargo[r])); space -= count; u.cargo[r] -= count; carrier.cargo[r] = int(carrier.cargo.get(r, 0)) + count
+				else: u.job = {"kind": "group_wait"}; route(w, u, carrier.pos); continue
+			var reach := float(w.cfg.structures[facility.kind].footprintRadiusTiles) + 1.2 if not facility.is_empty() else 1.3
+			if u.pos.distance_to(HexGrid.world(work_cell)) > reach: route(w, u, HexGrid.world(work_cell))
+
+	static func mine(w: RefCounted, u: Dictionary, delta: float) -> void:
+		var g: Dictionary = w.command_groups.get(int(u.get("command_group", 0)), {})
+		if g.is_empty() or g.phase != "gather": return
+		var source := HexGrid.unkey(str(u.job.source))
+		var facility: Dictionary = w.structures.get(int(g.order.get("facility", 0)), {})
+		var reach := float(w.cfg.structures[facility.kind].footprintRadiusTiles) + 1.2 if not facility.is_empty() else 1.3
+		if u.pos.distance_to(HexGrid.world(source)) > reach: return
+		u.route.clear(); u.work += delta
+		if float(u.work) < float(w.cfg.economy.workerCycleSeconds): return
+		u.work = 0.0
+		var amount := int(facility.buffer) if not facility.is_empty() else int(w.tiles[source].amount)
+		var count := mini(int(w.cfg.units[u.kind].cargoCapacity) - w.cargo_amount(u), mini(amount, int(w.cfg.economy.engineerItemsPerCycle if u.kind == "engineer" else w.cfg.economy.operatorItemsPerCycle)))
+		if count <= 0 or str(g.resource).is_empty(): return
+		u.cargo[g.resource] = int(u.cargo.get(g.resource, 0)) + count; g.inactive = 0.0
+		if not facility.is_empty(): facility.buffer -= count
+		elif g.resource != "nacre": w.tiles[source].amount -= count
+
+	static func deliver(w: RefCounted, g: Dictionary, cargo: int) -> void:
+		if cargo == 0:
+			g.destination = 0; g.seats.clear(); phase(g, "assemble"); return
+		var destination: Dictionary = w.structures.get(int(g.destination), {})
+		if not destination.is_empty():
+			for id in g.members:
+				var u: Dictionary = w.units[id]
+				if int(u.vehicle) == 0 and w.cargo_amount(u) > 0 and approach(w, u, w.entity_position(destination)).is_empty(): destination = {}; g.destination = 0; break
+		if destination.is_empty():
+			var best := INF
+			for s in w.structures.values():
+				if s.owner != g.owner or not s.built or s.kind not in ["anchor", "depot"]: continue
+				var distance := 0.0; var valid := true
+				for id in g.members:
+					var u: Dictionary = w.units[id]
+					if int(u.cargo.get("nacre", 0)) > 0 and s.kind != "anchor": valid = false; break
+					if int(u.vehicle) != 0 or w.cargo_amount(u) == 0: continue
+					var path := approach(w, u, w.entity_position(s))
+					if path.is_empty(): valid = false; break
+					var last: Vector2 = u.pos
+					for p in path: distance += last.distance_to(p); last = p
+				if valid and (distance < best or (is_equal_approx(distance, best) and int(s.id) < int(destination.get("id", 2147483647)))): best = distance; destination = s
+			if destination.is_empty(): g.blocker = "no_dropoff"; return
+			g.destination = int(destination.id)
+		var point: Vector2 = w.entity_position(destination)
+		formation(w, g, point, true)
+		g.blocker = ""
+		for id in g.members:
+			var u: Dictionary = w.units[id]
+			if int(u.vehicle) != 0 and u.group_role != "driver" and u.pos.distance_to(point) <= float(w.cfg.structures[destination.kind].footprintRadiusTiles) + float(w.cfg.expeditions.regroupRadiusTiles): unboard(w, u)
+			if u.group_role == "driver":
+				if u.pos.distance_to(point) <= float(w.cfg.structures[destination.kind].footprintRadiusTiles) + 1.2: w._deposit_cargo(u, destination)
+				continue
+			if int(u.vehicle) != 0: continue
+			u.job = {"kind": "group_wait"}
+			if w.cargo_amount(u) <= 0: continue
+			if u.pos.distance_to(point) <= float(w.cfg.structures[destination.kind].footprintRadiusTiles) + 1.2:
+				u.route.clear(); w._deposit_cargo(u, destination)
+				if w.cargo_amount(u) > 0: g.blocker = "storage_full"
+			else: route(w, u, point)
+
+	static func activity(w: RefCounted, u: Dictionary, a: Dictionary) -> Dictionary:
+		var g: Dictionary = w.command_groups.get(int(u.get("command_group", 0)), {})
+		if g.is_empty(): return a
+		if u.job.kind in ["group_wait", "group_guard", "group_mine", "riding"]: a.blocker = ""
+		a.task = g.action; a.group = int(g.id); a.role = str(u.get("group_role", "escort")); a.group_phase = g.phase; a.members = g.members.size(); a.resource = str(g.get("resource", ""))
+		a.cell = [HexGrid.cell(g.point).x, HexGrid.cell(g.point).y]
+		a.source = [g.point.x, g.point.y]; a.destination = int(g.destination)
+		a.participants = g.members.duplicate(); a.drivers = {}; a.free_capacity = 0
+		for id in g.members:
+			var member: Dictionary = w.units.get(int(id), {})
+			if member.is_empty(): continue
+			if w.cfg.units[member.kind].has("driverSeats"): a.drivers[id] = int(member.driver)
+			if member.group_role in ["worker", "vehicle"]: a.free_capacity += maxi(0, int(w.cfg.units[member.kind].cargoCapacity) - w.cargo_amount(member))
+		a.target = int(g.destination) if g.phase == "deliver" else int(g.order.get("target", g.order.get("facility", 0)))
+		a.phase = "moving" if g.phase in ["assemble", "travel", "regroup", "deliver"] else "working"
+		if a.role in ["escort", "vehicle"] and g.phase == "gather": a.phase = "working"
+		if w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: a.blocker = "no_driver"
+		elif str(g.blocker) != "": a.blocker = g.blocker
+		if not str(a.blocker).is_empty(): a.phase = "waiting"
+		return a
