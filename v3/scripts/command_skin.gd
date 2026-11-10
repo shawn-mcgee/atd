@@ -1,6 +1,9 @@
 class_name CommandSkin
 extends RefCounted
 
+# Canvas draw commands need the textures to stay alive after _draw returns.
+static var icon_cache: Dictionary = {}
+
 static func panel() -> StyleBoxTexture:
 	var box := StyleBoxTexture.new()
 	box.texture = preload("res://assets/textures/command-metal.png")
@@ -9,8 +12,10 @@ static func panel() -> StyleBoxTexture:
 	return box
 
 static func icon(kind: String) -> Texture2D:
-	var path := "res://assets/icons/%s.svg" % kind
-	return load(path) if ResourceLoader.exists(path) else preload("res://assets/icons/build.svg")
+	if not icon_cache.has(kind):
+		var path := "res://assets/icons/%s.svg" % kind
+		icon_cache[kind] = load(path) if ResourceLoader.exists(path) else preload("res://assets/icons/build.svg")
+	return icon_cache[kind]
 
 static func affordable(world: WorldState, owner_id: int, cost: Dictionary) -> bool:
 	for resource in cost:
