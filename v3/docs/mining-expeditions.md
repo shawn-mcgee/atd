@@ -1,6 +1,6 @@
 # Mining expeditions
 
-This is the proposed first-playable implementation of the complex mining command. The broad behavior follows the confirmed mechanics; role allocation, state transitions, and recovery rules below are implementation choices for review. Tuning lives in [prototype.json](../config/prototype.json), principally `expeditions`, `economy`, and `units`.
+The complex mining command now uses persistent deterministic groups in `WorldState.ComplexCommands`. Mining selects workers, allocates drivers and passenger seats, positions guards, loads real vehicle cargo, regroups, delivers, and repeats. Repair, construction/research, patrol, escort, movement, attack, delivery, and excavation use the same group membership and crew coordination. Tuning lives in [prototype.json](../config/prototype.json), principally `expeditions`, `economy`, and `units`.
 
 ## Issuing the command
 

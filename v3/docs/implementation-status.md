@@ -85,7 +85,7 @@ The ZIP appears at `build/atd-0.1.0-web.zip`, with `index.html` at its root. No 
 
 - Left click selects an entity; drag selects owned units; Shift adds to the selection.
 - Right click issues a context order: movement, attack, resource collection, kit pickup, or work on an unfinished structure.
-- **M** followed by clicking a patch assigns individual worker mining. Full vehicle-assisted expeditions are not implemented yet.
+- **M** followed by clicking a patch or production facility starts a coordinated expedition, including selected vehicles and their friendly crew. Drivers, passenger workers, guards, gathering/loading, regrouping and repeated physical delivery share a persistent group order.
 - **B** opens construction. Select a structure type, then left click a revealed site. Escape cancels placement mode; select an unfinished building to cancel it.
 - B then D arms the last-selected Depot capacity type, initially Ore. Place immediately or choose a resource with the five buttons and O/G/A/P/C hotkeys. Depot reconfiguration uses the same five actions.
 - Construction previews cover the entire footprint and turn red for blocked, unrevealed, or unaffordable sites. Hold Shift when placing to keep the current type selected.
@@ -103,7 +103,7 @@ The ZIP appears at `build/atd-0.1.0-web.zip`, with `index.html` at its root. No 
 - Space pauses single-player simulation. Camera and order input remain available while paused. Speed selection affects single player only.
 - Browser rooms use **Host**, share/paste the full invitation, **Join**, then let the host launch.
 
-All listed Commonwealth construction buttons are now available, including Radar and Rampart. CPU Mother/Womb construction is implemented; human Lightless construction controls and automated mining expeditions remain pending.
+All listed Commonwealth construction buttons are now available, including Radar and Rampart. CPU Mother/Womb construction is implemented; human Lightless construction controls remain pending. Mixed construction and repair selections now retain military protection.
 
 ## Coverage
 
@@ -112,7 +112,7 @@ All listed Commonwealth construction buttons are now available, including Radar 
 | Project and web export | Pinned Godot project, Compatibility renderer, non-threaded templates, relative-path browser adapter, build/package tools. |
 | Map and movement | Seeded hex disk, cliffs, resource fields, separated starts, accessible starting fields, routes to the Medusa, continuous path-following and spatial unit separation. Automatic friendly gate passage, independent manual/lock controls, and delayed closing are implemented. Advanced collision recovery still needs work. |
 | Camera and selection | Perspective RTS view, four navigation methods, temporary rotation, zoom limits, pause-independent navigation, selection, context orders, tactical map and Anchor centering. |
-| Resources | Individual workers mine/collect, mixed cargo, physical delivery, full-storage waiting, Depot type changes and reconfiguration cooldown/capacity checks. Nacre is Anchor-only. Manual vehicle cargo loading and delivery are available; full hauling failure recovery and automated expeditions remain pending. |
+| Resources | Individual workers mine/collect, mixed cargo, physical delivery, full-storage waiting, Depot type changes and reconfiguration cooldown/capacity checks. Nacre is Anchor-only. Manual vehicle cargo loading and delivery are available; automated expeditions allocate selected crews, transport workers, load cargo and repeat deliveries. Source depletion, destroyed dropoffs, lost drivers, storage limits and manual interruptions are handled by the group controller. |
 | Construction | Blueprint payment, pre-start refund, approach/occupancy checks, Engineer construction work, health progress, persistent unfinished work, post-start resource loss. |
 | Production | Operator queues and cancellations, separate kit queues, five-kit accounting including finished kits, request toggles/configured personnel sources, queue inspection and cancellation UI, kit collection, buffers and recipes. Factory vehicle queues, optional Operator requests, and automatic driver assignment are implemented. |
 | Power | Footprint-connected grids, fuel cycles, active-production demand, fixed brownout rates, blackout latching/recovery, enabled toggles. Detailed Relay loss behavior and all coverage edge cases need further testing. Unlocked friendly Gates open for routed passage and close after traffic clears; manual opening and locking are separate controls. |
@@ -149,7 +149,7 @@ The `?test=1` URL parameter enables a narrow browser test-command queue and diag
 ## Next implementation work
 
 1. Complete movement/steering, source/destination recovery, and construction/repair edge cases, and vehicle arrival/unloading edge cases.
-2. Implement the documented mining expedition state machine and its interruption/cargo invariants.
+2. Exercise expedition formations and transport recovery on dense maps and during full multiplayer matches.
 3. Complete remaining combat/stance edge cases, combat Chyme delivery, Glands, Gloom coordination, Father recruitment, human Lightless controls and post-Medusa CPU expansion. Typed Womb production now connects the other combat units, including Threshers, to ordinary matches.
 4. Build out the ordinary extraction assault, persistence policy, browser lobby polish, and full-match acceptance.
 5. Validate real hosted Pages/itch.io rooms, different-network/TURN behavior, frame-time budgets, and the full five-player match before publishing an alpha as complete.

@@ -67,3 +67,5 @@ Pause and speed controls are shown only in single player. Multiplayer hosts and 
 The main menu separates Expedition, Field missions and Multiplayer. Map seeds are optional under ?Choose map seed.? Multiplayer displays a plain room code without a host suffix; use Copy to share it.
 
 Click **Map** on the minimap to open the full-screen tactical map. Drag to pan, right-click to issue context orders, or hold Shift to queue. Use **Close map** or **Escape** to return. The map uses the same fog, remembered structures and anonymous radar contacts as the minimap; opening it does not pause the match.
+
+Mixed selections keep a shared complex order: mining forms a hauling expedition, repair/build/research assigns Engineers with guards, and patrol/escort moves the selected group together. Selected occupied vehicles include their friendly crew; drivers remain aboard during work. Manual replacement orders remove only the affected participants. The status card shows role, shared phase, blockers and cargo; selecting a group marks its worksite and delivery destination.

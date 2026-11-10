@@ -349,3 +349,31 @@ test('custom coordinator room: cross-origin clients, host orders and host loss',
   await guestContext.close()
   } finally {await Promise.allSettled([hostBrowser.close(),guestBrowser.close()])}
 })
+
+
+test('complex mining keeps guards with workers and exposes expedition status',async({page},testInfo)=>{
+  const errors=await open(page)
+  await page.mouse.click(...(await diagnostics(page)).mission_menu.nav)
+  await page.mouse.click(...(await diagnostics(page)).mission_menu.choices.foothold)
+  await page.mouse.click(...(await diagnostics(page)).mission_menu.deploy)
+  await expect.poll(async()=> (await diagnostics(page)).mission_id).toBe('foothold')
+  const initial=await diagnostics(page)
+  const worker=initial.units.find(u=>u.kind==='engineer')
+  const guard=initial.units.find(u=>u.kind==='marine')
+  const ore=initial.fields.find(f=>f.kind==='ore')
+  await page.mouse.click(...guard.screen)
+  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(guard.id)
+  await control(page,'order',JSON.stringify({action:'mine',ids:[worker.id,guard.id],q:ore.q,r:ore.r}))
+  await page.mouse.move(640,400)
+  await expect.poll(async()=> (await diagnostics(page)).activity_card.activities[0]?.role).toBe('escort')
+  await expect.poll(async()=> (await diagnostics(page)).activity_card.activities[0]?.group_phase).toBe('gather')
+  const state=await diagnostics(page)
+  const current=state.units.find(u=>u.id===guard.id)
+  const source=state.activity_card.activities[0].source
+  expect(Math.hypot(current.x-source[0],current.z-source[1])).toBeLessThan(7)
+  expect(state.activity_card.activities[0].members).toBe(2)
+  await page.screenshot({path:testInfo.outputPath('complex-mining-escort.png')})
+  await control(page,'order',JSON.stringify({action:'stop',ids:[worker.id]}))
+  await expect.poll(async()=> (await diagnostics(page)).activity_card.activities[0]?.blocker).toBe('no_workers')
+  expect(errors).toEqual([])
+})

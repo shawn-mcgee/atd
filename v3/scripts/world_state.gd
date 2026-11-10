@@ -2660,6 +2660,8 @@ class ComplexCommands:
 			if not w.known.get(owner, {}).has(cell) or not w.tiles.has(cell): return "Select a revealed tile"
 			point = HexGrid.world(cell)
 			if action == "mine":
+				for structure in w.structures.values():
+					if structure.cell == cell and structure.kind == "extractor" and structure.owner != owner: return "Choose a friendly source"
 				var facility: Dictionary = w.structures.get(int(order.get("facility", 0)), {})
 				if int(order.get("facility", 0)) != 0 and (facility.is_empty() or facility.owner != owner or not facility.built or facility.cell != cell or w._output_resource(facility).is_empty()): return "Choose a friendly production facility"
 				if facility.is_empty() and (w.tiles[cell].resource == "" or int(w.tiles[cell].amount) <= 0): return "Choose a resource patch or production facility"
@@ -2677,7 +2679,7 @@ class ComplexCommands:
 			for id in members:
 				if w.units[id].orders.size() >= int(w.cfg.movement.orderQueueLimit): return "Order queue full"
 		var group_id: int = w.next_id; w.next_id += 1
-		var g := {"id": group_id, "owner": owner, "action": action, "order": order.duplicate(true), "members": members.duplicate(), "phase": "assemble", "elapsed": 0.0, "repath": 0.0, "inactive": 0.0, "blocker": "", "seats": {}, "destination": 0, "point": point, "origin": w.units[members[0]].pos, "leg": 1, "queued": bool(order.get("queued", false)), "progress": {}}
+		var g := {"id": group_id, "owner": owner, "action": action, "order": order.duplicate(true), "members": members.duplicate(), "phase": "assemble", "elapsed": 0.0, "repath": 0.0, "inactive": 0.0, "blocker": "", "seats": {}, "destination": 0, "point": point, "origin": w.units[members[0]].pos, "leg": 1, "queued": bool(order.get("queued", false)), "progress": {}, "allocation": 0.0}
 		g.order.erase("queued")
 		w.command_groups[group_id] = g
 		if g.queued:
@@ -2746,7 +2748,7 @@ class ComplexCommands:
 				var worker: bool = u.kind in (["operator", "engineer"] if g.action == "mine" else ["engineer"])
 				if worker and workers <= 1 and g.action in ["mine", "repair", "work"]: continue
 				if drivers.find(u.kind) < 0 or approach(w, u, v.pos).is_empty(): continue
-				g.seats[id] = vid; u.group_role = "driver"; free.erase(id)
+				g.seats[id] = vid; u.group_role = "driver"; u.group_speed = INF; free.erase(id)
 				u.job = {"kind": "board", "target": vid}; route(w, u, v.pos)
 				if worker: workers -= 1
 				break
@@ -2802,10 +2804,11 @@ class ComplexCommands:
 					for id in g.members: w.units[id].orders.pop_front()
 					activate(w, g, true)
 				continue
-			g.elapsed += delta; g.inactive += delta; g.repath -= delta
+			g.elapsed += delta; g.inactive += delta; g.repath -= delta; g.allocation -= delta
+			if float(g.allocation) <= 0:
+				allocate(w, g); g.allocation = float(w.cfg.expeditions.allocationRecheckSeconds)
 			if float(g.repath) > 0: continue
 			g.repath = float(w.cfg.expeditions.repathIntervalSeconds)
-			allocate(w, g)
 			if g.phase in ["assemble", "regroup"]:
 				if board(w, g) and float(g.elapsed) < float(w.cfg.expeditions.boardingTimeoutSeconds if g.phase == "assemble" else w.cfg.expeditions.regroupTimeoutSeconds): continue
 				phase(g, "deliver" if g.phase == "regroup" else "travel")
@@ -2842,10 +2845,11 @@ class ComplexCommands:
 			if int(u.vehicle) != 0 and u.group_role != "driver": unboard(w, u)
 
 	static func formation(w: RefCounted, g: Dictionary, point: Vector2, traveling: bool, extent: float = 0.0) -> bool:
-		var arrived := true; var slowest := INF; var center := Vector2.ZERO; var count := 0
+		var arrived := true; var slowest := INF; var center := Vector2.ZERO; var count := 0; var slot_count := 0
 		for id in g.members:
 			var u: Dictionary = w.units[id]
 			if int(u.vehicle) != 0 or (w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0): continue
+			slot_count += 1
 			var previous: Dictionary = g.progress.get(id, {"pos": u.pos, "time": w.time_seconds})
 			if u.pos.distance_to(previous.pos) > 0.2: previous = {"pos": u.pos, "time": w.time_seconds}
 			g.progress[id] = previous
@@ -2863,14 +2867,15 @@ class ComplexCommands:
 			u.group_speed = slowest if traveling else INF
 			if not is_finite(slowest): u.group_speed = float(w.cfg.units[u.kind].speedTilesPerSecond)
 			if traveling and count > 1 and u.pos.distance_to(point) < center.distance_to(point) - float(w.cfg.expeditions.regroupRadiusTiles): u.group_speed = 0.0
-			var angle := index * TAU / maxi(1, count); index += 1
+			var angle := index * TAU / maxi(1, slot_count); index += 1
 			var distance := float(w.cfg.expeditions.escortRadiusTiles) + extent
 			var goal := point + Vector2(cos(angle), sin(angle)) * distance
 			if traveling: goal = point + Vector2(cos(angle), sin(angle)) * minf(1.5, distance)
 			if w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: u.job = {"kind": "group_wait"}; u.route.clear(); continue
 			if u.pos.distance_to(point) > (maxf(2.0, extent + 2.0) if traveling else distance + 1) and w.time_seconds - float(g.progress.get(id, {}).get("time", w.time_seconds)) < float(w.cfg.expeditions.stuckTimeoutSeconds): arrived = false
-			if u.group_role in ["escort", "vehicle"] or traveling:
+			if u.group_role in ["escort", "vehicle"] or traveling or g.action in ["escort", "patrol", "move", "attack"]:
 				u.job = {"kind": "group_guard"}; route(w, u, goal)
+				if traveling: u.home = center if count > 0 else u.pos
 				if not traveling: u.heading = atan2(-(point.x - u.pos.x), -(point.y - u.pos.y))
 		return arrived
 
@@ -2924,9 +2929,9 @@ class ComplexCommands:
 		if facility.is_empty():
 			for s in w.structures.values():
 				if s.owner == g.owner and s.kind == "extractor" and s.built and s.cell == source: facility = s; g.order.facility = int(s.id); break
-		var resource := str(w._output_resource(facility)) if not facility.is_empty() else str(w.tiles.get(source, {}).get("resource", ""))
+		var resource := str(w._output_resource(facility)) if not facility.is_empty() else str(g.get("resource", w.tiles.get(source, {}).get("resource", "")))
 		g.resource = resource
-		var amount := int(facility.buffer) if not facility.is_empty() else int(w.tiles.get(source, {}).get("amount", 0))
+		var amount := int(facility.buffer) if not facility.is_empty() else int(w.tiles.get(source, {}).get("amount", 0)) if w.tiles.get(source, {}).get("resource", "") == resource else 0
 		var cargo := 0; var free := 0; var workers := 0
 		for id in g.members:
 			var u: Dictionary = w.units[id]
@@ -2959,7 +2964,7 @@ class ComplexCommands:
 		var running: bool = not facility.is_empty() and facility.enabled and facility.powered and w._wants_power(facility)
 		g.blocker = "output_pending" if amount == 0 and running else "depleted" if amount <= 0 else ""
 		if amount <= 0 and not running and cargo == 0 and g.members.any(func(id): return not w.units[id].orders.is_empty()): finish(w, g); return
-		if free == 0 or (cargo > 0 and ((amount <= 0 and not running) or float(g.inactive) >= float(w.cfg.expeditions.siteInactivitySeconds))):
+		if free == 0 or (cargo > 0 and ((amount <= 0 and not running) or (float(g.inactive) >= float(w.cfg.expeditions.siteInactivitySeconds) and not (running and amount == 0)))):
 			for id in g.members:
 				var u: Dictionary = w.units[id]
 				if u.group_role == "worker": u.job = {"kind": "group_wait"}; u.route.clear()
@@ -2998,6 +3003,7 @@ class ComplexCommands:
 		var facility: Dictionary = w.structures.get(int(g.order.get("facility", 0)), {})
 		var reach := float(w.cfg.structures[facility.kind].footprintRadiusTiles) + 1.2 if not facility.is_empty() else 1.3
 		if u.pos.distance_to(HexGrid.world(source)) > reach: return
+		if facility.is_empty() and w.tiles[source].resource != str(g.resource): return
 		u.route.clear(); u.work += delta
 		if float(u.work) < float(w.cfg.economy.workerCycleSeconds): return
 		u.work = 0.0
@@ -3067,5 +3073,6 @@ class ComplexCommands:
 		if a.role in ["escort", "vehicle"] and g.phase == "gather": a.phase = "working"
 		if w.cfg.units[u.kind].has("driverSeats") and int(u.driver) == 0: a.blocker = "no_driver"
 		elif str(g.blocker) != "": a.blocker = g.blocker
+		elif u.job.kind in ["group_guard", "group_mine"] and u.route.is_empty() and int(u.target) == 0 and u.pos.distance_to(u.home) > float(w.cfg.expeditions.escortRadiusTiles): a.blocker = "no_route"
 		if not str(a.blocker).is_empty(): a.phase = "waiting"
 		return a
