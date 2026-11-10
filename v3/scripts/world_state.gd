@@ -2802,7 +2802,9 @@ class ComplexCommands:
 					if int(u.get("command_group", 0)) != 0 or (u.job.kind != "idle" and not u.job.get("automatic", false) and int(u.vehicle) == 0) or int(u.orders[0].get("group", 0)) != int(g.id): ready = false
 				if ready:
 					for id in g.members: w.units[id].orders.pop_front()
-					activate(w, g, true)
+					var pending: Dictionary = g.order.duplicate(true); pending.ids = g.members.duplicate()
+					w.command_groups.erase(int(g.id))
+					w.command(int(g.owner), pending, true)
 				continue
 			g.elapsed += delta; g.inactive += delta; g.repath -= delta; g.allocation -= delta
 			if float(g.allocation) <= 0:
