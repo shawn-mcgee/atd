@@ -25,10 +25,21 @@ destruction do not. Losing the last required Womb pauses a queued Medusa order
 without erasing its progress. Existing over-cap units survive Womb loss. Medusa
 death grants configured Chyme and permanently accelerates surviving Wombs.
 
-Human Lightless controls/manual-spawn buttons, combat Chyme harvesting/delivery,
-Glands, Father recruitment, full Gather/Defend coordination, and post-Medusa CPU
-expansion remain pending. The existing unit combat/concealment/burrow rules apply
-to the newly produced types; this pass does not complete their tactical AI.
+CPU Wombs grow armor and Chyme Glands on available adjacent Gloom. Completed
+Glands require a matching adjacent Womb; they disconnect on its destruction and
+can reconnect to a replacement. Surviving Mothers can continue Womb expansion
+after the Medusa dies. Gather units retreat to a reachable Medusa or Stoma when
+full or damaged and retain cargo if no organ is reachable. During extraction,
+ordinary raiders prioritize the shortest remaining countdown and retarget after
+elimination, returning to their previous assignments when extraction threats end.
+
+The CPU queues a Father after completing its initial Womb goals. Fathers recruit available combat units within local range or through continuous Gloom, apply an Attack stance, and move toward an assigned enemy Anchor. Recruits rally to their Father, subject to local range or network connectivity. Recruitment transfers check eligibility and capacity before replacing an existing assignment. Father overrides survive Medusa death and extraction; loss of recruitment restores the post-Medusa Attack stance or the current baseline network stance.
+
+Damaged Lightless structures signal available, non-recruited combat units through continuous Gloom. Defenders distribute across active calls, engage the known attacker within the configured defensive radius, and return to their former stance when the threat leaves or dies. A unit retains an active call after leaving Gloom. Father recruits and the post-Medusa global Attack response take priority.
+
+Defend units group near a friendly structure, or their Father when recruited, and engage visible enemies only within the configured radius.
+
+Human Lightless controls/manual-spawn buttons, Medusa network stances, and further CPU development remain pending.
 
 ## Multiplayer pressure
 
@@ -40,8 +51,8 @@ This balances intended pressure, not identical arrival times: travel distances, 
 
 | State | Behavior |
 | --- | --- |
-| Probe | Approach a known Anchor using dark-weighted navigation. Look for visible enemy units and structures, excluding vehicle occupants. Stop before entering an illuminated waypoint. |
-| Pressure | An observed target, or the already-known Anchor beyond a blocking light perimeter, starts the resistance timer. Taking actual damage before commitment triggers retreat. An unopposed probe recruits nearby idle/probing Scavengers into an attack. Already committed attackers keep their objectives. |
+| Probe | Approach a known Anchor using dark-weighted navigation. Look for visible enemy units and structures, excluding vehicle occupants. Approach into weapon range, including across illumination, to test a target. |
+| Pressure | Actual damage to the current target starts the resistance timer; merely seeing a target does not. Taking actual damage before commitment triggers retreat. An unopposed probe recruits nearby idle/probing Scavengers into an attack. Already committed attackers keep their objectives. |
 | Attack | Cross illumination. Select a reachable firing position with a clear shot. A visible wall or closed Gate blocking the objective becomes the immediate target; destroying it resumes the original objective. |
 | Retreat | Seek reachable, unilluminated Gloom. Ignore closer isolated patches. Retry interrupted routes, then wait for regeneration before probing again. |
 

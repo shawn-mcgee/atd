@@ -237,6 +237,14 @@ func _structure(root: Node3D, e: Dictionary, team: Color) -> void:
 			var rib := piece(root, wedge, Vector3(cos(a), 0.4, sin(a)), Vector3(0.4, 0.8, 1.35), BONE.darkened(0.24))
 			rib.rotation.y = -a + PI / 2
 			piece(root, sphere, Vector3(cos(a) * 0.7, 0.93, sin(a) * 0.7), Vector3(0.17, 0.12, 0.17), Color("ba796b"), "", true)
+	elif e.kind in ["gland", "chyme_gland"]:
+		piece(root, sphere, Vector3(0, 0.2, 0), Vector3(0.8, 0.35, 0.8), Color("594440"))
+		piece(root, sphere, Vector3(0, 0.45, 0), Vector3(0.52, 0.65, 0.52), Color("a76f61") if e.kind == "chyme_gland" else Color("86786c"))
+		for i in range(4):
+			var a := i * TAU / 4
+			var rib := piece(root, wedge, Vector3(cos(a) * 0.27, 0.34, sin(a) * 0.27), Vector3(0.15, 0.5, 0.38), BONE.darkened(0.3))
+			rib.rotation.y = -a + PI / 2
+		if e.kind == "chyme_gland": piece(root, sphere, Vector3(0, 0.78, 0), Vector3(0.18, 0.12, 0.18), Color("d18b6c"), "", true)
 	elif e.kind == "gate":
 		for side in [-1, 1]:
 			piece(root, box, Vector3(side * 0.43, 0.5, 0), Vector3(0.16, 1, 0.78), STEEL)

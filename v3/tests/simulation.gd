@@ -547,8 +547,220 @@ func colony_fixture() -> WorldState:
 	w.cfg.units.scavenger.basePopulationCap = 2
 	return w
 
+func gland_checks() -> void:
+	var w := world()
+	w.lightless_brain_time = -10000
+	w.cfg.lightless.medusaChymePerCycle = 0
+	var center := Vector2i.ZERO
+	for cell in HexGrid.disk(center, 2):
+		w.tiles[cell].cliff = false; w.tiles[cell].resource = ""; w.gloom[cell] = 100.0
+	for id in w.units.keys(): w.units.erase(id)
+	var womb: Dictionary = w.structures[w.add_structure("womb", center, -1)]
+	womb.unit_type = "scavenger"
+	w.lightless_chyme = 500
+	var first: Vector2i = center + HexGrid.DIRECTIONS[0]
+	var second: Vector2i = center + HexGrid.DIRECTIONS[1]
+	verify(WorldState.LightlessColony.place_gland(w, womb, "gland", first), "A Womb pays to grow an adjacent armor Gland")
+	verify(WorldState.LightlessColony.place_gland(w, womb, "chyme_gland", second), "A Womb pays to grow an adjacent Chyme Gland")
+	var armor: Dictionary = {}; var income: Dictionary = {}
+	for s in w.structures.values():
+		if s.kind == "gland": armor = s
+		if s.kind == "chyme_gland": income = s
+	var target: Dictionary = w.units[w.add_unit("scavenger", Vector2(4, 0), -1)]
+	var base := float(w.cfg.units.scavenger.armor)
+	verify(WorldState.TargetRules.armor(w, target) == base and w.lightless_chyme == 410, "Gestating Glands have no effect and costs are paid once")
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.glandGestationSeconds))
+	verify(armor.built and income.built and WorldState.TargetRules.armor(w, target) == base + 1, "Completed connected Gland grants type-wide armor")
+	var before := w.lightless_chyme
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.chymeGlandCycleSeconds))
+	verify(w.lightless_chyme == before + int(w.cfg.lightless.chymeGlandChymePerCycle), "Connected Chyme Gland produces income")
+	w._destroy(womb)
+	before = w.lightless_chyme
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.chymeGlandCycleSeconds))
+	verify(w.lightless_chyme == before and WorldState.TargetRules.armor(w, target) == base, "Destroying a Womb disables both surviving Glands")
+	var replacement: Dictionary = w.structures[w.add_structure("womb", center, -1)]
+	replacement.unit_type = "scavenger"
+	WorldState.LightlessColony.update(w, 0)
+	verify(int(armor.connected_womb) == int(replacement.id) and int(income.connected_womb) == int(replacement.id) and WorldState.TargetRules.armor(w, target) == base + 1, "A replacement Womb reconnects surviving matching Glands")
+	w.cfg.lightless.cpuArmorGlandsPerTypeBeforeMoreExpansion = 2
+	w.lightless_expansion_time = float(w.cfg.lightless.cpuExpansionIntervalSeconds)
+	WorldState.LightlessColony.develop(w, {})
+	verify(w.structures.values().filter(func(s): return s.kind == "gland").size() == 2, "The CPU develops surviving Wombs after Medusa loss")
+
+func lightless_defend_stance_checks() -> void:
+	var w := world()
+	for cell in HexGrid.disk(Vector2i.ZERO, 6): w.tiles[cell].cliff = false
+	w._rebuild_navigation(); w._sight_areas.clear(); w._sight_topology_valid = false
+	var father: Dictionary = w.units[w.add_unit("father", Vector2.ZERO, -1)]
+	var unit: Dictionary = w.units[w.add_unit("scavenger", Vector2(0.5, 0), -1)]
+	var enemy: Dictionary = w.units[w.add_unit("engineer", Vector2(1.0, 0), 0)]
+	father.group_stance = "defend"
+	WorldState.LightlessCoordination.recruit(w, father, unit, WorldState.LightlessCoordination.components(w))
+	var hp := float(enemy.hp)
+	w._unit_step(unit, 0.05)
+	verify(unit.job.kind == "defend_stance" and float(enemy.hp) < hp, "A Father's Defend stance engages visible enemies nearby")
+	enemy.pos = Vector2(float(w.cfg.lightless.defendRadiusTiles) + 2, 0)
+	w._unit_step(unit, 0.05)
+	verify(int(unit.target) == 0, "A Defend recruit does not pursue a target outside its Father's radius")
+	unit.pos = Vector2(float(w.cfg.lightless.defendRadiusTiles) + 2, 0)
+	unit.route.clear(); unit.job.repath_remaining = 0.0
+	w._unit_step(unit, 0.05)
+	verify(not unit.route.is_empty() and unit.route.back().distance_to(father.pos) < 2, "A defender outside its radius returns toward its Father")
+	var thresher: Dictionary = w.units[w.add_unit("thresher", Vector2.ZERO, -1)]
+	WorldState.LightlessCoordination.recruit(w, father, thresher, WorldState.LightlessCoordination.components(w))
+	thresher.buried = true
+	var nearby: Dictionary = w.units[w.add_unit("engineer", Vector2(1.0, 0), 0)]
+	w.shots.clear()
+	w._unit_step(thresher, 0.05)
+	verify(not w.shots.is_empty() and w.shots.back().weapon == "thresher_tentacle" and float(nearby.hp) < float(w.cfg.units.engineer.health), "A buried Defend Thresher uses its buried weapon")
+
+func lightless_defense_checks() -> void:
+	var w := world()
+	w.gloom.clear()
+	for cell in HexGrid.disk(Vector2i.ZERO, 4): w.gloom[cell] = 20.0
+	w.gloom_components.clear()
+	var a: Dictionary = w.structures[w.add_structure("womb", Vector2i(-2, 0), -1)]
+	var b: Dictionary = w.structures[w.add_structure("womb", Vector2i(2, 0), -1)]
+	var enemy_a: Dictionary = w.units[w.add_unit("marine", w.entity_position(a) + Vector2(0.3, 0), 0)]
+	var enemy_b: Dictionary = w.units[w.add_unit("marine", w.entity_position(b) + Vector2(0.3, 0), 0)]
+	var defender_a: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(Vector2i(-1, 0)), -1)]
+	var defender_b: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(Vector2i(1, 0)), -1)]
+	var father: Dictionary = w.units[w.add_unit("father", Vector2.ZERO, -1)]
+	var recruit: Dictionary = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
+	father.group_stance = "gather"
+	WorldState.LightlessCoordination.recruit(w, father, recruit, WorldState.LightlessCoordination.components(w))
+	var remote: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(Vector2i(8, 0)), -1)]
+	var weapon: Dictionary = w.cfg.weapons.marine_rifle
+	w._weapon_damage(a, weapon, enemy_a); w._weapon_damage(b, weapon, enemy_b)
+	WorldState.LightlessCoordination.update_defense(w)
+	verify(defender_a.job.kind == "lightless_defend" and defender_b.job.kind == "lightless_defend" and int(defender_a.job.site) != int(defender_b.job.site), "Connected available defenders distribute across threatened structures")
+	verify(int(recruit.father_id) == int(father.id) and recruit.stance == "gather" and recruit.job.kind != "lightless_defend", "Defense calls cannot take a Father's recruits")
+	verify(remote.job.kind != "lightless_defend", "Disconnected units do not receive a defense call")
+	var selected: Dictionary = defender_a if int(defender_a.job.site) == int(a.id) else defender_b
+	selected.pos = enemy_a.pos + Vector2(0.4, 0)
+	var hp := float(enemy_a.hp)
+	w._unit_step(selected, 0.05)
+	verify(float(enemy_a.hp) < hp, "A defender attacks the threat to its assigned structure")
+	w.gloom.erase(HexGrid.cell(selected.pos)); w.gloom_components.clear()
+	WorldState.LightlessCoordination.update_defense(w)
+	verify(selected.job.kind == "lightless_defend", "A defender retains an active call after leaving Gloom")
+	w.visible[0][HexGrid.cell(selected.pos)] = true
+	var snapshot := w.snapshot(0)
+	verify(snapshot.structures.all(func(s): return not s.has("defense_attacker")), "Defense requests do not expose unseen attacker IDs in snapshots")
+	var observed: Array = snapshot.units.filter(func(u): return int(u.id) == int(selected.id))
+	verify(not observed.is_empty() and int(observed[0].target) == 0 and not observed[0].has("last_target_position"), "Visible defenders do not disclose the position or identity of their unseen target")
+	w._destroy(enemy_a); w._destroy(enemy_b)
+	WorldState.LightlessCoordination.update_defense(w)
+	verify(defender_a.job.kind == "idle" and defender_b.job.kind == "idle", "Defenders return to their stance after threats disappear")
+
+func father_coordination_checks() -> void:
+	var w := world()
+	w.gloom.clear()
+	for q in range(9): w.gloom[Vector2i(q, 0)] = 20.0
+	w.cfg.lightless.fatherLocalRangeTiles = 1
+	w.cfg.lightless.fatherRecruitLimit = 1
+	var father: Dictionary = w.units[w.add_unit("father", HexGrid.world(Vector2i.ZERO), -1)]
+	var other: Dictionary = w.units[w.add_unit("father", HexGrid.world(Vector2i(8, 0)), -1)]
+	var unit: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(Vector2i(8, 0)), -1)]
+	var extra: Dictionary = w.units[w.add_unit("stalker", other.pos, -1)]
+	father.group_stance = "gather"; other.group_stance = "probe"
+	var network := WorldState.LightlessCoordination.components(w)
+	verify(WorldState.LightlessCoordination.recruit(w, father, unit, network) and unit.stance == "gather", "A Father recruits a remote unit through continuous Gloom and applies its stance")
+	verify(not WorldState.LightlessCoordination.set_stance(w, father, "invalid") and unit.stance == "gather", "Invalid Father stances do not change recruits")
+	verify(WorldState.LightlessCoordination.set_stance(w, father, "probe") and unit.stance == "probe", "Changing a Father's stance updates its existing recruits")
+	verify(not WorldState.LightlessCoordination.recruit(w, father, extra, network), "A Father cannot exceed its recruit limit")
+	verify(WorldState.LightlessCoordination.recruit(w, other, extra, network), "A Father recruits locally without a network requirement")
+	verify(not WorldState.LightlessCoordination.recruit(w, other, unit, network) and int(unit.father_id) == int(father.id), "A failed transfer leaves the original Father's assignment intact")
+	w.gloom.erase(Vector2i(4, 0))
+	WorldState.LightlessCoordination.update(w)
+	verify(not unit.has("father_id") and int(extra.father_id) == int(other.id), "Disconnected remote recruits release while local recruits remain assigned")
+	w.medusa_dead = true
+	WorldState.LightlessCoordination.release(w, extra, WorldState.LightlessCoordination.components(w))
+	verify(extra.stance == "attack", "Released recruits adopt Attack after Medusa death")
+	w = world()
+	father = w.units[w.add_unit("father", Vector2.ZERO, -1)]
+	unit = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
+	father.group_stance = "gather"
+	WorldState.LightlessCoordination.recruit(w, father, unit, WorldState.LightlessCoordination.components(w))
+	for organ in w.structures.values():
+		if organ.kind == "medusa": w._destroy(organ); break
+	verify(unit.stance == "gather" and int(unit.father_id) == int(father.id), "Medusa death does not override a Father's recruited stance")
+	w._destroy(father)
+	WorldState.LightlessCoordination.update(w)
+	verify(not unit.has("father_id") and unit.stance == "attack", "A Father's death releases recruits to the post-Medusa stance")
+	w = world()
+	w.cfg.lightless.cpuWombPriority = []
+	w.lightless_chyme = 500
+	var medusa: Dictionary = {}
+	for organ in w.structures.values():
+		if organ.kind == "medusa": medusa = organ; break
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(medusa.spawn_queue.any(func(job): return job.kind == "father"), "The CPU queues a Father after its initial Womb goals")
+	father = w.units[w.add_unit("father", Vector2.ZERO, -1)]
+	unit = w.units[w.add_unit("scavenger", Vector2(0.5, 0), -1)]
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(int(unit.get("father_id", 0)) == int(father.id) and unit.stance == "attack", "A CPU Father recruits nearby available units and applies its attack stance")
+
+func gather_checks() -> void:
+	var w := world()
+	var medusa: Dictionary = {}
+	for s in w.structures.values():
+		if s.kind == "medusa": medusa = s; break
+	var id := w.add_unit("scavenger", w.entity_position(medusa) + Vector2(4, 0), -1)
+	var u: Dictionary = w.units[id]
+	u.stance = "gather"; u.chyme = float(w.cfg.units.scavenger.chymeCapacity)
+	var before := w.lightless_chyme
+	w._unit_step(u, 0.05)
+	verify(u.job.kind == "gather_return" and not u.route.is_empty(), "A full Gather unit routes to a reachable delivery organ")
+	advance(w, 8)
+	verify(w.lightless_chyme >= before + float(w.cfg.units.scavenger.chymeCapacity) and float(u.chyme) < float(w.cfg.units.scavenger.chymeCapacity), "Gather delivers its cargo before seeking another target")
+	w = world(); medusa = {}
+	for s in w.structures.values():
+		if s.kind == "medusa": medusa = s; break
+	w._destroy(medusa)
+	id = w.add_unit("scavenger", Vector2.ZERO, -1); u = w.units[id]
+	u.stance = "gather"; u.chyme = float(w.cfg.units.scavenger.chymeCapacity)
+	before = w.lightless_chyme
+	w._unit_step(u, 0.05)
+	verify(u.job.kind == "gather_return" and u.chyme == float(w.cfg.units.scavenger.chymeCapacity) and w.lightless_chyme == before, "Gather retains cargo when no delivery organ exists")
+
+func extraction_assault_checks() -> void:
+	var w := world(3)
+	var unit: Dictionary = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
+	var original := int(unit.raid_owner)
+	var first := (original + 1) % 3
+	var second := (original + 2) % 3
+	w.players[first].extracting = true; w.players[first].remaining = 30.0
+	w.players[second].extracting = true; w.players[second].remaining = 20.0
+	verify(int(WorldState.LightlessTactics.assigned_anchor(w, unit).owner) == second, "Assault prioritizes the extraction closest to completion")
+	w.players[second].extracting = false
+	verify(int(WorldState.LightlessTactics.assigned_anchor(w, unit).owner) == first, "Assault retargets another extracting Anchor")
+	w.players[first].extracting = false
+	verify(int(WorldState.LightlessTactics.assigned_anchor(w, unit).owner) == original, "After extraction threats end, the original raid assignment resumes")
+
+func chyme_collection_checks() -> void:
+	var w := world()
+	var attacker: Dictionary = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
+	var victim: Dictionary = w.units[w.add_unit("marine", Vector2.ZERO, 0)]
+	var weapon: Dictionary = w.cfg.weapons.marine_rifle.duplicate(true)
+	weapon.damagePerHit = 1000
+	victim.hp = 4.5
+	var initial := w.lightless_chyme
+	w._weapon_damage(victim, weapon, attacker)
+	verify(attacker.chyme == 4.5 and w.lightless_chyme == initial, "Combat Chyme uses actual health removed and remains carried")
+	victim = w.units[w.add_unit("marine", Vector2.ZERO, 0)]
+	w._weapon_damage(victim, weapon, attacker)
+	verify(attacker.chyme == float(w.cfg.units.scavenger.chymeCapacity), "Combat Chyme cannot exceed carrying capacity")
+	var medusa: Dictionary = {}
+	for organ in w.structures.values():
+		if organ.kind == "medusa": medusa = organ; break
+	attacker.pos = w.entity_position(medusa)
+	w._unit_step(attacker, 0.0)
+	verify(attacker.chyme == 0 and w.lightless_chyme == initial + float(w.cfg.units.scavenger.chymeCapacity), "Chyme reaches the colony only at an eligible organ")
+
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	chyme_collection_checks(); gland_checks(); gather_checks(); extraction_assault_checks(); father_coordination_checks(); lightless_defense_checks(); lightless_defend_stance_checks()
 	if "--missions-only" in OS.get_cmdline_user_args():
 		mission_playthrough_checks(); print("Mission checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--complex-only" in OS.get_cmdline_user_args():
@@ -761,7 +973,14 @@ func run() -> void:
 	verify(w.units[prober].job.kind == "retreat" and w.units[prober].target == 0, "A damaged uncommitted probe retreats to Gloom")
 	w.units.erase(prober)
 	prober = w.add_unit("scavenger", worker.pos + Vector2(0.6, 0), -1)
+	w.cfg.units.engineer.armor = 100
+	w._probe_step(w.units[prober], float(w.cfg.lightless.probeResistanceWindowSeconds) + 0.1)
+	verify(w.units[prober].job.kind == "probe" and float(w.units[prober].job.pressure) == 0, "A probe cannot signal an attack when armor prevents damage")
+	w.cfg.units.engineer.armor = 0
+	w.units.erase(prober)
+	prober = w.add_unit("scavenger", worker.pos + Vector2(0.6, 0), -1)
 	var ally := w.add_unit("scavenger", worker.pos + Vector2(0.8, 0.2), -1)
+	w._probe_step(w.units[prober], 0.05)
 	w._probe_step(w.units[prober], float(w.cfg.lightless.probeResistanceWindowSeconds) + 0.1)
 	verify(w.units[prober].job.kind == "attack" and w.units[ally].job.kind == "attack", "An unopposed probe recruits nearby Scavengers to apply pressure")
 	var lit_cell := HexGrid.cell(worker.pos)
@@ -1239,6 +1458,8 @@ func multiplayer_pressure_checks() -> void:
 	var raiders: Array = []
 	for i in range(3): raiders.append(w.units[w.add_unit("scavenger", HexGrid.world(anchor.cell + Vector2i(2, 0)), -1)])
 	var leader: Dictionary = raiders.filter(func(u): return int(u.raid_owner) == 0)[0]
+	leader.pos = w.entity_position(anchor) + Vector2(0.5, 0)
+	w._probe_step(leader, 0.05)
 	w._probe_step(leader, float(w.cfg.lightless.probeResistanceWindowSeconds) + 0.1)
 	verify(leader.job.kind == "attack", "The closest player's assigned probe still commits normally")
 	verify(raiders.filter(func(u): return int(u.raid_owner) != 0).all(func(u): return u.stance == "probe" and u.job.kind == "idle"), "Local recruitment cannot hijack probes assigned to other players")

@@ -73,4 +73,4 @@ Radar detects enemy occupied tiles through walls/cliffs without revealing terrai
 
 Ramparts add one fixed armor layer to friendly structures in range. Overlaps do not sum. Enabled, built and powered are required. Inspector armor includes the shield bonus. Gates retain separate open/locked/manual/automatic states; they open automatically only for friendly routes, and automatically opened gates close after traffic clears.
 
-The CPU Lightless controller still has simplified discovery/coordination. Do not interpret human-side concealment filtering as completion of CPU knowledge, Wombs, Fathers, or Gloom communication.
+The CPU Lightless controller still has simplified discovery and coordination. Wombs, Glands, and initial Father recruitment are implemented; human controls and Medusa network stance propagation remain incomplete. Human-side concealment filtering does not imply complete CPU knowledge.
