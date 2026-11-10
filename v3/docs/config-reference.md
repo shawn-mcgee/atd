@@ -939,7 +939,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `camera.wheelStepTiles` | number | `2` |
 | `camera.panTilesPerRealSecondAtDefaultZoom` | number | `18` |
 | `camera.scalePanWithZoom` | boolean | `true` |
-| `camera.edgeBandLogicalPixels` | number | `12` |
+| `camera.edgeBandLogicalPixels` | number | `32` |
 | `camera.rotationHoldDegrees` | number | `90` |
 | `camera.zoomResponseSeconds` | number | `0.12` |
 | `camera.rotationResponseSeconds` | number | `0.12` |
@@ -958,6 +958,8 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `camera.availableWhilePaused` | boolean | `true` |
 | `camera.includeInSimulationSettingsHash` | boolean | `false` |
 | `camera.maxFrameDeltaSeconds` | number | `0.1` |
+| `camera.edgeIndicatorSizeLogicalPixels` | number | `8` |
+| `camera.edgeIndicatorPulseSeconds` | number | `0.9` |
 
 ## movement
 
@@ -985,18 +987,18 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `presentation.terrain.gasVaporOpacity` | number | `0.22` |
 | `presentation.terrain.groundNormalStrength` | number | `0.32` |
 | `presentation.fog.enabled` | boolean | `true` |
-| `presentation.fog.memoryOpacity` | number | `0.58` |
-| `presentation.fog.edgeOpacity` | number | `0.82` |
-| `presentation.fog.edgeReachTiles` | number | `1.6` |
+| `presentation.fog.memoryOpacity` | number | `0.28` |
+| `presentation.fog.edgeOpacity` | number | `0.48` |
+| `presentation.fog.edgeReachTiles` | number | `1.1` |
 | `presentation.fog.driftSpeed` | number | `0.09` |
 | `presentation.fog.noiseScale` | number | `1.25` |
 | `presentation.fog.heightTiles` | number | `0.85` |
 | `presentation.lighting.serviceLightWashOpacity` | number | `0.16` |
-| `presentation.lighting.ambientEnergy` | number | `0.32` |
-| `presentation.lighting.keyLightEnergy` | number | `0.48` |
+| `presentation.lighting.ambientEnergy` | number | `0.58` |
+| `presentation.lighting.keyLightEnergy` | number | `0.65` |
 | `presentation.lighting.workLightEnergy` | number | `2` |
 | `presentation.lighting.groundBrightness` | number | `1.7` |
-| `presentation.structureMemoryTintStrength` | number | `0.75` |
+| `presentation.structureMemoryTintStrength` | number | `0.42` |
 | `presentation.damageNumbers` | boolean | `true` |
 | `presentation.soundEnabled` | boolean | `true` |
 | `presentation.ambienceVolumeDb` | number | `-25` |
@@ -1102,6 +1104,8 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `presentation.muzzleHeights.sentry` | number | `0.83` |
 | `presentation.muzzleHeights.torch` | number | `0.83` |
 | `presentation.muzzleHeights.lance` | number | `0.83` |
+| `presentation.activityIndicators.sizePixels` | number | `18` |
+| `presentation.activityIndicators.pulseSeconds` | number | `1.2` |
 
 ## targeting
 
@@ -1176,3 +1180,59 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `controls.depotHotkeys.alloy` | string | `"A"` |
 | `controls.depotHotkeys.polymer` | string | `"P"` |
 | `controls.depotHotkeys.crystal` | string | `"C"` |
+
+## missions
+
+| JSON path | Type | Default |
+| --- | --- | --- |
+| `missions.foothold.title` | string | `"First foothold"` |
+| `missions.foothold.briefing` | string | `"Mine, deliver, and build a powered outpost. No enemy pressure."` |
+| `missions.foothold.radiusTiles` | number | `18` |
+| `missions.foothold.anchorEdgeInsetTiles` | number | `6` |
+| `missions.foothold.startingResources.ore` | number | `100` |
+| `missions.foothold.startingResources.gas` | number | `100` |
+| `missions.foothold.startingResources.alloy` | number | `10` |
+| `missions.foothold.startingResources.polymer` | number | `10` |
+| `missions.foothold.startingResources.crystal` | number | `10` |
+| `missions.foothold.deliveryResource` | string | `"ore"` |
+| `missions.foothold.deliveryTarget` | number | `20` |
+| `missions.foothold.requiredStructures` | array | `["depot","floodlight"]` |
+| `missions.foothold.extraEngineers` | number | `0` |
+| `missions.foothold.extraMarines` | number | `0` |
+| `missions.foothold.clearRadiusTiles` | number | `8` |
+| `missions.industry.title` | string | `"Supply and steel"` |
+| `missions.industry.briefing` | string | `"Connect industry, haul its output, and equip reinforcements. No enemy pressure."` |
+| `missions.industry.radiusTiles` | number | `18` |
+| `missions.industry.anchorEdgeInsetTiles` | number | `6` |
+| `missions.industry.startingResources.ore` | number | `100` |
+| `missions.industry.startingResources.gas` | number | `100` |
+| `missions.industry.startingResources.alloy` | number | `0` |
+| `missions.industry.startingResources.polymer` | number | `10` |
+| `missions.industry.startingResources.crystal` | number | `10` |
+| `missions.industry.deliveryResource` | string | `"alloy"` |
+| `missions.industry.deliveryTarget` | number | `5` |
+| `missions.industry.requiredStructures` | array | `["foundry","armory"]` |
+| `missions.industry.extraEngineers` | number | `1` |
+| `missions.industry.extraMarines` | number | `0` |
+| `missions.industry.additionalMarinesRequired` | number | `1` |
+| `missions.industry.clearRadiusTiles` | number | `8` |
+| `missions.extraction.title` | string | `"The last light"` |
+| `missions.extraction.briefing` | string | `"Scout the central nest, destroy it, recover Nacre, and hold for extraction."` |
+| `missions.extraction.radiusTiles` | number | `18` |
+| `missions.extraction.anchorEdgeInsetTiles` | number | `6` |
+| `missions.extraction.startingResources.ore` | number | `100` |
+| `missions.extraction.startingResources.gas` | number | `100` |
+| `missions.extraction.startingResources.alloy` | number | `10` |
+| `missions.extraction.startingResources.polymer` | number | `10` |
+| `missions.extraction.startingResources.crystal` | number | `10` |
+| `missions.extraction.extraEngineers` | number | `1` |
+| `missions.extraction.extraMarines` | number | `4` |
+| `missions.extraction.medusaHealth` | number | `250` |
+| `missions.extraction.nestScavengers` | number | `2` |
+| `missions.extraction.extractionMinimumNacre` | number | `60` |
+| `missions.extraction.extractionSeconds` | number | `30` |
+| `missions.extraction.assaultIntervalSeconds` | number | `10` |
+| `missions.extraction.assaultWaveSize` | number | `2` |
+| `missions.extraction.clearRadiusTiles` | number | `8` |
+| `missions.extraction.nestClearRadiusTiles` | number | `4` |
+| `missions.extraction.nestSpawnRadiusTiles` | number | `2` |

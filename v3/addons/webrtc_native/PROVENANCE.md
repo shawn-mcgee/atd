@@ -1,0 +1,1 @@
+WebRTC native GDExtension and license notices copied from shawn-mcgee/multiplayer-experiment, commit ec8a6ee175df1f16e529cd0d21302c8e5e708a19. Windows/Linux x86_64 debug and release libraries only. The bundled LICENSE.webrtc-native and dependency notices apply. Browser exports use built-in browser WebRTC and exclude this addon.

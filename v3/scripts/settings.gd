@@ -8,6 +8,7 @@ func _ready() -> void:
 	data = ConfigRules.read_json("res://config/prototype.json")
 	network = _read("res://config/networking.json")
 	var errors := ConfigRules.validate(data)
+	errors.append_array(ConfigRules.validate_network(network))
 	if not errors.is_empty():
 		for error in errors: push_error("Configuration: " + error)
 		get_tree().quit(1); return
@@ -24,6 +25,26 @@ class ConfigRules:
 	extends RefCounted
 	## Configuration boundary shared by the game, headless tests, and authoring tools.
 	## Validation returns every error with its JSON path; it never fills in missing tuning.
+
+	static func validate_network(config: Dictionary) -> Array[String]:
+		var errors: Array[String] = []
+		for section in ["signaling", "ice", "limits", "liveness"]:
+			if not config.get(section) is Dictionary: errors.append("networking." + section + ": required object")
+		if not errors.is_empty(): return errors
+		var url = config.signaling.get("url")
+		if not url is String or not (str(url).begins_with("wss://") or str(url).begins_with("ws://")): errors.append("networking.signaling.url: expected WebSocket URL")
+		for path in ["signaling.connectTimeoutMs", "liveness.heartbeatIntervalMs", "liveness.peerTimeoutMs", "limits.maxPeers", "limits.maxPacketBytes", "limits.framePayloadBytes", "limits.bufferedAmountBytes", "limits.sendTimeoutMs", "limits.receiveFramesPerPoll", "limits.sendFramesPerPoll", "limits.compressionThresholdBytes", "limits.commandQueueLimit"]:
+			var value = at_path(config, path)
+			if not (value is int or value is float) or not is_finite(float(value)) or float(value) <= 0 or float(value) != floorf(float(value)): errors.append("networking." + path + ": expected positive whole number")
+		if float(config.liveness.get("peerTimeoutMs", 0)) <= float(config.liveness.get("heartbeatIntervalMs", 0)): errors.append("networking.liveness.peerTimeoutMs: must exceed heartbeat interval")
+		if float(config.limits.get("maxPeers", 0)) > 4: errors.append("networking.limits.maxPeers: maximum four guests")
+		if float(config.limits.get("framePayloadBytes", 0)) > 1184: errors.append("networking.limits.framePayloadBytes: exceeds Godot's 1200-byte frame limit")
+		if not config.ice.get("transportPolicy") in ["all", "relay"]: errors.append("networking.ice.transportPolicy: expected all or relay")
+		if not config.ice.get("servers") is Array: errors.append("networking.ice.servers: expected array")
+		else:
+			for server in config.ice.servers:
+				if not server is Dictionary or not server.get("urls") is String: errors.append("networking.ice.servers: each server requires a URL string")
+		return errors
 
 	static func read_json(path: String) -> Dictionary:
 		var parser := JSON.new()
@@ -59,6 +80,37 @@ class ConfigRules:
 			if not config.get(section) is Dictionary: errors.append(section + ": required object is missing")
 		if not errors.is_empty(): return errors
 		_check_numbers(config, "", errors)
+		var missions = config.get("missions")
+		if not missions is Dictionary:
+			errors.append("missions: required object is missing")
+		else:
+			for key in ["foothold", "industry", "extraction"]:
+				var d = missions.get(key)
+				var path: String = "missions." + key
+				if not d is Dictionary: errors.append(path + ": required object is missing"); continue
+				for field in ["title", "briefing"]:
+					if not d.get(field) is String or str(d.get(field, "")).is_empty(): errors.append(path + "." + field + ": required text")
+				for field in ["radiusTiles", "anchorEdgeInsetTiles", "extraEngineers", "extraMarines", "clearRadiusTiles"] + (["medusaHealth", "nestScavengers", "nestClearRadiusTiles", "nestSpawnRadiusTiles", "extractionMinimumNacre", "extractionSeconds", "assaultIntervalSeconds", "assaultWaveSize"] if key == "extraction" else ["deliveryTarget"]):
+					var value = d.get(field)
+					if not (value is int or value is float) or not is_finite(float(value)) or float(value) < 0 or float(value) != floorf(float(value)): errors.append(path + "." + field + ": expected a nonnegative whole number")
+					elif not field in ["extraEngineers", "extraMarines", "nestScavengers"] and float(value) == 0: errors.append(path + "." + field + ": must be positive")
+				if float(d.get("radiusTiles", 0)) <= float(d.get("anchorEdgeInsetTiles", 0)) + float(d.get("clearRadiusTiles", 0)): errors.append(path + ": radius must contain the cleared Anchor area")
+				if not d.get("startingResources") is Dictionary: errors.append(path + ".startingResources: required object")
+				else:
+					for resource in ["ore", "gas", "alloy", "polymer", "crystal"]:
+						var value = d.startingResources.get(resource)
+						if not (value is int or value is float) or float(value) < 0 or float(value) != floorf(float(value)) or float(value) > float(config.map.anchorStorage.get(resource, 0)): errors.append(path + ".startingResources." + resource + ": expected whole inventory within Anchor capacity")
+				if key == "extraction":
+					if float(d.get("extractionMinimumNacre", 0)) > float(config.match.anchorNacreCapacity): errors.append(path + ".extractionMinimumNacre: exceeds Anchor capacity")
+				else:
+					if not d.get("deliveryResource", "") in ["ore", "alloy"]: errors.append(path + ".deliveryResource: expected ore or alloy")
+					if not d.get("requiredStructures") is Array: errors.append(path + ".requiredStructures: required array")
+					else:
+						for kind in d.requiredStructures:
+							if not config.structures.has(kind): errors.append(path + ".requiredStructures: unknown structure")
+				if key == "industry":
+					var value = d.get("additionalMarinesRequired")
+					if not (value is int or value is float) or float(value) <= 0 or float(value) != floorf(float(value)): errors.append(path + ".additionalMarinesRequired: expected a positive whole number")
 		var terrain_style = config.presentation.get("terrain", {})
 		for key in ["scatterDensity", "contactShadowOpacity", "rockStrataStrength", "gasVaporOpacity", "groundNormalStrength"]:
 			var value = terrain_style.get(key) if terrain_style is Dictionary else null
@@ -78,7 +130,7 @@ class ConfigRules:
 			if not (value is int or value is float) or not is_finite(float(value)) or float(value) < 0: errors.append("presentation.lighting." + key + ": expected a finite nonnegative number")
 		var memory_tint = config.presentation.get("structureMemoryTintStrength", 0.75)
 		if not (memory_tint is int or memory_tint is float) or not is_finite(float(memory_tint)) or float(memory_tint) < 0 or float(memory_tint) > 1: errors.append("presentation.structureMemoryTintStrength: expected a number from 0 to 1")
-		for path in ["match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "construction.idleEngineerSearchRangeTiles", "construction.idleEngineerSearchIntervalSeconds", "targeting.refreshIntervalTicks", "lightless.combatRepathSeconds", "lightless.retreatRepathSeconds", "lightless.medusaPassiveScavengerSeconds", "lightless.medusaChymeCycleSeconds", "lightless.brainDecisionIntervalSeconds", "lightless.cpuExpansionIntervalSeconds", "lightless.structureGestationSeconds", "lightless.postMedusaWombSpawnRateMultiplier"]:
+		for path in ["presentation.activityIndicators.sizePixels", "presentation.activityIndicators.pulseSeconds", "camera.edgeBandLogicalPixels", "camera.edgeIndicatorSizeLogicalPixels", "camera.edgeIndicatorPulseSeconds", "match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "construction.idleEngineerSearchRangeTiles", "construction.idleEngineerSearchIntervalSeconds", "targeting.refreshIntervalTicks", "lightless.combatRepathSeconds", "lightless.retreatRepathSeconds", "lightless.medusaPassiveScavengerSeconds", "lightless.medusaChymeCycleSeconds", "lightless.brainDecisionIntervalSeconds", "lightless.cpuExpansionIntervalSeconds", "lightless.structureGestationSeconds", "lightless.postMedusaWombSpawnRateMultiplier"]:
 			var value = at_path(config, path)
 			if not (value is float or value is int) or float(value) <= 0: errors.append(path + ": must be a positive number")
 		if float(config.map.get("anchorEdgeInsetTiles", 0)) >= float(config.map.get("radiusTiles", 0)): errors.append("map.anchorEdgeInsetTiles: must be less than map.radiusTiles")

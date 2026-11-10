@@ -2,11 +2,23 @@
 
 ## Current milestone: runnable foundation
 
-The repository now contains a Godot **4.7.2** project and a single-threaded browser export, with **Trystero 0.26.0** bundled through a JavaScriptBridge adapter. This is the first implementation milestone, not the completed alpha described in the design documents.
+The repository now contains a Godot **4.7.2** project and a single-threaded browser export, with Godot **WebRTCMultiplayerPeer**, the custom coordinator and Metered TURN. The native Windows/Linux x86_64 editor/runtime also supports networking. This is the first implementation milestone, not the completed alpha described in the design documents.
 
 The current art pass combines procedural industrial models, basic procedural animation, a generated ground material and title illustration, a revised command interface, and original synthesized sound. Models and audio still need production refinement. See [art direction and asset provenance](art-direction.md).
 
 ## Single-player interaction pass
+
+Selection now uses icon-led task cards, progress and health/cargo meters, specific amber waiting reasons, and resource-by-resource cargo chips. Groups summarize tasks, blocked counts and mixed cargo. World task icons and pulsing known-target markers connect a selected worker to its blocker. Detailed stats and guidance remain available on hover; repeated inspector paragraphs and objective instructions are no longer permanently displayed. Status queries do not mutate the simulation, and owning clients receive authoritative activity data because host routes are omitted from snapshots.
+
+The viewport now expands to the window aspect ratio without side letterboxing. Edge-pan bands are 32 logical pixels, with pulsing directional double arrows drawn above the HUD. HUD hover no longer shrinks the edge bands; minimap interaction and captured drags retain priority.
+
+Three always-available single-player missions now group mining/construction/power, industry/hauling/personnel, and combat/recovery/extraction. Each uses seeded setup, live objectives and ordinary commands, with no unlock requirement. The first two are peaceful; the compact extraction scenario has a small central nest and timed extraction assaults. See [mission controls and tuning](missions.md). Ordinary expeditions retain standard rules.
+
+Construction no longer cancels paid sites when routes become blocked, enemies occupy a footprint, or passing traffic crosses a site. Unstarted sites wait; active traffic retains its orders; idle friendly bodies are asked to move. Engineers retry interrupted approaches. Stop leaves the site intact, and explicit cancellation still refunds only before actual work starts. Combat destruction continues to lose the investment.
+
+Explored fog terrain, resource silhouettes and remembered structures are brighter, with reduced smoke opacity and stronger ambient/key lighting. Unknown terrain stays opaque and enemy visibility rules are unchanged. Switching between mission and standard map sizes reallocates the visibility texture correctly.
+
+The [multiplayer provider research](multiplayer-options.md) is historical. Networking now uses the custom Cloudflare coordinator and Metered TURN from multiplayer-experiment through Godot WebRTCMultiplayerPeer, including native Windows/Linux x86_64 runtime support. See [networking](networking.md).
 
 The Medusa now reserves one seeded random inset corner, with players placed at separate corners. Its starting Scavengers, bounded Gloom and guaranteed approach routes follow that nest. The nest stays hidden until scouted. Death creates Nacre at the actual Medusa cell; explored-cell snapshots synchronize the resource type without disclosing an undiscovered corpse location.
 
@@ -55,9 +67,9 @@ npm run serve
 
 Open `http://127.0.0.1:8080/`. Choose **Deploy expedition** to use the current scene. The project can also be opened directly in Godot; network rooms require the browser export.
 
-`npm run serve` also starts a local Trystero WebSocket signaling relay on port 8081 for development. Open the game with `?relay=ws://127.0.0.1:8081` in two browser contexts to test actual WebRTC peer connections without relying on public relay availability. This changes signaling only; gameplay packets still travel through Trystero/WebRTC.
+`npm run serve` also starts a local custom-protocol WebSocket coordinator on port 8081 for development. Open the game with `?coordinator=ws://127.0.0.1:8081` in two browser contexts to test actual WebRTC peer connections without relying on public relay availability. This changes signaling only; gameplay packets still travel through Godot WebRTC.
 
-Without that parameter, the adapter uses Trystero's Nostr strategy. Public relay availability, different-network connections, TURN fallback, and live Pages/itch.io deployment require separate validation. A localhost test does not prove Internet connectivity for every player pairing.
+Without that parameter, sessions use the configured Cloudflare Worker coordinator and Metered ICE servers. Live native relay-only connectivity with the configured Worker and Metered subscription passed. Different-network coverage and live Pages/itch.io deployment require separate validation. A localhost test does not prove Internet connectivity for every player pairing.
 
 To package the web export for itch.io after verification:
 
@@ -113,6 +125,8 @@ All listed Commonwealth construction buttons are now available, including Radar 
 
 ## Verification
 
+2026-11-10 task pass: `npm test` and `npm run export:web` passed, including command-driven completion of all three missions and construction recovery/refund checks. Shawn independently completed all three missions. The final browser run passed mission selection/objectives, wall painting and minimap input; the remaining browser checks were stopped at the user's request to limit further verification. Earlier tracing-enabled runs encountered UI-test failures and rendering timeouts; do not interpret this pass as a complete browser or Internet multiplayer acceptance run.
+
 The controls pass passed the headless suite, focused order/interface checks, and a native viewport-input check for minimap capture and Shift commands. Its combined software-rendered browser input check hit a 90-second total budget before completion; full browser verification of the new controls remains incomplete. No repeat multiplayer suite was run for this pass.
 
 ```sh
@@ -122,7 +136,7 @@ npm run test:browser
 
 The simulation suite runs real Godot code headlessly. It checks seeded layout, hex conversions, access to the Medusa, resource conservation, full-storage waiting, construction/refunds, power recovery, kit completion, personnel transformation, snapshots, elimination, extraction timing, healing, repair costs, delivery interruption, separation, concealment, defensive leash, probe reactions, Gloom growth/withering, vehicle production/crew/cargo, Scout passenger fire, headlight cones, excavation, crew/terrain serialization, radar anonymity, shared illumination, buried targeting/area immunity, Rampart stacking/power loss, automatic gates/locks, configuration validation/hash behavior, presentation-event retention/privacy/serialization, hit overlays, health trails, and fog disappearance without false deaths.
 
-Browser tests use actual Chromium, the exported Godot game, actual Trystero, real WebRTC connections, and the local signaling relay. They exercise selection/mining and camera controls, cross-origin local browser clients, host-confirmed movement, host departure, five-peer binary transport, and real attack feedback in the exported renderer. They are not a substitute for a five-player full gameplay session on different networks.
+Browser tests use actual Chromium, the exported Godot game, Godot WebRTC connections, and the local signaling relay. They exercise selection/mining and camera controls, cross-origin local browser clients, host-confirmed movement and host departure. The native suite covers five-peer binary transport, and real attack feedback in the exported renderer. They are not a substitute for a five-player full gameplay session on different networks.
 
 Local verification on Windows: headless simulation/interface/configuration suites pass. The latest full browser run passed all five checks, including actual fire/hit feedback through legal friendly fire. Earlier two-scene software-rendered runs occasionally stalled during startup, so startup timing remains an area to watch. The exported scene was also inspected visually. Linux CI is configured but has not been run from this workspace. The ZIP is built and checked for required files and archive integrity; public publication remains pending.
 

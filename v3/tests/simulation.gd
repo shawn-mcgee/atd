@@ -165,6 +165,194 @@ func medusa_spawn_checks() -> void:
 	w.reset(91, 1)
 	verify(w.corpse == null and not w.medusa_dead, "Starting a new match clears the previous corpse")
 
+func activity_checks() -> void:
+	var w := movement_world()
+	var id := w.add_unit("engineer", Vector2.ZERO, 0)
+	var u: Dictionary = w.units[id]
+	var depot := w.add_structure("depot", Vector2i(1, 0), 0)
+	u.cargo = {"ore": 10}; u.job = {"kind": "deposit", "target": depot}
+	w.resources(0).ore = w.capacity(0, "ore")
+	verify(w.activity(u).blocker == "storage_full" and w.activity(u).target == depot, "Delivery identifies the full storage resource and highlights its actual destination")
+	w.resources(0).ore -= 5
+	verify(w.activity(u).blocker == "", "Delivery is not blocked while any carried resource can be deposited")
+	u.pos = Vector2(-5, 0); u.route.clear()
+	verify(w.activity(u).blocker == "no_route", "An unreachable delivery is distinguished from full storage")
+	u.pos = Vector2.ZERO; u.cargo.clear()
+	var facility := w.add_structure("foundry", Vector2i(0, 1), 0)
+	w.structures[facility].powered = false
+	u.job = {"kind": "mine", "source": HexGrid.key(Vector2i(0, 1)), "facility": facility, "delivering": false, "deposit": 0}
+	verify(w.activity(u).blocker == "no_power", "A collector waiting at an empty facility identifies power loss")
+	w.structures[facility].powered = true
+	verify(w.activity(u).blocker == "output_pending", "A powered empty facility reports waiting for output")
+	w.structures[facility].buffer = 5
+	verify(w.activity(u).blocker == "", "Buffered output can be collected immediately")
+	u.job = {"kind": "repair", "target": depot}; w.structures[depot].hp -= 10; w.resources(0).ore = 0; u.work = 0
+	verify(w.activity(u).blocker == "no_resources" and w.activity(u).resource == "ore", "Repair explains its missing Ore")
+	var vehicle := w.add_unit("ranger", Vector2(2, 0), 0)
+	verify(w.activity(w.units[vehicle]).blocker == "no_driver", "Undriven vehicles explain why they cannot act")
+	var site := w.add_structure("wall", Vector2i(-1, 0), 0, false)
+	u.job = {"kind": "build", "target": site}
+	var traffic := w.add_unit("operator", HexGrid.world(Vector2i(-1, 0)), 0)
+	verify(w.activity(u).blocker == "site_occupied", "A builder identifies footprint traffic instead of a generic waiting state")
+	w.units.erase(traffic)
+	verify(w.activity(u).blocker == "", "The footprint blocker clears as soon as traffic leaves")
+	w.resources(0).ore = 0
+	verify(w.activity(w.structures[facility]).blocker == "no_resources", "Industrial buildings identify missing recipe inputs")
+	var before := JSON.stringify([u, w.resources(0), w.structures[site]])
+	w.activity(u)
+	verify(JSON.stringify([u, w.resources(0), w.structures[site]]) == before, "Status inspection does not mutate simulation or resources")
+	var enemy := w.add_unit("marine", Vector2(0, 2), 1)
+	w.visible[0] = {HexGrid.cell(w.units[enemy].pos): true}
+	var packet: Dictionary = JSON.parse_string(JSON.stringify(w.snapshot(0)))
+	verify(packet.units.any(func(e): return int(e.id) == id and e.has("activity")) and packet.units.all(func(e): return int(e.owner) == 0 or not e.has("activity")), "Snapshots include authoritative blockers only for the owning player")
+	var client := WorldState.new(w.cfg); client.reset(472, 1); client.apply_snapshot(packet, 0)
+	verify(client.activity(client.units[id]).blocker == w.activity(u).blocker, "Client blocker status does not depend on stripped host routes")
+
+func blueprint_recovery_checks() -> void:
+	var w := movement_world()
+	for c in w.tiles: w.known[0][c] = true
+	var worker := w.add_unit("engineer", Vector2.ZERO, 0)
+	var cell := Vector2i(2, 0)
+	var before: Dictionary = w.resources(0).duplicate()
+	w.command(0, {"action": "build", "kind": "wall", "q": cell.x, "r": cell.y, "ids": [worker]})
+	var site: int = w.units[worker].job.target
+	w.units[worker].pos = HexGrid.world(Vector2i(1, 0)); w.units[worker].route.clear()
+	var traffic := w.add_unit("operator", HexGrid.world(cell), 0)
+	w.command(0, {"action": "move", "ids": [traffic], "x": 5, "z": 0})
+	w.command(0, {"action": "move", "ids": [traffic], "x": 6, "z": 0, "queued": true})
+	w._build(w.units[worker], 0.05)
+	verify(w.structures.has(site) and not w.structures[site].started and w.units[traffic].orders.size() == 1 and w.units[traffic].home.x == 5, "Passing traffic keeps its route and queued orders while the paid blueprint waits")
+	w.units[traffic].pos = Vector2(5, 0)
+	var enemy := w.add_unit("scavenger", HexGrid.world(cell), -1)
+	w._build(w.units[worker], 0.05)
+	verify(w.structures.has(site) and not w.structures[site].started, "Enemy occupancy waits without silently canceling a blueprint")
+	w.units.erase(enemy)
+	w.tiles[cell].cliff = true; w._rebuild_navigation(); w._build(w.units[worker], 0.05)
+	verify(w.structures.has(site) and not w.structures[site].started, "A newly obstructed site retains its paid cost until explicit cancellation")
+	w.command(0, {"action": "cancel_build", "target": site})
+	verify(before.keys().all(func(r): return int(w.resources(0)[r]) == int(before[r])), "Explicit cancellation of an obstructed unstarted site refunds its full cost")
+	w.command(0, {"action": "cancel_build", "target": site})
+	verify(before.keys().all(func(r): return int(w.resources(0)[r]) == int(before[r])), "Repeated cancellation cannot duplicate a refund")
+	w.tiles[cell].cliff = false; w._rebuild_navigation()
+	w.command(0, {"action": "build", "kind": "wall", "q": cell.x, "r": cell.y, "ids": [worker]})
+	site = w.units[worker].job.target; w.units[worker].route.clear(); w._build(w.units[worker], 0.05)
+	verify(w.structures[site].started, "A clear site starts once the Engineer can work")
+	var hp: float = w.structures[site].hp
+	w.units[worker].pos = Vector2(-8, 0); w.units[worker].route.clear()
+	for c in HexGrid.disk(cell, 1):
+		if c != cell: w.tiles[c].cliff = true
+	w._rebuild_navigation(); w._build(w.units[worker], 0.05)
+	verify(w.structures.has(site) and w.structures[site].hp == hp, "Losing access after construction starts preserves work without deleting the site")
+	w.command(0, {"action": "stop", "ids": [worker]})
+	verify(w.structures.has(site), "Stopping a builder leaves its paid site intact")
+	w.command(0, {"action": "cancel_build", "target": site})
+	verify(int(w.resources(0).ore) == int(before.ore) - int(w.cfg.structures.wall.cost.ore), "Explicit cancellation after actual work retains the documented resource loss")
+
+func build_mission_structure(w: WorldState, worker: Dictionary, kind: String) -> int:
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	for cell in HexGrid.disk(anchor.cell, 4):
+		if HexGrid.distance(anchor.cell, cell) < 2 or w.tiles.get(cell, {}).get("resource", "") != "": continue
+		if w.placement_issue(0, kind, cell) != "": continue
+		var response := w.command(0, {"action": "build", "kind": kind, "q": cell.x, "r": cell.y, "ids": [worker.id]})
+		verify(response == "Blueprint placed", "Mission construction uses the ordinary paid command")
+		var id := int(worker.job.target)
+		advance(w, 60)
+		verify(w.structures.has(id) and w.structures[id].built, "Mission builders can finish " + kind)
+		return id
+	verify(false, "Mission has a revealed affordable site for " + kind)
+	return 0
+
+func mission_playthrough_checks() -> void:
+	for key in ["foothold", "industry"]:
+		var w := WorldState.new(settings); w.reset(472, 1)
+		w.command(0, {"action": "start_mission", "mission": key})
+		var worker := engineer(w)
+		var miners: Array = w.units.values().filter(func(u): return u.kind == "engineer" and u.id != worker.id)
+		var source := Vector2i.ZERO
+		for cell in w.known[0]:
+			if w.tiles[cell].resource == "ore": source = cell; break
+		if key == "foothold":
+			build_mission_structure(w, worker, "depot")
+			build_mission_structure(w, worker, "floodlight")
+			w.command(0, {"action": "mine", "ids": [worker.id], "q": source.x, "r": source.y})
+			advance(w, 180)
+		else:
+			w.command(0, {"action": "mine", "ids": [miners[0].id], "q": source.x, "r": source.y})
+			var foundry := build_mission_structure(w, worker, "foundry")
+			advance(w, 180)
+			var armory := build_mission_structure(w, worker, "armory")
+			if foundry == 0 or armory == 0: continue
+			verify(w.command(0, {"action": "kit", "target": armory, "kind": "marine"}) == "Kit queued", "The industry budget supports a Marine kit and its requested Operator")
+			var cell: Vector2i = w.structures[foundry].cell
+			w.command(0, {"action": "mine", "ids": [worker.id], "q": cell.x, "r": cell.y, "facility": foundry})
+			advance(w, 180)
+		verify(w.ended and w.result.ends_with("complete"), "A real command-driven playthrough can finish " + key + " without injecting progress or resources")
+	var w := WorldState.new(settings); w.reset(472, 1)
+	w.command(0, {"action": "start_mission", "mission": "extraction"})
+	var marines: Array = w.units.values().filter(func(u): return u.kind == "marine").map(func(u): return u.id)
+	w.command(0, {"action": "move", "ids": marines, "x": 2, "z": 0})
+	advance(w, 25)
+	for s in w.structures.values():
+		if s.kind == "medusa": w.command(0, {"action": "attack", "ids": marines, "target": s.id})
+	advance(w, 30)
+	verify(w.medusa_dead, "The supplied extraction squad can scout and destroy the nest through ordinary combat")
+	var workers: Array = w.units.values().filter(func(u): return u.kind == "engineer").map(func(u): return u.id)
+	w.command(0, {"action": "mine", "ids": workers, "q": 0, "r": 0})
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	var home := HexGrid.world(anchor.cell + Vector2i(2, 0))
+	w.command(0, {"action": "move", "ids": marines, "x": home.x, "z": home.y})
+	advance(w, 240)
+	verify(int(w.resources(0).get("nacre", 0)) >= int(w.cfg.match.extractionMinimumNacre), "Workers can physically recover and deliver the mission's Nacre threshold")
+	w.command(0, {"action": "extract", "target": anchor.id})
+	advance(w, float(w.cfg.match.extractionSeconds) + 0.1)
+	verify(w.ended and w.result.contains("extracted"), "The extraction mission is completable through commands, combat and physical cargo delivery")
+
+func mission_checks() -> void:
+	for key in settings.missions:
+		var w := WorldState.new(settings); w.reset(472, 1)
+		var b := WorldState.new(settings); b.reset(472, 1)
+		verify(w.command(0, {"action": "start_mission", "mission": key}) == "Mission deployed", "Every mission can be selected without an unlock: " + key)
+		b.command(0, {"action": "start_mission", "mission": key})
+		verify(JSON.stringify(w.snapshot(0)) == JSON.stringify(b.snapshot(0)), "Mission setup repeats from its seed: " + key)
+		verify(settings.map.radiusTiles != w.cfg.map.radiusTiles and not settings.match.extractionMinimumNacre == 60, "Mission overrides do not mutate shared settings")
+		verify(w.command(0, {"action": "start_mission", "mission": key}) != "Mission deployed", "A deployed mission cannot reset itself through a gameplay command")
+		var copy := WorldState.new(w.cfg); copy.reset(472, 1)
+		copy.apply_snapshot(JSON.parse_string(JSON.stringify(w.snapshot(0))), 0)
+		verify(copy.mission.id == w.mission.id and int(copy.mission.initial_marines) == int(w.mission.initial_marines) and copy.mission.delivered.is_empty() and is_equal_approx(float(copy.mission.wave_remaining), float(w.mission.wave_remaining)), "Mission progress survives JSON serialization")
+		if key != "extraction":
+			advance(w, 2)
+			verify(not w.ended and w.units.values().all(func(u): return u.owner == 0), "Peaceful missions neither complete early nor spawn a colony")
+			var d: Dictionary = w.cfg.missions[key]
+			var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+			var worker := engineer(w)
+			worker.cargo = {d.deliveryResource: int(d.deliveryTarget)}
+			verify(not WorldState.Missions.requirements(w)[0].done, "Carried resources do not count as delivered mission objectives")
+			if key == "foothold": w.resources(0).ore -= int(d.deliveryTarget)
+			w._deposit_cargo(worker, anchor)
+			for kind in d.requiredStructures:
+				var id := w.add_structure(kind, anchor.cell + Vector2i(3, 0) if kind == d.requiredStructures[0] else anchor.cell + Vector2i(0, 3), 0)
+				w.structures[id].powered = true
+			if key == "industry": w.add_unit("marine", worker.pos, 0)
+			WorldState.Missions.update(w, 0.05)
+			verify(w.ended and w.result.ends_with("complete"), "Combined delivery, power, construction and personnel objectives complete the mission")
+		else:
+			var nest: Dictionary = {}
+			for s in w.structures.values():
+				if s.kind == "medusa": nest = s
+			verify(nest.cell == Vector2i.ZERO and nest.hp == w.cfg.missions.extraction.medusaHealth, "Extraction uses the compact central nest")
+			w._destroy(nest)
+			w.resources(0).nacre = int(w.cfg.match.extractionMinimumNacre) - 1
+			var anchor_id := int(w.players[0].anchor)
+			w.command(0, {"action": "extract", "target": anchor_id})
+			verify(not w.players[0].extracting, "Extraction still requires delivered Nacre")
+			w.resources(0).nacre += 1; w.command(0, {"action": "extract", "target": anchor_id})
+			var count: int = w.units.size(); WorldState.Missions.update(w, 0.05)
+			verify(w.units.size() == count + int(w.cfg.missions.extraction.assaultWaveSize), "Manual extraction begins the configured assault")
+			advance(w, float(w.cfg.match.extractionSeconds) + 0.1)
+			verify(w.ended and w.result.contains("extracted"), "Surviving the mission extraction countdown produces victory")
+	var multi := world(2)
+	verify(multi.command(0, {"action": "start_mission", "mission": "foothold"}) != "Mission deployed" and multi.mission.is_empty(), "Multiplayer cannot activate single-player scenarios")
+
 func idle_engineer_checks() -> void:
 	var w := movement_world()
 	w.cfg.construction.engineerHealthPerSecond = 1200
@@ -388,6 +576,7 @@ func run() -> void:
 		quit(0 if errors.is_empty() else 1); return
 	if "--routes-only" in OS.get_cmdline_user_args():
 		route_order_checks(); print("Route checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	activity_checks(); blueprint_recovery_checks(); mission_checks(); mission_playthrough_checks()
 	power_balance_checks(); colony_production_checks(); queued_order_checks(); visibility_optimization_checks(); idle_engineer_checks(); wall_line_checks(); medusa_spawn_checks(); performance_cache_checks()
 	for cell in HexGrid.disk(Vector2i.ZERO, 10): verify(HexGrid.cell(HexGrid.world(cell)) == cell, "Hex round trip")
 	var a := world(5)

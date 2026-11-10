@@ -1,8 +1,94 @@
 import {test,expect,chromium} from '@playwright/test'
 import browserConfig from '../../playwright.config.mjs'
-const url='http://127.0.0.1:8080/?test=1&relay=ws://127.0.0.1:8081'
+import {spawn} from 'node:child_process'
+import {readFileSync} from 'node:fs'
+import path from 'node:path'
+const url='http://127.0.0.1:8080/?test=1&coordinator=ws://127.0.0.1:8081'
 const diagnostics=page=>page.evaluate(()=>window.ATDNetwork.inspect())
 const control=(page,command,value='')=>page.evaluate(([c,v])=>window.ATDNetwork.test(c,v),[command,value])
+test('native guest joins a browser host using Godot multiplayer',async({page})=>{
+  const errors=await open(page)
+  await control(page,'host')
+  await expect.poll(async()=> (await diagnostics(page)).invitation).not.toBe('')
+  const version=readFileSync('.godot-version','utf8').trim()
+  const binary=process.env.GODOT_BIN || path.resolve(`.tools/godot/Godot_v${version}-stable_${process.platform==='win32'?'win64_console.exe':'linux.x86_64'}`)
+  const invitation=(await diagnostics(page)).invitation
+  const child=spawn(binary,['--headless','--path','.', '--script','tests/network_native.gd','--','--coordinator=ws://127.0.0.1:8081',`--join=${invitation}`])
+  let output='',exitCode
+  child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b)
+  child.on('exit',code=>{exitCode=code})
+  try {
+    await expect.poll(()=>output,{timeout:20000}).toContain('Native guest admitted')
+    await expect.poll(async()=> (await diagnostics(page)).peers).toBe(1)
+    await control(page,'leave')
+    await expect.poll(()=>exitCode,{timeout:20000}).toBe(0)
+    expect(output).not.toMatch(/SCRIPT ERROR:|^ERROR:/m)
+    expect(errors).toEqual([])
+  } finally {if(exitCode===undefined)child.kill()}
+})
+test('selected workers show cargo and a specific storage blocker',async({page},testInfo)=>{
+  const errors=await open(page)
+  await control(page,'solo')
+  await expect.poll(async()=> (await diagnostics(page)).active).toBe(true)
+  await page.mouse.move(640,400)
+  const initial=await diagnostics(page)
+  const worker=initial.units.find(u=>u.kind==='engineer')
+  const anchor=initial.structures.find(s=>s.kind==='anchor')
+  const ore=initial.fields.find(f=>f.kind==='ore')
+  await page.mouse.click(...worker.screen)
+  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(worker.id)
+  await control(page,'order',JSON.stringify({action:'mine',ids:[worker.id],q:ore.q,r:ore.r}))
+  await expect.poll(async()=> (await diagnostics(page)).activity_card.cargo.ore || 0).toBeGreaterThan(0)
+  await control(page,'order',JSON.stringify({action:'deposit',ids:[worker.id],target:anchor.id}))
+  await expect.poll(async()=> (await diagnostics(page)).activity_card.activities[0].blocker).toBe('storage_full')
+  await page.keyboard.press('Space')
+  await expect.poll(async()=> (await diagnostics(page)).paused).toBe(true)
+  await page.mouse.move(640,400)
+  await page.screenshot({path:testInfo.outputPath('selected-storage-blocker.png')})
+  expect((await diagnostics(page)).activity_card.visible).toBe(true)
+  expect(errors).toEqual([])
+})
+test('window fill and edge pan feedback',async({page},testInfo)=>{
+  await page.setViewportSize({width:1920,height:900})
+  const errors=await open(page)
+  await control(page,'solo')
+  await expect.poll(async()=> (await diagnostics(page)).active).toBe(true)
+  await page.mouse.move(960,450)
+  await page.keyboard.press('Space')
+  await expect.poll(async()=> (await diagnostics(page)).paused).toBe(true)
+  await expect.poll(async()=>{const v=(await diagnostics(page)).camera.viewport;return v[0]/v[1]}).toBeCloseTo(1920/900,2)
+  for(const [x,y,direction] of [[20,450,[-1,0]],[1900,450,[1,0]],[960,20,[0,-1]],[960,880,[0,1]],[10,10,[-1,-1]],[960,450,[0,0]]]){
+    await page.mouse.move(x,y)
+    await expect.poll(async()=> (await diagnostics(page)).camera.edge).toEqual(direction)
+    if(x===20){
+      const before=(await diagnostics(page)).camera.x
+      await expect.poll(async()=> (await diagnostics(page)).camera.x).toBeLessThan(before)
+      await page.screenshot({path:testInfo.outputPath('edge-arrows.png')})
+    }
+  }
+  await page.setViewportSize({width:900,height:1100})
+  await expect.poll(async()=>{const v=(await diagnostics(page)).camera.viewport;return v[0]/v[1]}).toBeCloseTo(900/1100,2)
+  expect(errors).toEqual([])
+})
+test('mission menu deploys every unlocked contract and renders its objectives',async({page},testInfo)=>{
+  const errors=await open(page)
+  await page.screenshot({path:testInfo.outputPath('mission-menu.png')})
+  for(const [id,title] of [['foothold','FIRST FOOTHOLD'],['industry','SUPPLY AND STEEL'],['extraction','THE LAST LIGHT']]){
+    const menu=(await diagnostics(page)).mission_menu
+    expect(menu.deploy[1]).toBeLessThan(800)
+    await page.mouse.click(...menu.choices[id])
+    await expect.poll(async()=> (await diagnostics(page)).mission_menu.selected).toBe(id)
+    await page.mouse.click(...(await diagnostics(page)).mission_menu.deploy)
+    await expect.poll(async()=> (await diagnostics(page)).mission_id).toBe(id)
+    await expect.poll(async()=> (await diagnostics(page)).mission).toContain(title)
+    await page.keyboard.press('Space')
+    await expect.poll(async()=> (await diagnostics(page)).paused).toBe(true)
+    await page.screenshot({path:testInfo.outputPath(`${id}.png`)})
+    await control(page,'leave')
+    await expect.poll(async()=> (await diagnostics(page)).active).toBe(false)
+  }
+  expect(errors).toEqual([])
+})
 async function open(page,target=url){
   // Model separate players' foreground browsers, not two occluded tabs on one PC.
   const cdp=await page.context().newCDPSession(page)
@@ -206,7 +292,7 @@ test('RTS controls: WASD, same-type selection, groups, build keys and Q',async({
   expect(errors).toEqual([])
 })
 
-test('real Trystero room: cross-origin clients, host orders and host loss',async()=>{
+test('custom coordinator room: cross-origin clients, host orders and host loss',async()=>{
   // Separate browser processes model separate players and isolate software-GPU
   // and window lifetimes when the host closes. Incognito contexts share both.
   const [hostBrowser,guestBrowser]=await Promise.all([
@@ -237,6 +323,8 @@ test('real Trystero room: cross-origin clients, host orders and host loss',async
     console.error('Game errors',hostErrors,guestErrors)
     throw error
   }
+  expect((await diagnostics(host)).controls.timeControls).toEqual([false,false])
+  expect((await diagnostics(guest)).controls.timeControls).toEqual([false,false])
   const g=await diagnostics(guest)
   expect(g.owner).toBe(1)
   const unit=g.units.find(u=>u.kind==='engineer')
@@ -259,37 +347,4 @@ test('real Trystero room: cross-origin clients, host orders and host loss',async
   expect([...hostErrors,...guestErrors]).toEqual([])
   await guestContext.close()
   } finally {await Promise.allSettled([hostBrowser.close(),guestBrowser.close()])}
-})
-
-test('five real WebRTC peers exchange binary packets through Trystero',async({browser})=>{
-  const contexts=[],pages=[]
-  const config=JSON.stringify({applicationId:'atd-transport-test',ice:{turnServers:[]}})
-  try{
-    for(let i=0;i<5;i++){
-      const context=await browser.newContext();contexts.push(context)
-      const p=await context.newPage();pages.push(p)
-      await p.goto(`http://127.0.0.1:8080/network-test.html?relay=ws://127.0.0.1:8081`)
-      await p.waitForFunction(()=>window.ATDNetwork)
-    }
-    const host=JSON.parse(await pages[0].evaluate(c=>ATDNetwork.start('host','',c),config))
-    expect(JSON.parse(await pages[1].evaluate(c=>ATDNetwork.start('guest','incomplete',c),config)).error).toContain('complete room invitation')
-    for(const p of pages.slice(1)) await p.evaluate(([invite,c])=>ATDNetwork.start('guest',invite,c),[host.invitation,config])
-    const peers=new Set()
-    await expect.poll(async()=>{
-      const events=JSON.parse(await pages[0].evaluate(()=>ATDNetwork.poll()))
-      for(const e of events)if(e.type==='peer_join')peers.add(e.peer)
-      return peers.size
-    },{timeout:45000}).toBe(4)
-    const payload={kind:'binary-check',values:[0,127,128,255],text:'Erebus'}
-    await pages[0].evaluate(p=>ATDNetwork.send('',JSON.stringify(p)),payload)
-    for(const p of pages.slice(1)){
-      let received
-      await expect.poll(async()=>{
-        const events=JSON.parse(await p.evaluate(()=>ATDNetwork.poll()))
-        received=events.find(e=>e.type==='packet' && e.message.kind==='binary-check') || received
-        return received?.message
-      }).toEqual(payload)
-      expect(received.peer).toBe(host.self)
-    }
-  } finally {await Promise.all(contexts.map(c=>c.close()))}
 })

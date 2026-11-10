@@ -2,7 +2,7 @@ import {createServer} from 'node:http'
 import {readFile,stat} from 'node:fs/promises'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {createWsRelayServer} from '@trystero-p2p/ws-relay/server'
+import {createCoordinatorServer} from './coordinator-server.mjs'
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),process.argv.includes('--site')?'../build/site':'../build/web')
 const port=Number(process.env.PORT || 8080)
@@ -18,5 +18,5 @@ const server=createServer(async(req,res)=>{
     res.end(await readFile(target))
   } catch {res.writeHead(404);res.end('Not found')}
 })
-server.listen(port,'127.0.0.1',()=>console.log(`Alpha: http://127.0.0.1:${port} | local Trystero test: ?relay=ws://127.0.0.1:${port+1}`))
-createWsRelayServer({port:port+1,host:'127.0.0.1'})
+server.listen(port,'127.0.0.1',()=>console.log(`Alpha: http://127.0.0.1:${port} | local coordinator: ?coordinator=ws://127.0.0.1:${port+1}`))
+createCoordinatorServer({port:port+1,host:'127.0.0.1'})

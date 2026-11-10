@@ -25,4 +25,4 @@ for(const directory of [...roots].sort()){
   }
 }
 await writeFile('build/web/THIRD-PARTY-NOTICES.txt',notices.join('\n\n'+'='.repeat(72)+'\n\n'))
-console.log('Bundled pinned Trystero and Godot browser adapter.')
+console.log('Bundled browser diagnostics bridge; networking uses Godot WebRTCMultiplayerPeer.')

@@ -104,3 +104,114 @@ static func description(world: WorldState, e: Dictionary) -> String:
 		text += "ENGINEERS IN RANGE %d · %s\n" % [count, "RESEARCHING" if count > 0 and e.powered and not e.upgrades.is_empty() else "WAITING"]
 		text += "Select Engineers, then right click here to assign work."
 	return text
+
+static func task_icon(task: String) -> String:
+	return {"idle": "neutral", "standby": "neutral", "move": "move", "mine": "mine", "deposit": "depot", "build": "build", "repair": "repair", "research": "upgrade", "equip": "engineer", "produce": "factory", "crew_wait": "operator", "riding": "scout", "board": "scout", "load_cargo": "depot", "attack": "aggressive", "escort": "escort", "patrol": "patrol", "excavate": "excavator", "configure": "depot"}.get(task, "neutral")
+
+static func task_text(a: Dictionary) -> String:
+	var text: String = {"idle": "Idle", "standby": "Standing by", "move": "Moving", "mine": "Mining", "deposit": "Delivering cargo", "build": "Building", "repair": "Repairing", "research": "Researching", "equip": "Equipping", "produce": "Producing", "crew_wait": "Awaiting vehicle", "riding": "Aboard vehicle", "board": "Boarding", "load_cargo": "Loading cargo", "attack": "Attacking", "escort": "Escorting", "patrol": "Patrolling", "excavate": "Clearing cliff", "configure": "Configuring", "remembered": "Last seen"}.get(str(a.task), str(a.task).capitalize())
+	if a.task in ["mine", "produce"] and not str(a.resource).is_empty(): text += " " + str(a.resource).capitalize()
+	return text
+
+static func blocker_text(a: Dictionary) -> String:
+	var names := {"no_driver": "Needs driver", "buried": "Buried", "vehicle_pending": "Vehicle not ready", "no_route": "Cannot reach target", "depleted": "Deposit depleted", "switched_off": "Switched off", "no_power": "No power", "output_pending": "Waiting for output", "no_dropoff": "No drop-off available", "storage_full": "Storage full", "anchor_required": "Nacre needs an Anchor", "target_lost": "Target unavailable", "site_blocked": "Site obstructed", "site_occupied": "Clear the footprint", "no_resources": "Needs resources", "no_research": "No research queued", "unload_cargo": "Unload cargo first", "no_kit": "No kit queued", "kit_pending": "Kit not ready", "cargo_full": "Vehicle cargo full", "no_engineer": "Needs Engineer", "buffer_full": "Output buffer full", "exit_blocked": "Vehicle exit blocked", "line_blocked": "Line of fire blocked", "kit_pickup": "Kits ready for pickup"}
+	var text: String = names.get(str(a.blocker), "")
+	if a.blocker in ["storage_full", "no_resources"] and not str(a.get("blocker_resource", a.resource)).is_empty(): text = ("Storage full: " if a.blocker == "storage_full" else "Needs ") + str(a.get("blocker_resource", a.resource)).capitalize()
+	return text
+
+static func activity_color(a: Dictionary) -> Color:
+	return Color("efbc70") if a.phase == "waiting" else Color("87cfc1") if a.phase == "working" else Color("91b9d8") if a.phase == "moving" else Color("97a39d")
+
+class StatusPanel:
+	extends Control
+	var world: WorldState
+	var entities: Array = []
+	var activities: Array = []
+	var owner_id := 0
+	var cargo_contents: Dictionary = {}
+
+	func _ready() -> void:
+		custom_minimum_size = Vector2(180, 108)
+		mouse_filter = Control.MOUSE_FILTER_PASS
+
+	func refresh(w: WorldState, selection: Array, owner: int) -> void:
+		world = w; entities = selection; owner_id = owner; activities.clear(); cargo_contents.clear()
+		for e in entities:
+			activities.append(world.activity(e) if e.owner == owner else {"task": "standby", "phase": "idle", "blocker": "", "resource": "", "target": 0, "progress": -1.0})
+			if e.owner == owner:
+				for resource in e.get("cargo", {}):
+					if int(e.cargo[resource]) > 0: cargo_contents[resource] = int(cargo_contents.get(resource, 0)) + int(e.cargo[resource])
+		var columns := maxi(1, int(maxf(180, size.x) / 90))
+		custom_minimum_size.y = 108 + ceili(float(cargo_contents.size()) / columns) * 20
+		queue_redraw()
+
+	func _draw() -> void:
+		if entities.is_empty(): return
+		var font = preload("res://assets/fonts/BarlowSemiCondensed-Medium.ttf")
+		var a: Dictionary = activities[0]
+		var health := 0.0; var maximum := 0.0; var cargo := 0; var capacity := 0
+		for e in entities:
+			var d: Dictionary = world.cfg.structures[e.kind] if e.has("cell") else world.cfg.units[e.kind]
+			health += float(e.hp); maximum += float(d.health)
+			if e.has("cargo"): cargo += world.cargo_amount(e); capacity += int(d.get("cargoCapacity", 0))
+		var color := CommandSkin.activity_color(a)
+		var title := CommandSkin.task_text(a)
+		var target := world.observed_entity(int(a.target), owner_id)
+		if entities.size() == 1 and not target.is_empty() and target.owner == owner_id and a.task in ["build", "repair", "research", "equip", "board", "escort", "load_cargo"]: title += " " + str(target.kind).capitalize()
+		var reason := CommandSkin.blocker_text(a)
+		if entities.size() > 1:
+			var tasks: Dictionary = {}; var blocked := 0
+			for item in activities:
+				var name := CommandSkin.task_text(item)
+				tasks[name] = int(tasks.get(name, 0)) + 1
+				if item.phase == "waiting": blocked += 1
+			var parts: Array[String] = []
+			for key in tasks: parts.append("%s x%d" % [key, tasks[key]])
+			title = " / ".join(parts)
+			reason = "%d blocked / %d selected" % [blocked, entities.size()] if blocked > 0 else "Orders in progress" if tasks.size() > 1 else str(a.phase).capitalize()
+			if blocked > 0: color = Color("efbc70")
+		draw_texture_rect(CommandSkin.icon(CommandSkin.task_icon(str(a.task))), Rect2(0, 0, 22, 22), false, color)
+		draw_string(font, Vector2(30, 17), title, HORIZONTAL_ALIGNMENT_LEFT, size.x - 30, 16, Color("d8dfd1"))
+		if entities.size() == 1 and float(a.progress) >= 0:
+			draw_rect(Rect2(30, 23, size.x - 30, 3), Color("1b3036"))
+			draw_rect(Rect2(30, 23, (size.x - 30) * clampf(float(a.progress), 0, 1), 3), color)
+		if reason.is_empty(): reason = "On the way" if a.phase == "moving" else "Working" if a.phase == "working" else "Ready for orders"
+		draw_style_box(_pill(color), Rect2(0, 33, size.x, 24))
+		if a.phase == "waiting" or (entities.size() > 1 and reason.contains("blocked")):
+			draw_colored_polygon(PackedVector2Array([Vector2(10, 49), Vector2(16, 38), Vector2(22, 49)]), color)
+			draw_string(font, Vector2(26, 50), reason, HORIZONTAL_ALIGNMENT_LEFT, size.x - 30, 13, color)
+		else: draw_string(font, Vector2(10, 50), reason, HORIZONTAL_ALIGNMENT_LEFT, size.x - 16, 13, color)
+		_meter(font, 66, "HP", ceili(health), ceili(maximum), Color("88b88b"))
+		if capacity > 0: _meter(font, 90, "Cargo", cargo, capacity, Color("cbb889"))
+		elif entities.size() == 1 and entities[0].has("cell") and entities[0].owner == owner_id:
+			var e: Dictionary = entities[0]
+			draw_texture_rect(CommandSkin.icon("relay"), Rect2(0, 89, 15, 15), false)
+			draw_string(font, Vector2(21, 102), "Grid %d / %d%s" % [int(e.get("grid_demand", 0)), int(e.get("grid_capacity", 0)), "  |  Buffer %d" % int(e.buffer) if world.cfg.economy.recipes.has(e.kind) else ""], HORIZONTAL_ALIGNMENT_LEFT, size.x - 21, 12, Color("a4b7b2"))
+		elif entities.size() == 1 and entities[0].has("stance"):
+			draw_texture_rect(CommandSkin.icon(str(entities[0].stance)), Rect2(0, 89, 15, 15), false)
+			draw_string(font, Vector2(21, 102), str(entities[0].stance).capitalize(), HORIZONTAL_ALIGNMENT_LEFT, size.x - 21, 12, Color("a4b7b2"))
+		_draw_cargo(font)
+
+	func _draw_cargo(font: Font) -> void:
+		var columns := maxi(1, int(size.x / 90))
+		var index := 0
+		for resource in ResourceStrip.TYPES:
+			if not cargo_contents.has(resource): continue
+			var tint: Color = ResourceStrip.TINTS[ResourceStrip.TYPES.find(resource)]
+			var point := Vector2((index % columns) * size.x / columns + 6, 119 + (index / columns) * 20)
+			if resource == "gas":
+				for j in range(3): draw_circle(point + Vector2((j - 1) * 3, abs(j - 1) * 3 - 1), 2, tint, false, 1, true)
+			elif resource in ["alloy", "polymer"]:
+				for j in range(3): draw_line(point + Vector2(-4, j * 3 - 3), point + Vector2(4, j * 3 - 3), tint, 1, true)
+			else: draw_colored_polygon(PackedVector2Array([point + Vector2(0, -5), point + Vector2(4, 0), point + Vector2(0, 5), point + Vector2(-4, 0)]), tint)
+			draw_string(font, point + Vector2(11, 4), "%d %s" % [cargo_contents[resource], str(resource).capitalize()], HORIZONTAL_ALIGNMENT_LEFT, size.x / columns - 20, 12, tint)
+			index += 1
+
+	func _pill(color: Color) -> StyleBoxFlat:
+		var box := StyleBoxFlat.new(); box.bg_color = Color(color, 0.08); box.border_color = Color(color, 0.3); box.set_border_width_all(1); box.set_corner_radius_all(3); return box
+
+	func _meter(font: Font, y: float, label: String, value: int, limit: int, color: Color) -> void:
+		draw_string(font, Vector2(0, y + 9), label, HORIZONTAL_ALIGNMENT_LEFT, 40, 11, color)
+		draw_string(font, Vector2(45, y + 9), "%d / %d" % [value, limit], HORIZONTAL_ALIGNMENT_RIGHT, size.x - 45, 11, Color("c5cec5"))
+		draw_rect(Rect2(0, y + 13, size.x, 3), Color("1c2b30"))
+		draw_rect(Rect2(0, y + 13, size.x * clampf(float(value) / maxf(1, limit), 0, 1), 3), color)

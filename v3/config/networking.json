@@ -1,17 +1,17 @@
 {
   "metadata": {
-    "status": "foundation_adapter_implemented",
-    "note": "Browser-only Trystero adapter and host-authoritative foundation. Public relay/TURN deployment remains to be validated."
+    "status": "custom_coordinator_adapter",
+    "note": "Cloudflare Worker coordinator and Metered ICE settings adapted from multiplayer-experiment at ec8a6ee175df1f16e529cd0d21302c8e5e708a19."
   },
-  "platform": "web",
+  "platform": "web_and_native",
   "hosting": "player",
   "transport": "webrtc",
   "library": {
-    "name": "trystero",
-    "version": "0.26.0"
+    "name": "Godot WebRTCMultiplayerPeer",
+    "version": "4.7.2"
   },
   "applicationId": "github.shawn-mcgee.atd",
-  "gameProtocolVersion": 2,
+  "gameProtocolVersion": 3,
   "liveness": {
     "heartbeatIntervalMs": 1000,
     "peerTimeoutMs": 10000
@@ -21,14 +21,51 @@
     "status": "implemented_foundation"
   },
   "signaling": {
-    "strategy": "nostr",
-    "configuration": {}
+    "strategy": "custom_coordinator",
+    "url": "wss://webrtc-coordinator.s-mcgeek07.workers.dev",
+    "connectTimeoutMs": 20000
   },
   "ice": {
-    "turnServers": []
+    "servers": [
+      {
+        "urls": "stun:stun.relay.metered.ca:80"
+      },
+      {
+        "urls": "turn:standard.relay.metered.ca:80",
+        "username": "1e7fc80a14bceb79f35cc27a",
+        "credential": "EXkiKkQYhUdelWg1"
+      },
+      {
+        "urls": "turn:standard.relay.metered.ca:80?transport=tcp",
+        "username": "1e7fc80a14bceb79f35cc27a",
+        "credential": "EXkiKkQYhUdelWg1"
+      },
+      {
+        "urls": "turn:standard.relay.metered.ca:443",
+        "username": "1e7fc80a14bceb79f35cc27a",
+        "credential": "EXkiKkQYhUdelWg1"
+      },
+      {
+        "urls": "turns:standard.relay.metered.ca:443?transport=tcp",
+        "username": "1e7fc80a14bceb79f35cc27a",
+        "credential": "EXkiKkQYhUdelWg1"
+      }
+    ],
+    "transportPolicy": "all"
   },
   "hostLossPolicy": "end_match",
   "clientDisconnectPolicy": "eliminate_keep_assets_and_orders",
   "hostMigrationEnabled": false,
-  "hostRecoveryEnabled": false
+  "hostRecoveryEnabled": false,
+  "limits": {
+    "maxPeers": 4,
+    "maxPacketBytes": 4194304,
+    "bufferedAmountBytes": 262144,
+    "sendTimeoutMs": 10000,
+    "receiveFramesPerPoll": 256,
+    "sendFramesPerPoll": 16,
+    "compressionThresholdBytes": 1024,
+    "commandQueueLimit": 256,
+    "framePayloadBytes": 1184
+  }
 }

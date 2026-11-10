@@ -36,6 +36,7 @@ var start_button: Button
 var build_panel: PanelContainer
 var selection_box: ColorRect
 var paused_button: Button
+var speed_button: OptionButton
 var depot_resource := "ore"
 var depot_panel: PanelContainer
 var depot_buttons: Dictionary = {}
@@ -49,6 +50,7 @@ var action_cursors: Dictionary = {}
 var tactical: TacticalOverlay
 var mission_label: Label
 var detail_label: Label
+var selection_status: CommandSkin.StatusPanel
 var selection_progress: ProgressBar
 var build_hint: Label
 var result_panel: PanelContainer
@@ -75,6 +77,9 @@ var placement_strip: PanelContainer
 var placement_text: Label
 var controls_panel: PanelContainer
 var menu_backdrop: TextureRect
+var selected_mission := ""
+var mission_choices: Dictionary = {}
+var mission_deploy_button: Button
 
 func _ready() -> void:
 	state = WorldState.new(Settings.data)
@@ -171,7 +176,7 @@ func _build_ui() -> void:
 	resource_strip = ResourceStrip.new(); resource_strip.world = state
 	row.add_child(resource_strip)
 	paused_button = _button("Pause", _pause, row)
-	var speed_button := OptionButton.new()
+	speed_button = OptionButton.new()
 	for value in Settings.data.match.singlePlayerSpeedOptions: speed_button.add_item("%sx" % str(value))
 	speed_button.select(1)
 	speed_button.item_selected.connect(func(i):
@@ -201,6 +206,7 @@ func _build_ui() -> void:
 	selection_label = _label("Select your Engineer or Marine", 18)
 	selection_label.clip_text = true; selection_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	column.add_child(selection_label)
+	selection_status = CommandSkin.StatusPanel.new(); column.add_child(selection_status); selection_status.hide()
 	detail_label = _label("", 14, Color("94a49b"))
 	detail_label.clip_text = false
 	detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -225,7 +231,7 @@ func _build_ui() -> void:
 	command_panel.add_theme_stylebox_override("panel", CommandSkin.panel()); hud.add_child(command_panel)
 	command_panel.add_child(PanelTrim.new())
 	var command_column := VBoxContainer.new(); command_panel.add_child(command_column)
-	command_column.add_child(_label("COMMAND / RIGHT CLICK FOR CONTEXT ORDERS", 11, Color("bcae88")))
+	command_column.add_child(_label("COMMANDS", 11, Color("bcae88")))
 	actions = HFlowContainer.new(); actions.add_theme_constant_override("h_separation", 5); command_column.add_child(actions)
 	personnel_controls = HBoxContainer.new(); command_column.add_child(personnel_controls)
 	status_label = _label("", 13, Color("8e9e98"))
@@ -239,7 +245,7 @@ func _build_ui() -> void:
 	mission.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(mission)
 	mission_label = _label("", 13, Color("9fc7c8"))
-	mission_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mission_label.mouse_filter = Control.MOUSE_FILTER_PASS
 	mission.add_child(mission_label)
 	selection_box = ColorRect.new()
 	selection_box.color = Color(0.35, 0.9, 0.75, 0.18)
@@ -298,8 +304,8 @@ func _build_ui() -> void:
 	menu.set_anchors_and_offsets_preset(Control.PRESET_CENTER_LEFT)
 	menu.offset_left = 60
 	menu.offset_right = 460
-	menu.offset_top = -255
-	menu.offset_bottom = 255
+	menu.offset_top = -335
+	menu.offset_bottom = 335
 	var menu_style := _style(Color(0.035, 0.045, 0.05, 0.55), Color("625f4c"))
 	menu_style.set_border_width_all(0); menu_style.border_width_left = 2
 	menu_style.content_margin_left = 24; menu_style.content_margin_right = 24
@@ -318,11 +324,25 @@ func _build_ui() -> void:
 	seed_edit.placeholder_text = "Map seed (blank: random)"
 	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout."
 	panel.add_child(seed_edit)
-	var deploy := _button("DEPLOY EXPEDITION", func(): _start_game(_deployment_seed(), 1), panel)
+	var deploy := _button("DEPLOY EXPEDITION", func(): network.leave(); local_owner = 0; _start_game(_deployment_seed(), 1), panel)
 	deploy.add_theme_font_size_override("font_size", 20)
 	deploy.add_theme_color_override("font_color", Color("1c2829"))
 	deploy.add_theme_stylebox_override("normal", _style(Color("c4b48a"), Color("c4b48a")))
 	deploy.add_theme_stylebox_override("hover", _style(Color("e2d2a5"), Color("e2d2a5")))
+	panel.add_child(_label("SINGLE-PLAYER MISSIONS / ALL AVAILABLE", 10, Color("9a9f8d")))
+	var mission_keys: Array = Settings.data.missions.keys()
+	selected_mission = str(mission_keys[0])
+	var mission_row := HBoxContainer.new(); panel.add_child(mission_row)
+	var mission_group := ButtonGroup.new()
+	var briefing := _label(str(Settings.data.missions[selected_mission].briefing), 13)
+	briefing.custom_minimum_size.x = 330; briefing.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	for key in mission_keys:
+		var choice := _button(str(Settings.data.missions[key].title), func(): selected_mission = str(key); briefing.text = str(Settings.data.missions[key].briefing), mission_row)
+		choice.add_theme_font_size_override("font_size", 13)
+		choice.toggle_mode = true; choice.button_group = mission_group; choice.button_pressed = str(key) == selected_mission
+		mission_choices[key] = choice
+	panel.add_child(briefing)
+	mission_deploy_button = _button("Deploy selected mission", func(): _start_game(_deployment_seed(), 1, selected_mission), panel)
 	panel.add_child(_label("PLAYER-HOSTED MATCH", 10, Color("9a9f8d")))
 	var room_row := HBoxContainer.new()
 	panel.add_child(room_row)
@@ -368,8 +388,13 @@ func _deployment_seed() -> int:
 	var text := seed_edit.text.strip_edges()
 	return int(randi()) if text.is_empty() else int(text)
 
-func _start_game(map_seed: int, count: int) -> void:
+func _start_game(map_seed: int, count: int, mission_key: String = "") -> void:
+	if not mission_key.is_empty():
+		network.leave(); local_owner = 0
+	state.cfg = Settings.data
 	state.reset(map_seed, count)
+	if not mission_key.is_empty(): state.command(0, {"action": "start_mission", "mission": mission_key})
+	camera.bounds = state.radius
 	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout.\nLast deployed seed: %d" % map_seed
 	sequence = 0
 	snapshot_timer = 0
@@ -382,6 +407,9 @@ func _start_game(map_seed: int, count: int) -> void:
 	depot_panel.hide(); minimap_dragging = false; queue_modifier = false
 	wall_dragging = false; renderer.show_wall_line([])
 	result_shown = false; result_panel.hide(); paused_button.text = "Pause"
+	paused_button.visible = network.role == "solo"
+	speed_button.visible = network.role == "solo"
+	speed_button.select(1)
 	tactical.owner_id = local_owner; tactical.reset()
 	resource_strip.owner_id = local_owner
 	audio.start()
@@ -403,17 +431,17 @@ func _host() -> void:
 	var error := network.start("host")
 	if error != "": lobby_label.text = error; return
 	invitation_edit.text = network.invitation
-	lobby_label.text = "Room open. Share the invitation above.\n1 / 5 players; host starts when ready."
-	start_button.visible = true
+	lobby_label.text = "Creating room with your coordinator..."
+	start_button.visible = false
 
 func _join() -> void:
 	var error := network.start("guest", invitation_edit.text.strip_edges())
 	if error != "": lobby_label.text = error; return
-	lobby_label.text = "Connecting to host through Trystero..."
+	lobby_label.text = "Connecting through the coordinator..."
 	start_button.visible = false
 
 func _launch_hosted() -> void:
-	if network.role != "host": return
+	if network.role != "host" or network.self_id.is_empty(): return
 	local_owner = 0
 	match_id = "%s-%s" % [network.invitation, str(Time.get_ticks_msec())]
 	_start_game(_deployment_seed(), accepted_peers.size() + 1)
@@ -424,7 +452,15 @@ func _launch_hosted() -> void:
 
 func _network_event(event: Dictionary) -> void:
 	var type := str(event.get("type", ""))
-	if type == "error":
+	if type == "room_ready":
+		invitation_edit.text = network.invitation
+		if network.role == "host":
+			lobby_label.text = "Room open. Share the invitation above.\n1 / 5 players; host starts when ready."
+			start_button.show()
+		else: lobby_label.text = "Room found. Establishing WebRTC connection..."
+	elif type == "connection_failed":
+		lobby_label.text = str(event.message); start_button.hide()
+	elif type == "error":
 		lobby_label.text = str(event.message)
 		status_label.text = str(event.message)
 	elif type == "peer_join" and network.role == "guest" and str(event.peer) == network.host_id:
@@ -515,7 +551,7 @@ func _process(delta: float) -> void:
 	if active: renderer.refresh_entities()
 	if active: audio.update(state, local_owner, delta)
 	camera.enabled = active
-	camera.pointer_captured = minimap_dragging or wall_dragging or tactical.minimap_rect().has_point(get_viewport().get_mouse_position()) or get_viewport().gui_get_hovered_control() != null
+	camera.pointer_captured = minimap_dragging or wall_dragging or tactical.minimap_rect().has_point(get_viewport().get_mouse_position()) or (get_viewport().gui_get_hovered_control() != null and camera.edge_direction(get_viewport().get_mouse_position(), get_viewport().get_visible_rect().size) == Vector2.ZERO)
 	camera.letter_pan_blocked = build_panel.visible or depot_panel.visible
 	camera.keyboard_pan_blocked = controls_panel.visible
 	group_bar.visible = not build_panel.visible and not depot_panel.visible
@@ -586,7 +622,14 @@ func _process(delta: float) -> void:
 		for card in queue_view.cards:
 			var point: Vector2 = card.button.get_global_rect().get_center()
 			queue_cards.append({"key": card.key, "index": card.index, "screen": [point.x, point.y]})
-		network.diagnostics({"ready": true, "active": active, "role": network.role, "invitation": network.invitation, "peers": accepted_peers.size(), "owner": local_owner, "tick": state.tick, "ended": state.ended, "result": state.result, "units": own, "structures": structures, "fields": fields, "resources": state.players.get(local_owner, {}).get("resources", {}), "paused": state.paused, "camera": {"distance": camera.distance, "x": camera.focus.x, "z": camera.focus.z, "yaw": camera.yaw}, "selected": selection, "commands": commands, "queue_cards": queue_cards, "controls": {"buildMenu": build_panel.visible, "attack": attack_mode, "interaction": interaction_mode, "groups": control_groups, "ghost": ghost_model_visible()}, "feedback": {"cursor": renderer.feedback_cursor, "events": state.feedback_for(local_owner).map(func(event): return event.kind), "traces": renderer.visual_shots.size(), "particles": renderer.particles.size(), "labels": tactical.damage_numbers.size()}, "inspection": detail_label.text, "build_kind": build_kind, "build_buttons": buttons, "build_sites": sites, "mission": mission_label.text, "status": status_label.text})
+		network.diagnostics({"ready": true, "active": active, "role": network.role, "invitation": network.invitation, "peers": accepted_peers.size(), "owner": local_owner, "tick": state.tick, "ended": state.ended, "result": state.result, "units": own, "structures": structures, "fields": fields, "resources": state.players.get(local_owner, {}).get("resources", {}), "paused": state.paused, "camera": {"viewport": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y], "edge": [camera.edge_pan.x, camera.edge_pan.y], "distance": camera.distance, "x": camera.focus.x, "z": camera.focus.z, "yaw": camera.yaw}, "selected": selection, "commands": commands, "queue_cards": queue_cards, "controls": {"timeControls": [paused_button.visible, speed_button.visible], "buildMenu": build_panel.visible, "attack": attack_mode, "interaction": interaction_mode, "groups": control_groups, "ghost": ghost_model_visible()}, "feedback": {"cursor": renderer.feedback_cursor, "events": state.feedback_for(local_owner).map(func(event): return event.kind), "traces": renderer.visual_shots.size(), "particles": renderer.particles.size(), "labels": tactical.damage_numbers.size()}, "activity_card": {"visible": selection_status.visible, "cargo": selection_status.cargo_contents, "activities": selection_status.activities, "screen": [selection_status.get_global_rect().get_center().x, selection_status.get_global_rect().get_center().y]}, "inspection": detail_label.text, "build_kind": build_kind, "build_buttons": buttons, "build_sites": sites, "mission": mission_label.text, "mission_id": state.mission.get("id", ""), "mission_menu": {"selected": selected_mission, "deploy": [mission_deploy_button.get_global_rect().get_center().x, mission_deploy_button.get_global_rect().get_center().y], "choices": mission_keys_for_diagnostics()}, "status": status_label.text})
+
+func mission_keys_for_diagnostics() -> Dictionary:
+	var choices: Dictionary = {}
+	for key in mission_choices:
+		var point: Vector2 = mission_choices[key].get_global_rect().get_center()
+		choices[key] = [point.x, point.y]
+	return choices
 
 func _pause() -> void:
 	if network.role == "solo": state.paused = not state.paused; paused_button.text = "Resume" if state.paused else "Pause"
@@ -612,10 +655,26 @@ func _update_hud() -> void:
 	resource_label.text = "   ".join(parts)
 	var elapsed := state.time_seconds
 	var goal := "01 / FIND AND DESTROY THE MEDUSA\nExplore beyond the light. Protect your Anchor."
-	if state.medusa_dead: goal = "02 / RECOVER NACRE\nDeliver %d Nacre to your Anchor: %d / %d" % [int(Settings.data.match.extractionMinimumNacre), int(inventory.get("nacre", 0)), int(Settings.data.match.extractionMinimumNacre)]
-	if int(inventory.get("nacre", 0)) >= int(Settings.data.match.extractionMinimumNacre): goal = "03 / READY TO EXTRACT\nSelect your Anchor and begin extraction."
+	if state.medusa_dead: goal = "02 / RECOVER NACRE\nDeliver %d Nacre to your Anchor: %d / %d" % [int(state.cfg.match.extractionMinimumNacre), int(inventory.get("nacre", 0)), int(state.cfg.match.extractionMinimumNacre)]
+	if int(inventory.get("nacre", 0)) >= int(state.cfg.match.extractionMinimumNacre): goal = "03 / READY TO EXTRACT\nSelect your Anchor and begin extraction."
 	if state.players[local_owner].extracting: goal = "04 / HOLD THE ANCHOR · %ds\nExtraction in progress. The Anchor must survive." % ceili(float(state.players[local_owner].remaining))
-	mission_label.text = "MISSION  /  %02d:%02d%s\n\n%s" % [int(elapsed) / 60, int(elapsed) % 60, "  ·  PAUSED" if state.paused else "", goal]
+	if not state.mission.is_empty():
+		var definition: Dictionary = state.cfg.missions[state.mission.id]
+		if state.mission.id != "extraction":
+			var objectives: Array[String] = []
+			for check in WorldState.Missions.requirements(state): objectives.append(("[OK] " if check.done else "[  ] ") + str(check.text))
+			goal = "\n".join(objectives)
+			goal += "\n\n" + ("Select a worker; M then click Ore.\nB opens construction; Depot expands storage.\nBuild Floodlight inside the Anchor grid." if state.mission.id == "foothold" else "Build Foundry inside the Anchor grid.\nM then click Foundry to haul Alloy.\nArmory: queue a Marine kit and Operator.")
+		else:
+			goal += "\n\nNest: map center. Bring your Marines.\nM on remains sends workers to recover Nacre."
+		goal = str(definition.title).to_upper() + "\n\n" + goal
+	mission_label.tooltip_text = goal
+	var compact_goal := goal.split("\n")[0]
+	if not state.mission.is_empty():
+		var sections := goal.split("\n\n")
+		compact_goal = sections[0] + "\n" + sections[1] if sections.size() > 1 else goal
+	mission_label.text = "%02d:%02d%s\n\n%s" % [int(elapsed) / 60, int(elapsed) % 60, "  PAUSED" if state.paused else "", compact_goal]
+
 	if state.ended: status_label.text = state.result
 	elif state.players[local_owner].extracting: status_label.text = "EXTRACTION  %.1fs  |  Hold the Anchor" % float(state.players[local_owner].remaining)
 	var valid: Array = []
@@ -633,57 +692,32 @@ func _update_hud() -> void:
 	var hint_signature := JSON.stringify(selection) + "/" + inspected_kind + "/" + str(remembered_selection)
 	if hint_signature != selection_hint_signature:
 		selection_hint_signature = hint_signature
-		if not state.ended and not state.players[local_owner].extracting: status_label.text = ("Last-seen structure. Scout this location to refresh its information." if remembered_selection else _selection_hint(inspected_kind)) if state.players[local_owner].alive else "Eliminated. You can inspect remaining assets but cannot issue orders."
+		if not state.ended and not state.players[local_owner].extracting: status_label.text = ("Last seen: scout to update." if remembered_selection else "") if state.players[local_owner].alive else "Eliminated. You can inspect remaining assets but cannot issue orders."
 	if state.ended and not result_shown:
 		result_shown = true
 		result_label.text = "%s\n\nNacre delivered: %d" % [state.result, int(inventory.get("nacre", 0))]
 		result_panel.show()
-	detail_label.text = "Right click to move, work, repair, or deliver cargo."
 	portrait.kind = ""; portrait.serial = 0; portrait.group_size = 0
-	selection_progress.visible = false
-	if selection.size() == 1:
-		var e := _observed_entity(int(selection[0]))
-		portrait.kind = str(e.kind); portrait.serial = int(e.id); portrait.structure = e.has("cell")
-		selection_label.text = "%s   |   %d HP" % [str(e.kind).capitalize(), int(e.hp)]
-		if e.has("cell"):
-			selection_label.text += "   |   %s" % ("BLACKOUT" if e.blackout else "Brownout" if e.brownout else "Powered" if e.powered else "Idle")
-			if not e.built: selection_label.text += "  CONSTRUCTING"
-			if int(e.buffer) > 0: selection_label.text += "  Buffer: %d" % int(e.buffer)
-			if not e.kits.is_empty(): selection_label.text += "  Kits: %d/5" % e.kits.size()
-			if not e.operators.is_empty(): selection_label.text += "  Personnel: %d" % e.operators.size()
-			if int(e.get("grid_capacity", 0)) > 0 or int(Settings.data.structures[e.kind].powerDemand) > 0: selection_label.text += "   Grid %d / %d" % [int(e.get("grid_demand", 0)), int(e.get("grid_capacity", 0))]
-			var descriptions: Array[String] = []
-			if not e.built:
-				selection_progress.visible = true; selection_progress.value = float(e.hp) / float(Settings.data.structures[e.kind].health) * 100
-				descriptions.append("Construction %d%% · Engineers can work together" % int(selection_progress.value))
-			if not e.operators.is_empty(): descriptions.append("Operator %d%%" % int(float(e.operators[0].progress) / float(Settings.data.personnel.anchorOperatorSeconds if e.kind == "anchor" else Settings.data.personnel.cradleOperatorSeconds) * 100))
-			for kit in e.kits:
-				descriptions.append("%s: %s" % [str(kit.kind).capitalize(), "ready" if kit.done else "%d%%" % int(float(kit.progress) / float(Settings.data.personnel.kits[kit.kind].seconds) * 100)])
-			if Settings.data.economy.recipes.has(e.kind): descriptions.append("Buffer %d · %s" % [int(e.buffer), "Producing" if state._wants_power(e) and e.powered else "Waiting / no power or inputs"])
-			detail_label.text = "   |   ".join(descriptions) if not descriptions.is_empty() else "Health %d / %d · %s" % [int(e.hp), int(Settings.data.structures[e.kind].health), "Enabled" if e.enabled else "Disabled"]
-		else:
-			selection_label.text += "   |   %s   %s" % [str(e.stance).capitalize(), str(e.job.kind)]
-			var cargo: Array[String] = []
-			for resource in e.cargo:
-				if int(e.cargo[resource]) > 0: cargo.append("%d %s" % [int(e.cargo[resource]), str(resource).capitalize()])
-			detail_label.text = "HP %d / %d%s" % [int(e.hp), int(Settings.data.units[e.kind].health), "   |   " + ", ".join(cargo) if not cargo.is_empty() else ""]
-			if e.job.kind == "mine" and e.job.get("delivering", false) and state.cargo_amount(e) > 0: detail_label.text += "   |   Delivering · waits if storage is full"
-	elif selection.size() > 1: selection_label.text = "%d units selected" % selection.size()
-	else: selection_label.text = "Select an Engineer, Marine, or structure"
+	selection_progress.hide(); selection_status.hide(); detail_label.show()
+	queue_view.target_id = 0
 	if selection.size() == 1:
 		var inspected := _observed_entity(int(selection[0]))
+		portrait.kind = str(inspected.kind); portrait.serial = int(inspected.id); portrait.structure = inspected.has("cell")
 		selection_label.text = "%s / %02d" % [str(inspected.kind).to_upper(), int(inspected.id)]
 		detail_label.text = CommandSkin.description(state, inspected)
 		if inspected.get("remembered", false): selection_label.text += " / LAST SEEN"
+		else:
+			selection_status.refresh(state, [inspected], local_owner); selection_status.tooltip_text = detail_label.text + "\n\n" + _selection_hint(inspected_kind)
+			selection_status.show(); detail_label.hide()
 		queue_view.target_id = int(inspected.id) if inspected.has("cell") and inspected.owner == local_owner else 0
 	else:
-		queue_view.target_id = 0
-		detail_label.text = "Select a unit, structure, or resource to inspect its capabilities."
+		selection_label.text = "%d units selected" % selection.size() if not selection.is_empty() else "Select a unit or structure"
+		detail_label.text = ""
 	if selection.is_empty() and state.known.get(local_owner, {}).has(resource_cell) and state.tiles.has(resource_cell):
 		var deposit: Dictionary = state.tiles[resource_cell]
 		selection_label.text = "%s DEPOSIT" % str(deposit.resource).to_upper()
-		detail_label.text = "REMAINING: %s\nMine directly with Operators or Engineers.\nA powered Extractor improves throughput.\nResources must be carried to storage." % ("UNLIMITED" if deposit.resource == "nacre" else str(deposit.amount))
-		if deposit.resource == "nacre": detail_label.text += "\nNacre is accepted only by the Anchor."
+		detail_label.text = "Remaining: %s" % ("UNLIMITED" if deposit.resource == "nacre" else str(deposit.amount))
+		if deposit.resource == "nacre": detail_label.text += "  /  Anchor delivery"
 	group_roster.visible = selection.size() > 1
 	if selection.size() > 1:
 		var types: Dictionary = {}; var health := 0.0; var maximum := 0.0; var cargo := 0
@@ -693,10 +727,12 @@ func _update_hud() -> void:
 			var definition: Dictionary = Settings.data.units[unit.kind] if unit.has("pos") else Settings.data.structures[unit.kind]
 			types[unit.kind] = int(types.get(unit.kind, 0)) + 1; health += float(unit.hp); maximum += float(definition.health)
 			if unit.has("cargo"): cargo += state.cargo_amount(unit)
+		selection_status.refresh(state, selection.map(func(id): return _observed_entity(int(id))), local_owner); selection_status.show(); detail_label.hide()
 		detail_label.text = "TOTAL HEALTH %d / %d\nCARGO %d · %d SPECIALIZATIONS\nClick a role to select that subgroup." % [ceili(health), ceili(maximum), cargo, types.size()]
 		if types.size() == 1:
 			portrait.kind = str(types.keys()[0]); portrait.group_size = selection.size(); portrait.structure = _observed_entity(int(selection[0])).has("cell")
 		if _observed_entity(int(selection[0])).has("cell"): detail_label.text += "\nProduction controls act on the primary structure."
+		selection_status.tooltip_text = detail_label.text
 		var group_signature := JSON.stringify([selection, types])
 		if roster_signature != group_signature:
 			roster_signature = group_signature
@@ -712,6 +748,7 @@ func _update_hud() -> void:
 	for button in actions.get_children():
 		if button.has_meta("cost"):
 			button.disabled = not bool(button.get_meta("available")) or not CommandSkin.affordable(state, local_owner, button.get_meta("cost"))
+	status_label.visible = not status_label.text.is_empty()
 	portrait.queue_redraw()
 
 func _command(title: String, icon: String, order: Dictionary, cost: Dictionary = {}, available: bool = true, reason: String = "") -> CommandCard:
@@ -809,7 +846,7 @@ func _refresh_actions() -> void:
 					for item in facility.upgrades:
 						if item.kind == kind: queued = true
 			_command(str(kind).capitalize() + " armor", "upgrade", {"action": "upgrade", "kind": kind, "target": e.id}, Settings.data.upgrades.fabricatorArmor.costPerType, not state.players[local_owner].upgrades.has(kind) and not queued, "Already queued. Assign Engineers to work the Fabricator." if queued else "Permanent +1 armor to this specialization. Engineers must work the Fabricator to complete it.")
-	if e.kind == "anchor": _command("Extract", "extract", {"action": "extract", "target": e.id}, {}, int(state.resources(local_owner).get("nacre", 0)) >= int(Settings.data.match.extractionMinimumNacre), "Requires %d delivered Nacre. Hold the Anchor for %ds." % [Settings.data.match.extractionMinimumNacre, Settings.data.match.extractionSeconds])
+	if e.kind == "anchor": _command("Extract", "extract", {"action": "extract", "target": e.id}, {}, int(state.resources(local_owner).get("nacre", 0)) >= int(state.cfg.match.extractionMinimumNacre), "Requires %d delivered Nacre. Hold the Anchor for %ds." % [state.cfg.match.extractionMinimumNacre, state.cfg.match.extractionSeconds])
 	if e.kind == "relay": _command("Switch off" if e.enabled else "Switch on", "power", {"action": "toggle", "target": e.id}, {}, true, "Relays consume no power. Switching off disconnects their electrical footprint and any downstream grid that depends on this link.")
 	elif int(Settings.data.structures[e.kind].powerDemand) > 0: _command("Power off" if e.enabled else "Power on", "power", {"action": "toggle", "target": e.id}, {}, true, "Disable this structure to reduce grid demand.")
 	if e.kind == "gate":
@@ -1289,7 +1326,7 @@ func ghost_model_visible() -> bool:
 func _refresh_action_signature() -> void:
 	# Include every selected role so kit transformations and crew changes update a
 	# mixed group's commands. Exclude ordinary income/HP to keep open menus stable.
-	var parts: Array = [state.ended, state.players[local_owner].alive, state.players[local_owner].get("request_personnel", true), int(state.resources(local_owner).get("nacre", 0)) >= int(Settings.data.match.extractionMinimumNacre), state.players[local_owner].upgrades]
+	var parts: Array = [state.ended, state.players[local_owner].alive, state.players[local_owner].get("request_personnel", true), int(state.resources(local_owner).get("nacre", 0)) >= int(state.cfg.match.extractionMinimumNacre), state.players[local_owner].upgrades]
 	for id in selection:
 		var e := _observed_entity(int(id))
 		parts.append([id, e.get("kind", ""), e.get("stance", ""), e.get("enabled", true), e.get("open", false), e.get("locked", false), e.get("built", true), e.get("driver", 0), e.get("passengers", []).size(), e.get("buried", false), e.get("transition", ""), e.get("request_personnel", false), e.get("personnel_source", 0), e.get("kits", []).size(), e.get("operators", []).size(), e.get("vehicles", []).size(), e.get("upgrades", []).map(func(item): return item.kind), e.get("configuration_remaining", 0) > 0, e.get("depot_type", "")])

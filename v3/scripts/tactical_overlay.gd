@@ -101,9 +101,33 @@ func _observed_entity(id: int) -> Dictionary:
 func _project(point: Vector2, height: float = 0.15) -> Vector2:
 	return camera.unproject_position(Vector3(point.x, height, point.y))
 
+func _draw_activities() -> void:
+	var marker_size := float(world.cfg.presentation.activityIndicators.sizePixels)
+	for id in selected:
+		var e := _observed_entity(int(id))
+		if e.is_empty() or e.owner != owner_id or e.get("remembered", false): continue
+		var a := world.activity(e)
+		var color := CommandSkin.activity_color(a)
+		var point := _project(world.entity_position(e), 1.5) - Vector2(0, marker_size)
+		draw_circle(point, marker_size * 0.7, Color("0c1c23"))
+		draw_texture_rect(CommandSkin.icon(CommandSkin.task_icon(str(a.task))), Rect2(point - Vector2.ONE * marker_size * 0.5, Vector2.ONE * marker_size), false, color)
+		if a.phase != "waiting": continue
+		var pulse := 0.55 + 0.45 * (sin(clock * TAU / float(world.cfg.presentation.activityIndicators.pulseSeconds)) * 0.5 + 0.5)
+		draw_arc(point, marker_size * 0.8, 0, TAU, 24, Color(color, pulse), 2, true)
+		draw_string(FONT, point + Vector2(marker_size * 0.7, -marker_size * 0.4), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, color)
+		var target := world.observed_entity(int(a.target), owner_id)
+		if not target.is_empty() and target.owner == owner_id:
+			var destination := _project(world.entity_position(target))
+			draw_dashed_line(point, destination, Color(color, pulse * 0.6), 1.5, 7, true)
+			draw_arc(destination, marker_size * 1.5, 0, TAU, 32, Color(color, pulse), 2, true)
+		elif a.has("cell"):
+			var cell := Vector2i(int(a.cell[0]), int(a.cell[1]))
+			if world.known.get(owner_id, {}).has(cell): draw_arc(_project(HexGrid.world(cell)), marker_size, 0, TAU, 24, Color(color, pulse), 2, true)
+
 func _draw() -> void:
 	if world == null or camera == null: return
 	var font := FONT
+	_draw_activities()
 	if selection_pulse > 0:
 		var ratio := selection_pulse / float(world.cfg.controls.selectionPulseSeconds)
 		for id in selected.slice(0, 32):

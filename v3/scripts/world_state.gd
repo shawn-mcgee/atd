@@ -2,6 +2,7 @@ class_name WorldState
 extends RefCounted
 
 var cfg: Dictionary
+var mission: Dictionary = {}
 var seed_value := 1
 var tick := 0
 var time_seconds := 0.0
@@ -54,6 +55,7 @@ func _init(settings: Dictionary = {}) -> void:
 	cfg = settings
 
 func reset(map_seed: int, count: int = 1) -> void:
+	mission.clear()
 	_sight_areas.clear(); _sight_blockers.clear(); _sight_unions.clear(); _sight_topology_valid = false
 	_opponents.clear(); _power_signature.clear(); _power_groups.clear(); _open_movement_cells.clear(); _clearance_neighborhoods.clear(); _dark_clearance_neighborhoods.clear(); _separation_signature.clear()
 	_radar_coverage.clear()
@@ -135,6 +137,85 @@ func reset(map_seed: int, count: int = 1) -> void:
 	_rebuild_navigation()
 	_update_power(0)
 	update_visibility()
+
+class Missions:
+	extends RefCounted
+
+	static func start(w: RefCounted, owner: int, key: String) -> String:
+		if owner != 0 or w.players.size() != 1 or w.tick != 0 or not w.mission.is_empty(): return "Missions require a fresh single-player deployment"
+		if not w.cfg.get("missions", {}).has(key): return "Unknown mission"
+		var definition: Dictionary = w.cfg.missions[key]
+		w.cfg = w.cfg.duplicate(true)
+		w.cfg.map.radiusTiles = definition.radiusTiles
+		w.cfg.map.anchorEdgeInsetTiles = definition.anchorEdgeInsetTiles
+		w.cfg.map.startingResources = definition.startingResources.duplicate(true)
+		if key == "extraction":
+			w.cfg.match.extractionMinimumNacre = definition.extractionMinimumNacre
+			w.cfg.match.extractionSeconds = definition.extractionSeconds
+			w.cfg.structures.medusa.health = definition.medusaHealth
+		w.reset(w.seed_value, 1)
+		w.mission = {"id": key, "delivered": {}, "wave_remaining": 0.0, "initial_marines": 1 + int(definition.extraMarines)}
+		# Scenario setup is authoritative and seeded. Peaceful contracts have no
+		# colony; extraction has a small central nest and bounded timed assaults.
+		for id in w.units.keys():
+			if w.units[id].owner < 0: w.units.erase(id)
+		for id in w.structures.keys():
+			if w.structures[id].owner < 0: w.structures.erase(id)
+		w.gloom.clear()
+		var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+		for c in HexGrid.disk(anchor.cell, int(definition.clearRadiusTiles)):
+			if w.tiles.has(c): w.tiles[c].cliff = false
+		for i in range(int(definition.extraEngineers)):
+			w.add_unit("engineer", HexGrid.world(anchor.cell + Vector2i(1, 1 + i)), 0)
+		for i in range(int(definition.extraMarines)):
+			w.add_unit("marine", HexGrid.world(anchor.cell + Vector2i(3, i - 2)), 0)
+		if key == "extraction":
+			for c in HexGrid.disk(Vector2i.ZERO, int(definition.nestClearRadiusTiles)): w.tiles[c].cliff = false
+			for c in HexGrid.line(anchor.cell, Vector2i.ZERO):
+				for adjacent in HexGrid.disk(c, 1):
+					if w.tiles.has(adjacent): w.tiles[adjacent].cliff = false
+			var nest: int = w.add_structure("medusa", Vector2i.ZERO, -1)
+			w.structures[nest].hp = float(definition.medusaHealth)
+			for i in range(int(definition.nestScavengers)):
+				w.add_unit("scavenger", HexGrid.world(HexGrid.DIRECTIONS[i % 6] * int(definition.nestSpawnRadiusTiles)), -1)
+		w._rebuild_navigation(); w._update_power(0); w.update_visibility()
+		return "Mission deployed"
+
+	static func requirements(w: RefCounted) -> Array:
+		if w.mission.is_empty(): return []
+		var d: Dictionary = w.cfg.missions[w.mission.id]
+		var checks: Array = []
+		if d.has("deliveryTarget"):
+			var amount := int(w.mission.delivered.get(d.deliveryResource, 0))
+			checks.append({"done": amount >= int(d.deliveryTarget), "text": "Deliver %s: %d / %d" % [str(d.deliveryResource).capitalize(), amount, int(d.deliveryTarget)]})
+		for kind in d.get("requiredStructures", []):
+			var online := false
+			for s in w.structures.values():
+				if s.owner == 0 and s.kind == kind and s.built and (int(w.cfg.structures[kind].powerDemand) == 0 or s.powered): online = true
+			checks.append({"done": online, "text": "Complete %s%s" % [str(kind).capitalize(), " with power" if int(w.cfg.structures[kind].powerDemand) > 0 else ""]})
+		if d.has("additionalMarinesRequired"):
+			var count := 0
+			for u in w.units.values():
+				if u.owner == 0 and u.kind == "marine": count += 1
+			checks.append({"done": count >= int(w.mission.initial_marines) + int(d.additionalMarinesRequired), "text": "Equip an additional Marine"})
+		return checks
+
+	static func update(w: RefCounted, delta: float) -> void:
+		if w.mission.is_empty() or w.ended: return
+		if not w.players[0].alive: return
+		var d: Dictionary = w.cfg.missions[w.mission.id]
+		if w.mission.id == "extraction":
+			if not w.players[0].extracting: return
+			w.mission.wave_remaining -= delta
+			if float(w.mission.wave_remaining) <= 0:
+				w.mission.wave_remaining += float(d.assaultIntervalSeconds)
+				for i in range(int(d.assaultWaveSize)):
+					var id: int = w.add_unit("scavenger", HexGrid.world(HexGrid.DIRECTIONS[i % 6] * int(d.nestSpawnRadiusTiles)), -1)
+					w.units[id].stance = "attack"
+			return
+		var checks := requirements(w)
+		if not checks.is_empty() and checks.all(func(item): return item.done):
+			w.ended = true; w.result = "%s complete" % str(d.title)
 
 func _field(center: Vector2i, resource: String, size: int, clear_cliff: bool = true) -> void:
 	var cells: Array[Vector2i] = [center]
@@ -311,6 +392,137 @@ func open_movement_cell(cell: Vector2i) -> bool:
 		_open_movement_cells[cell] = clear
 	return _open_movement_cells[cell]
 
+func activity(e: Dictionary) -> Dictionary:
+	# Read-only status shared by local inspection and owner-filtered snapshots.
+	if e.has("activity"): return e.activity.duplicate(true)
+	return ActivityRules.inspect(self, e)
+
+class ActivityRules:
+	extends RefCounted
+
+	static func waiting(a: Dictionary, reason: String) -> Dictionary:
+		a.phase = "waiting"; a.blocker = reason; return a
+
+	static func inspect(w: RefCounted, e: Dictionary) -> Dictionary:
+		var a := {"task": "idle", "phase": "idle", "blocker": "", "target": 0, "resource": "", "progress": -1.0}
+		if e.get("remembered", false): a.task = "remembered"; return a
+		if e.has("cell"): return structure(w, e, a)
+		var job: Dictionary = e.job
+		var kind := str(job.kind)
+		a.task = kind; a.target = int(job.get("target", 0))
+		a.phase = "moving" if not e.route.is_empty() else "working"
+		if int(e.vehicle) != 0: a.task = "riding"; a.target = int(e.vehicle); return a
+		if w.cfg.units[e.kind].has("driverSeats") and int(e.driver) == 0: return waiting(a, "no_driver")
+		if e.get("transition", "") != "": a.task = str(e.transition); return a
+		if e.get("buried", false): return waiting(a, "buried")
+		if int(e.target) != 0 and float(e.cooldown) > 0: a.task = "attack"; a.target = int(e.target); a.phase = "working"; return a
+		if kind == "idle": a.phase = "idle"; return a
+		if kind == "crew_wait": a.target = int(job.factory); return waiting(a, "vehicle_pending")
+		if kind == "mine" and not job.get("delivering", false):
+			var cell := HexGrid.unkey(job.source)
+			var facility: Dictionary = w.structures.get(int(job.get("facility", 0)), {})
+			a.target = int(facility.get("id", 0)); a.cell = [cell.x, cell.y]
+			a.resource = w._output_resource(facility) if not facility.is_empty() else str(w.tiles.get(cell, {}).get("resource", ""))
+			if facility.is_empty() and int(w.tiles.get(cell, {}).get("amount", 0)) == 0: return waiting(a, "depleted")
+			if e.pos.distance_to(HexGrid.world(cell)) > 1.3:
+				return waiting(a, "no_route") if e.route.is_empty() else a
+			if not facility.is_empty() and int(facility.buffer) == 0:
+				if not facility.enabled: return waiting(a, "switched_off")
+				if not facility.powered: return waiting(a, "no_power")
+				var production := structure(w, facility, a.duplicate(true))
+				if production.blocker == "no_resources":
+					a.blocker_resource = production.get("blocker_resource", "")
+					return waiting(a, "no_resources")
+				return waiting(a, "output_pending")
+			a.progress = clampf(float(e.work) / float(w.cfg.economy.workerCycleSeconds), 0, 1)
+		elif kind == "deposit" or kind == "mine":
+			a.task = "deposit"
+			a.target = int(job.get("deposit", 0)) if kind == "mine" else int(job.get("target", 0))
+			if not w.structures.has(a.target): a.target = w._deposit_destination(e)
+			var depot: Dictionary = w.structures.get(a.target, {})
+			if depot.is_empty(): return waiting(a, "no_dropoff")
+			if e.pos.distance_to(w.entity_position(depot)) > int(w.cfg.structures[depot.kind].footprintRadiusTiles) + 1.2:
+				return waiting(a, "no_route") if e.route.is_empty() else a
+			var accepts := false
+			for resource in e.cargo:
+				if int(e.cargo[resource]) <= 0: continue
+				if resource == "nacre" and depot.kind != "anchor": continue
+				accepts = true
+				if int(w.resources(e.owner).get(resource, 0)) < w.capacity(e.owner, resource): return a
+				a.resource = resource
+			return waiting(a, "storage_full" if accepts else "anchor_required")
+		elif kind in ["build", "repair", "research", "equip", "board", "load_cargo", "escort"]:
+			var target: Dictionary = w.entity(a.target)
+			if target.is_empty(): return waiting(a, "target_lost")
+			var reach := float(w.cfg.economy.interactionRangeTiles)
+			if target.has("cell"): reach = int(w.cfg.structures[target.kind].footprintRadiusTiles) + (1.2 if kind == "equip" else 1.4)
+			if kind == "repair": reach = float(w.cfg.construction.engineerWorkRangeTiles) + (int(w.cfg.structures[target.kind].footprintRadiusTiles) + 0.2 if target.has("cell") else 0.0)
+			if kind != "escort" and e.pos.distance_to(w.entity_position(target)) > reach: return waiting(a, "no_route") if e.route.is_empty() else a
+			if kind == "build":
+				a.progress = clampf(float(target.hp) / float(w.cfg.structures[target.kind].health), 0, 1)
+				if not target.started:
+					for cell in w.footprint(target):
+						if w.blocked(cell, target.id): return waiting(a, "site_blocked")
+						for other in w.units.values():
+							if int(other.vehicle) == 0 and HexGrid.cell(other.pos) == cell: return waiting(a, "site_occupied")
+			elif kind == "repair":
+				a.progress = float(target.hp) / float(w.cfg.structures[target.kind].health if target.has("cell") else w.cfg.units[target.kind].health)
+				if float(e.work) <= 0 and int(w.resources(e.owner).get("ore", 0)) < int(w.cfg.construction.repairOrePerCycle): a.resource = "ore"; return waiting(a, "no_resources")
+			elif kind == "research":
+				if target.upgrades.is_empty(): return waiting(a, "no_research")
+				if not target.powered: return waiting(a, "no_power")
+				a.progress = float(target.upgrades[0].progress) / float(w.cfg.upgrades.fabricatorArmor.engineerWorkSeconds)
+			elif kind == "equip":
+				if w.cargo_amount(e) > 0: return waiting(a, "unload_cargo")
+				if target.kits.is_empty(): return waiting(a, "no_kit")
+				if not target.kits[0].done: return waiting(a, "kit_pending")
+			elif kind == "load_cargo" and w.cargo_amount(target) >= int(w.cfg.units[target.kind].cargoCapacity): return waiting(a, "cargo_full")
+		elif kind == "attack":
+			a.target = int(e.target)
+			var enemy: Dictionary = w.observed_entity(int(e.target), int(e.owner))
+			if e.route.is_empty() and not enemy.is_empty() and not enemy.get("remembered", false):
+				var line := HexGrid.line(HexGrid.cell(e.pos), HexGrid.cell(w.entity_position(enemy)))
+				for i in range(1, maxi(1, line.size() - 1)):
+					if w.known.get(e.owner, {}).has(line[i]) and w.blocks_sight(line[i]): a.cell = [line[i].x, line[i].y]; return waiting(a, "line_blocked")
+		return a
+
+	static func structure(w: RefCounted, e: Dictionary, a: Dictionary) -> Dictionary:
+		a.task = "standby"
+		if e.owner < 0: return a
+		if not e.built:
+			a.task = "build"; a.progress = float(e.hp) / float(w.cfg.structures[e.kind].health)
+			for unit in w.units.values():
+				if unit.owner == e.owner and unit.job.kind == "build" and int(unit.job.target) == int(e.id):
+					var worker: Dictionary = inspect(w, unit)
+					a.phase = worker.phase; a.blocker = worker.blocker; return a
+			return waiting(a, "no_engineer")
+		if not e.enabled: return waiting(a, "switched_off")
+		if int(w.cfg.structures[e.kind].powerDemand) > 0 and not e.powered: return waiting(a, "no_power")
+		if float(e.get("configuration_remaining", 0)) > 0: a.task = "configure"; a.phase = "working"; return a
+		if w.cfg.economy.recipes.has(e.kind):
+			a.task = "produce"; a.resource = w._output_resource(e)
+			var recipe: Dictionary = w.cfg.economy.recipes[e.kind]
+			var cap := int(w.cfg.economy.extractorBufferCapacity if e.kind == "extractor" else w.cfg.economy.processorBufferCapacity)
+			var batch := int(recipe.get("outputUnits", 0)) if e.kind == "extractor" else int(recipe.outputs.values()[0])
+			if float(e.cycle) > 0: a.phase = "working"; a.progress = 1.0 - float(e.cycle) / float(recipe.cycleSeconds); return a
+			if int(e.buffer) + batch > cap: return waiting(a, "buffer_full")
+			if e.kind == "extractor":
+				if int(w.tiles[e.cell].amount) <= 0: return waiting(a, "depleted")
+			else:
+				for resource in recipe.inputs:
+					if int(w.resources(e.owner).get(resource, 0)) < int(recipe.inputs[resource]): a.blocker_resource = resource; return waiting(a, "no_resources")
+			a.phase = "working"
+		elif e.kind == "fabricator" and not e.upgrades.is_empty():
+			a.task = "research"
+			for unit in w.units.values():
+				if unit.owner == e.owner and unit.job.kind == "research" and int(unit.job.target) == int(e.id) and unit.pos.distance_to(w.entity_position(e)) <= int(w.cfg.structures[e.kind].footprintRadiusTiles) + 1.4: a.phase = "working"; return a
+			return waiting(a, "no_engineer")
+		elif not e.vehicles.is_empty() or not e.operators.is_empty() or not e.kits.is_empty():
+			a.task = "produce"; a.phase = "working"
+			if e.vehicles.is_empty() and e.operators.is_empty() and not e.kits.is_empty() and e.kits.all(func(kit): return kit.done): return waiting(a, "kit_pickup")
+			if not e.vehicles.is_empty() and float(e.vehicles[0].progress) >= float(w.cfg.units[e.vehicles[0].kind].productionSeconds): return waiting(a, "exit_blocked")
+		return a
+
 func resources(owner: int) -> Dictionary:
 	return players[owner].resources
 
@@ -331,6 +543,8 @@ func _pay(owner: int, cost: Dictionary) -> bool:
 func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 	if ended or not players.has(owner) or (not players[owner].alive and not from_queue): return "Player cannot issue orders"
 	var action := str(order.get("action", ""))
+	if action == "start_mission":
+		return Missions.start(self, owner, str(order.get("mission", "")))
 	if order.has("queued") and not order.queued is bool: return "Invalid queue flag"
 	if not order.get("ids", []) is Array or order.get("ids", []).size() > 128: return "Invalid unit selection"
 	var required: Dictionary = {"move": ["x", "z"], "patrol": ["x", "z"], "escort": ["target"], "mine": ["q", "r"], "attack": ["target"], "equip": ["target"], "board": ["target"], "load_cargo": ["target"], "excavate": ["q", "r"], "build": ["q", "r"], "build_line": ["q", "r", "end_q", "end_r"]}
@@ -621,7 +835,7 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 				move_to(units[int(raw_id)], _work_position(s, units[int(raw_id)].pos))
 		return "Engineers assigned"
 	if action == "extract" and s.kind == "anchor":
-		if int(resources(owner).get("nacre", 0)) < int(cfg.match.extractionMinimumNacre): return "Deliver 500 Nacre first"
+		if int(resources(owner).get("nacre", 0)) < int(cfg.match.extractionMinimumNacre): return "Deliver %d Nacre first" % int(cfg.match.extractionMinimumNacre)
 		if not players[owner].extracting:
 			players[owner].extracting = true
 			players[owner].remaining = float(cfg.match.extractionSeconds)
@@ -733,7 +947,7 @@ func step(delta: float) -> void:
 	GateRules.update(self, delta)
 	_update_power(delta)
 	RadarSystem.update(self)
-	LightlessColony.update(self, delta)
+	if mission.is_empty(): LightlessColony.update(self, delta)
 	for s in structures.values(): _production(s, delta)
 	for id in units.keys():
 		if units.has(id):
@@ -755,6 +969,7 @@ func step(delta: float) -> void:
 			players[owner].remaining -= delta
 			if players[owner].remaining <= 0: ended = true; result = "Player %d extracted successfully" % (owner + 1)
 	if tick % int(cfg.targeting.refreshIntervalTicks) == 0: update_visibility(); _update_gloom(delta * int(cfg.targeting.refreshIntervalTicks))
+	Missions.update(self, delta)
 
 
 func _unit_step(u: Dictionary, delta: float) -> void:
@@ -993,6 +1208,8 @@ func _deposit_cargo(u: Dictionary, depot: Dictionary) -> void:
 		if resource == "nacre" and depot.kind != "anchor": continue
 		var amount := mini(int(u.cargo[resource]), maxi(0, capacity(u.owner, resource) - int(resources(u.owner).get(resource, 0))))
 		resources(u.owner)[resource] = int(resources(u.owner).get(resource, 0)) + amount
+		if not mission.is_empty() and u.owner == 0:
+			mission.delivered[resource] = int(mission.delivered.get(resource, 0)) + amount
 		u.cargo[resource] -= amount; delivered += amount
 	if delivered > 0: emit_feedback("deposit", entity_position(depot), {"amount": delivered, "owner": u.owner, "target": depot.id}, [int(u.owner)])
 
@@ -1208,19 +1425,23 @@ func _build(u: Dictionary, delta: float) -> void:
 	if u.pos.distance_to(HexGrid.world(s.cell)) > int(cfg.structures[s.kind].footprintRadiusTiles) + 1.4:
 		if u.route.is_empty():
 			if u.job.get("automatic", false): u.job = {"kind": "idle"}
-			else: command(u.owner, {"action": "cancel_build", "target": id})
+			else: move_to(u, _work_position(s, u.pos))
 		return
 	if not s.started:
 		var wait_for_units := false
 		for cell in footprint(s):
-			if blocked(cell, id): command(u.owner, {"action": "cancel_build", "target": id}); return
+			if blocked(cell, id): return
 			for other in units.values():
+				if int(other.vehicle) != 0: continue
 				if HexGrid.cell(other.pos) != cell: continue
-				if other.owner != u.owner: command(u.owner, {"action": "cancel_build", "target": id}); return
+				wait_for_units = true
+				# Let active traffic finish its orders. Only idle friendly bodies
+				# may be asked to clear a site; occupancy never cancels paid work.
+				if other.owner != u.owner or other.job.kind != "idle" or not other.orders.is_empty(): continue
 				var clear_position := _work_position(s, other.pos)
+				if clear_position == other.pos: continue
 				other.job = {"kind": "move"}; other.home = clear_position; other.target = 0
 				move_to(other, clear_position)
-				wait_for_units = true
 		if wait_for_units: return
 		s.started = true
 		_rebuild_navigation()
@@ -1711,6 +1932,7 @@ func snapshot(owner: int) -> Dictionary:
 	for u in units.values():
 		if u.owner != owner and not TargetRules.identifiable(self, u, owner): continue
 		var d: Dictionary = u.duplicate(true)
+		if u.owner == owner: d.activity = activity(u)
 		if u.owner != owner: d.erase("orders")
 		d.pos = [u.pos.x, u.pos.y]
 		d.home = [u.home.x, u.home.y]
@@ -1718,6 +1940,7 @@ func snapshot(owner: int) -> Dictionary:
 		exported_units.append(d)
 	for s in observed_structures(owner):
 		var d: Dictionary = s.duplicate(true)
+		if s.owner == owner: d.activity = activity(s)
 		d.cell = [s.cell.x, s.cell.y]
 		exported_structures.append(d)
 	var cells: Array = []
@@ -1729,11 +1952,12 @@ func snapshot(owner: int) -> Dictionary:
 		for key in ["at", "from", "to"]:
 			if copy.has(key): copy[key] = [copy[key].x, copy[key].y]
 		exported_feedback.append(copy)
-	return {"feedback": exported_feedback, "feedback_serial": feedback_serial, "contacts": detected.get(owner, {}).keys().map(func(cell): return [cell.x, cell.y]), "tick": tick, "time_seconds": time_seconds, "units": exported_units, "structures": exported_structures, "players": players, "cells": cells, "ended": ended, "result": result, "medusa_dead": medusa_dead, "speed": speed, "paused": paused}
+	return {"mission": mission.duplicate(true), "feedback": exported_feedback, "feedback_serial": feedback_serial, "contacts": detected.get(owner, {}).keys().map(func(cell): return [cell.x, cell.y]), "tick": tick, "time_seconds": time_seconds, "units": exported_units, "structures": exported_structures, "players": players, "cells": cells, "ended": ended, "result": result, "medusa_dead": medusa_dead, "speed": speed, "paused": paused}
 
 func apply_snapshot(data: Dictionary, owner: int) -> void:
 	_opponents.clear(); _sight_areas.clear(); _sight_unions.clear(); _sight_topology_valid = false
 	corpse = null
+	mission = data.get("mission", {}).duplicate(true)
 	tick = int(data.tick)
 	feedback_serial = int(data.get("feedback_serial", 0)); feedback_events.clear()
 	for event in data.get("feedback", []):

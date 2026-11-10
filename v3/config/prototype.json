@@ -1207,7 +1207,7 @@
     "wheelStepTiles": 2,
     "panTilesPerRealSecondAtDefaultZoom": 18,
     "scalePanWithZoom": true,
-    "edgeBandLogicalPixels": 12,
+    "edgeBandLogicalPixels": 32,
     "rotationHoldDegrees": 90,
     "zoomResponseSeconds": 0.12,
     "rotationResponseSeconds": 0.12,
@@ -1227,7 +1227,9 @@
     "clampFocusToHexMap": true,
     "availableWhilePaused": true,
     "includeInSimulationSettingsHash": false,
-    "maxFrameDeltaSeconds": 0.1
+    "maxFrameDeltaSeconds": 0.1,
+    "edgeIndicatorSizeLogicalPixels": 8,
+    "edgeIndicatorPulseSeconds": 0.9
   },
   "movement": {
     "separationTilesPerSecond": 1.2,
@@ -1256,21 +1258,21 @@
     },
     "fog": {
       "enabled": true,
-      "memoryOpacity": 0.58,
-      "edgeOpacity": 0.82,
-      "edgeReachTiles": 1.6,
+      "memoryOpacity": 0.28,
+      "edgeOpacity": 0.48,
+      "edgeReachTiles": 1.1,
       "driftSpeed": 0.09,
       "noiseScale": 1.25,
       "heightTiles": 0.85
     },
     "lighting": {
       "serviceLightWashOpacity": 0.16,
-      "ambientEnergy": 0.32,
-      "keyLightEnergy": 0.48,
+      "ambientEnergy": 0.58,
+      "keyLightEnergy": 0.65,
       "workLightEnergy": 2.0,
       "groundBrightness": 1.7
     },
-    "structureMemoryTintStrength": 0.75,
+    "structureMemoryTintStrength": 0.42,
     "damageNumbers": true,
     "soundEnabled": true,
     "ambienceVolumeDb": -25,
@@ -1423,6 +1425,10 @@
       "sentry": 0.83,
       "torch": 0.83,
       "lance": 0.83
+    },
+    "activityIndicators": {
+      "sizePixels": 18,
+      "pulseSeconds": 1.2
     }
   },
   "targeting": {
@@ -1526,6 +1532,77 @@
       "alloy": "A",
       "polymer": "P",
       "crystal": "C"
+    }
+  },
+  "missions": {
+    "foothold": {
+      "title": "First foothold",
+      "briefing": "Mine, deliver, and build a powered outpost. No enemy pressure.",
+      "radiusTiles": 18,
+      "anchorEdgeInsetTiles": 6,
+      "startingResources": {
+        "ore": 100,
+        "gas": 100,
+        "alloy": 10,
+        "polymer": 10,
+        "crystal": 10
+      },
+      "deliveryResource": "ore",
+      "deliveryTarget": 20,
+      "requiredStructures": [
+        "depot",
+        "floodlight"
+      ],
+      "extraEngineers": 0,
+      "extraMarines": 0,
+      "clearRadiusTiles": 8
+    },
+    "industry": {
+      "title": "Supply and steel",
+      "briefing": "Connect industry, haul its output, and equip reinforcements. No enemy pressure.",
+      "radiusTiles": 18,
+      "anchorEdgeInsetTiles": 6,
+      "startingResources": {
+        "ore": 100,
+        "gas": 100,
+        "alloy": 0,
+        "polymer": 10,
+        "crystal": 10
+      },
+      "deliveryResource": "alloy",
+      "deliveryTarget": 5,
+      "requiredStructures": [
+        "foundry",
+        "armory"
+      ],
+      "extraEngineers": 1,
+      "extraMarines": 0,
+      "additionalMarinesRequired": 1,
+      "clearRadiusTiles": 8
+    },
+    "extraction": {
+      "title": "The last light",
+      "briefing": "Scout the central nest, destroy it, recover Nacre, and hold for extraction.",
+      "radiusTiles": 18,
+      "anchorEdgeInsetTiles": 6,
+      "startingResources": {
+        "ore": 100,
+        "gas": 100,
+        "alloy": 10,
+        "polymer": 10,
+        "crystal": 10
+      },
+      "extraEngineers": 1,
+      "extraMarines": 4,
+      "medusaHealth": 250,
+      "nestScavengers": 2,
+      "extractionMinimumNacre": 60,
+      "extractionSeconds": 30,
+      "assaultIntervalSeconds": 10,
+      "assaultWaveSize": 2,
+      "clearRadiusTiles": 8,
+      "nestClearRadiusTiles": 4,
+      "nestSpawnRadiusTiles": 2
     }
   }
 }

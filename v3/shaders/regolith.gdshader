@@ -12,7 +12,7 @@ void fragment() {
 	vec3 grain = mix(vec3(0.14), texture(ground_texture, world_position.xz / 5.5).rgb, 0.55);
 	vec3 macro = texture(ground_texture, world_position.xz / 17.0 + vec2(0.31, 0.67)).rgb;
 	grain *= vec3(0.78) + macro * 0.8;
-	vec3 shade = mix(vec3(0.08, 0.12, 0.16), vec3(0.27, 0.33, 0.35), field.g);
+	vec3 shade = mix(vec3(0.20, 0.26, 0.30), vec3(0.34, 0.40, 0.42), field.g);
 	shade = mix(shade, vec3(0.53, 0.49, 0.39), field.b * 0.68);
 	shade = mix(shade, vec3(0.25, 0.13, 0.20), field.a * 0.72);
 	ALBEDO = grain * shade * ground_brightness;

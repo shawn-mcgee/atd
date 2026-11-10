@@ -16,10 +16,6 @@
     "stage:site": "python tools/stage-site.py",
     "serve:site": "node tools/serve.mjs --site"
   },
-  "dependencies": {
-    "@trystero-p2p/ws-relay": "0.26.0",
-    "trystero": "0.26.0"
-  },
   "devDependencies": {
     "@playwright/test": "1.65.0",
     "esbuild": "0.28.2",

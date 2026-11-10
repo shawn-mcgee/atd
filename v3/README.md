@@ -4,7 +4,7 @@
 
 ### Run the current foundation
 
-A runnable Godot browser foundation is now implemented. It includes the 3D scene/camera, initial simulation and economy, and Trystero transport. It is **not the complete alpha**. See [implementation status and controls](docs/implementation-status.md) for exact coverage and remaining systems.
+A runnable Godot browser foundation is now implemented. It includes the 3D scene/camera, initial simulation and economy, and built-in Godot WebRTC transport. It is **not the complete alpha**. See [implementation status and controls](docs/implementation-status.md) for exact coverage and remaining systems.
 
 ```sh
 npm ci
@@ -17,7 +17,7 @@ Open `http://127.0.0.1:8080/`. Run `npm test` for headless simulation checks and
 
 ### Browser alpha
 
-The first playable is a **browser-only alpha** targeting all confirmed systems in this document, including single player, up to five Commonwealth players in player-hosted Trystero/WebRTC multiplayer, the complete current roster and economy, complex mining expeditions, and testing-only Lightless control. Windows and Linux exports are deferred. This is a substantial RTS implementation and should be built through integrated milestones.
+The first playable is an alpha distributed primarily through the **browser** targeting all confirmed systems in this document, including single player, up to five Commonwealth players in player-hosted Godot WebRTC multiplayer, the complete current roster and economy, complex mining expeditions, and testing-only Lightless control. The Godot editor/native Windows/Linux x86_64 runtime also supports network play; downloadable desktop exports are deferred. This is a substantial RTS implementation and should be built through integrated milestones.
 
 The **extraction boss is excluded from the first version**. Unique commander differences, additional undesigned upgrade effects, and between-match purchases remain later design work. The initial Fabricator content is one armor upgrade for each specialization: Engineer, Marine, Flamer, and Lancer.
 
@@ -31,10 +31,12 @@ The **extraction boss is excluded from the first version**. Unique commander dif
 - [Prototype values and configuration contract](docs/prototype-settings.md)
 - [Editable prototype settings](config/prototype.json)
 - [Godot engine, platform, and distribution plan](docs/engine-and-distribution.md)
-- [Player-hosted Trystero networking](docs/networking.md)
+- [Player-hosted networking](docs/networking.md)
+- [Replayable single-player missions](docs/missions.md)
+- [Low-cost multiplayer options and recommendation](docs/multiplayer-options.md)
 - [Art direction, presentation, and asset provenance](docs/art-direction.md)
 
-The JSON contains confirmed values and explicitly proposed tuning defaults for previously unresolved values. Implemented systems load those settings; remaining definitions guide subsequent milestones. The engine is **Godot**, using **3D presentation** and targeting the **browser for the alpha**. Deployment targets are **GitHub Pages and itch.io**. Multiplayer is **player-hosted through Trystero/WebRTC**. Native Windows/Linux exports and downloads are deferred; macOS remains outside the test scope. The current foundation is runnable, while public connectivity/TURN, the 3D asset pipeline, persistence, and the remaining gameplay systems still need implementation and acceptance testing.
+The JSON contains confirmed values and explicitly proposed tuning defaults for previously unresolved values. Implemented systems load those settings; remaining definitions guide subsequent milestones. The engine is **Godot**, using **3D presentation** and targeting the **browser for the alpha**. Deployment targets are **GitHub Pages and itch.io**. Multiplayer is **player-hosted through Godot WebRTC, the custom coordinator, and Metered TURN**. Native Windows/Linux exports and downloads are deferred; macOS remains outside the test scope. The current foundation is runnable, while broader Internet connectivity acceptance, the 3D asset pipeline, persistence, and the remaining gameplay systems still need implementation and acceptance testing.
 
 ### Narrative
 

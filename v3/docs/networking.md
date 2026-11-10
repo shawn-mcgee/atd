@@ -1,86 +1,41 @@
-# Browser alpha networking
+# Player-hosted networking
 
-## Confirmed direction
+The game uses Godot **WebRTCMultiplayerPeer** in both browser builds and the native Windows/Linux x86_64 editor/runtime. It no longer depends on Trystero, Nostr, or browser JavaScript for networking. Native runtime support does not add downloadable desktop exports to the release workflow.
 
-The alpha is **browser-only**. Players host matches through **WebRTC**, using **Trystero** for room discovery and peer data transport. The Godot 3D client is deployed to GitHub Pages and itch.io. Windows and Linux exports are deferred, so native JavaScript integration is not an alpha requirement.
+## Coordinator and ICE setup
 
-No dedicated gameplay server is required for this alpha. A player hosting the simulation is distinct from the static website serving the client files. Up to five Commonwealth players still participate in a match.
+`config/networking.json` points to Shawn's Cloudflare Worker coordinator at `wss://webrtc-coordinator.s-mcgeek07.workers.dev`. Its Metered STUN/TURN configuration was adapted from [multiplayer-experiment/game2.gd](https://github.com/shawn-mcgee/multiplayer-experiment/blob/ec8a6ee175df1f16e529cd0d21302c8e5e708a19/game2.gd). The pinned reference commit is `ec8a6ee175df1f16e529cd0d21302c8e5e708a19`. TURN credentials are client-consumed settings, matching the experiment; they are not coordinator administration keys. Update or rotate them in the JSON when the subscription changes. Do not put administrative provider secrets in the client.
 
-## Integration basis
+Room setup is asynchronous. Host opens `/host`; guests open `/join/<room_id>`. Coordinator responses use `v1-host-room` and `v1-join-room`, with `ok`, `room_id`, `host_id`, and a guest `peer_id`. Guests initiate `v1-webrtc-offer`; hosts answer with `v1-webrtc-answer`. `v1-webrtc-ice-candidate` carries `media`, `index`, and `name`. Signaling forwards `from_id` and `to_id`; ICE received before the remote description is buffered within bounded per-peer limits.
 
-[Trystero](https://github.com/dmotz/trystero) provides JavaScript room discovery, peer events, data actions, and configurable WebRTC connectivity. Its public signaling strategies can avoid deploying a custom signaling service. It also supports TURN configuration for networks where peers cannot connect directly.
+The coordinator assigns signaling IDs. Godot's built-in server ID remains **1**, so the session maps that ID to the coordinator's host ID for signaling only. Guest IDs remain their coordinator-assigned IDs. Invitations are `room_id:coordinator_host_id`; a bare room code also works, with host identity resolved by the coordinator. Old Trystero invitations are incompatible. The game protocol is now version 3.
 
-Godot's [JavaScriptBridge](https://docs.godotengine.org/en/stable/classes/class_javascriptbridge.html) exposes browser JavaScript APIs and callbacks to GDScript and can copy JavaScript binary buffers into Godot byte arrays. The alpha uses this browser-only interface; no native runtime helper or desktop WebRTC extension is needed for its export target.
+Host/Join work directly when running `project.godot`, as well as in the exported web game. Native WebRTC comes from the Windows/Linux x86_64 GDExtension in `addons/webrtc_native/`, copied with license notices and provenance from the reference repository. The bundled libjuice backend supports UDP TURN only; native clients omit the unsupported TCP/TLS ICE entries. Browsers retain UDP, TCP and TLS endpoints. UDP-blocked native networks need a different native WebRTC backend. The extension is non-reloadable to avoid Windows editor shadow-library locking and is excluded from browser exports, which use Godot's built-in browser WebRTC implementation. Restart an already-running editor if it has not registered the newly installed extension.
 
-The repository implements this adapter with **Godot 4.7.2** and **Trystero 0.26.0**, pinned in `.godot-version` and `package-lock.json`. Local browser tests exercise real WebRTC transport, host-confirmed orders through Godot, and terminal host loss. Public hosting and different-network reachability remain unverified. See [implementation status](implementation-status.md).
+## Transport and performance
 
-## Architecture
+`NetworkSession` uses `WebSocketPeer` for coordinator signaling, `WebRTCPeerConnection` for negotiation, and **WebRTCMultiplayerPeer** for channel creation, peer events, sender identity and packet delivery. The browser JavaScript bridge is limited to diagnostics and test input. No gameplay packets cross JavaScriptBridge.
 
-```mermaid
-flowchart LR
-    G[Godot browser client] <--> B[JavaScriptBridge adapter]
-    B <--> T[Bundled Trystero]
-    T <-- WebRTC --> P[Other players' browser clients]
-    T -. Room discovery .-> S[Selected signaling infrastructure]
-```
+Packets use Godot's binary Variant encoding with object decoding disabled. Payloads at least 1,024 bytes are Zstandard-compressed. Commands use the default reliable channel, snapshots use a separate reliable channel, and heartbeats have their own reliable channel. This avoids sharing one reliable stream for all three workloads. Snapshots waiting to send are coalesced per recipient; commands use a bounded FIFO.
 
-Bundle Trystero and the adapter with the web export rather than requiring players to install anything. Browser peers reached through GitHub Pages and itch.io use the same application namespace, protocol version, and compatible room configuration, allowing those two deployment locations to join one match.
+Godot reports a 1,200-byte WebRTC packet limit, so larger encoded payloads use a 16-byte framing header and 1,184-byte payload chunks under that engine limit. Receivers check serial, contiguous offsets and declared size before reassembly, with a 4 MiB ceiling and bounded decompression. Objects cannot be instantiated through decoded packets. This small framing layer preserves native peer/channel handling while supporting existing large terrain snapshots.
 
-Trystero manages room connectivity; the game still defines player slots, match ownership, orders, simulation state, visibility, admission, and victory. A transport peer is not automatically an accepted player. Do not assume Trystero data actions are directly compatible with Godot's built-in high-level multiplayer packet format.
+The `limits` configuration defines maximum peers (4 guests), frame payload bytes (1,184), packet bytes (4,194,304), buffered bytes (262,144), send timeout (10,000 ms), receive frames per poll (256), send frames per channel per poll (16), compression threshold (1,024 bytes), and command queue length (256). `signaling.connectTimeoutMs` is 20,000. These are transport limits, separate from gameplay balance. Full snapshot generation still needs measurement before claiming a late-game bandwidth/frame-time target is met.
 
-Use a narrow adapter between GDScript and JavaScript rather than scattering calls to Trystero throughout gameplay code. The proposed interface provides initialization, room creation/join, targeted packet sending, event polling, and leaving. Events include peer arrival/departure, received packets, connection progress, and failure.
+## Authority and lifecycle
 
-Keep Godot callback references alive while the adapter is active. Queue callback events and consume them at a controlled simulation boundary. A callback does not immediately alter resources, orders, or entities halfway through a simulation step. Explicitly convert binary packets across the bridge and preserve the sending peer identity.
+The hosting player runs WorldState and Lightless simulation. Guests send orders and display host-filtered state. Ownership, payload, build/protocol, gameplay configuration, match identity and command sequencing checks remain in the game. Transport connection alone does not admit a player to a match. Up to five Commonwealth players can participate; late join is rejected after launch.
 
-## Authority model and target guarantees
+Host loss ends every guest's match without migration, retries or resumption. Host gameplay elimination is independent of hosting while still connected. A departing guest is eliminated while retaining surviving assets and orders; vehicles unload under the existing rules. Signals, connections, pending packets, ICE and deadlines are cleared on leaving a session.
 
-Use **host-authoritative simulation** for the alpha. The room creator is the hosting player and remains a participating player. That browser runs the authoritative fixed-step simulation and Lightless CPU. Other clients send orders and display host-confirmed state.
+`liveness.heartbeatIntervalMs` (1,000) and `liveness.peerTimeoutMs` (10,000) use monotonic real time, independently of simulation pause and speed. Any incoming peer traffic refreshes liveness. Missing peers expire once; stale traffic cannot reopen an ended match. If coordinator signaling closes after setup, existing WebRTC connections continue; the lobby reports that new invitations require reopening the room.
 
-- Host and client orders pass the same validation: ownership, legal target, range, available resources, queues, and population rules.
-- The host assigns player slots and accepts only compatible build/protocol and gameplay-configuration identifiers. Camera and local input preferences remain outside the gameplay hash.
-- Messages include a match identifier, sender identity, sequence number, and relevant simulation tick. The host ignores duplicate orders and orders from the wrong owner.
-- Keep ordered gameplay commands and acknowledgments separate from replaceable presentation/state updates at the application level. Pin and test the selected Trystero version's actual message behavior rather than assuming a particular unreliable-channel API exists.
-- Only the host commits resource deductions, spawns, damage, deaths, elimination, and extraction victory. Clients do not independently award persistent currency from an unconfirmed local outcome.
-- Replicate a player's permitted view: visible entities, remembered terrain/resources/structures, and anonymous detected tiles as appropriate. Camera position never grants simulation knowledge. The host player's rendered view follows the same visibility rules as other players.
+## Local verification
 
-This does not require independently running Godot physics in deterministic lockstep on every browser. The host is the authority; client interpolation must not change hit, inventory, or movement results. Exact state-packet layout, update frequency, and bandwidth budgets will be measured in the networking prototype.
+`npm run serve` and `npm run serve:site` start a protocol-compatible local coordinator on port 8081. Use `?coordinator=ws://127.0.0.1:8081` in browser tests. The old `relay` query name remains a development alias. Local overrides disable paid ICE servers for localhost testing; normal sessions use the configured coordinator and Metered servers. `?relayOnly=1` filters signaling to relay candidates for an explicit subscription check.
 
-Trystero may establish room-wide peer connectivity, but gameplay follows a logical host/client model. Clients send gameplay orders to the designated host, not to whichever peer is first discovered. Host identity must be explicit in room setup and handshake. Transport arrival order never changes the winner or the authority.
+`npm test` includes five real headless native Godot peers using this coordinator, large mixed binary packets, compression/reassembly, guest-to-host commands, guest departure and terminal host loss. Browser integration tests verify the exported game, cross-origin clients and host-confirmed movement. These checks do not establish universal Internet reachability; different-network, restrictive-network, hosted Pages/itch.io and full five-player gameplay acceptance remain separate tests.
 
-## Room lifecycle
+The earlier [multiplayer options research](multiplayer-options.md) is historical. This custom coordinator/Metered integration supersedes its proposed Cloudflare TURN migration.
 
-The proposed initial flow is create room, share an invitation, join, validate compatibility, select player slots/settings, mark ready, and let the host start. The host freezes map seed, game speed, and resolved gameplay configuration at start. Late joining an active match is not yet a defined alpha feature.
-
-The room creator's hosting role is independent of their faction, commander, or continued survival. If eliminated, their game assets follow the elimination rules while their connected browser continues running the authoritative match. Losing an Anchor does not itself end everyone else's network session; leaving the match does.
-
-**Host departure or connection loss ends the match for everyone as soon as it is detected.** Stop the simulation and explain that the host left or disconnected. Do not elect a replacement, transfer authority, retry the host connection, restore a checkpoint, or resume the ended match. There is no host migration or recovery attempt.
-
-**Non-host departure eliminates that player immediately when detected.** Their assets remain under existing orders and stances; vehicles unload all occupants. Their surviving Anchor is not destroyed by the disconnect. Elimination can award last-player victory under the normal multiplayer rules. Reconnection does not restore player control, and no disconnect policy can reopen a match ended by host loss.
-
-## Signaling and connection reachability
-
-Player hosting does not remove the need for peer discovery or network traversal. The adapter uses Trystero's **Nostr** strategy by default, with connectivity configuration separate from balance in [networking.json](../config/networking.json). Development tests can select a local WebSocket signaling relay using the documented URL parameter. GitHub Pages and itch.io serve the client; they do not become a custom signaling or TURN service simply by hosting it.
-
-Try direct peer connections first. Some pairings can require TURN. A TURN relay carries connectivity traffic rather than simulating the game, so using one does not change the player-hosted authority model. Provider choice, availability, and costs remain to be determined. Connection failure must be exposed to the user; never claim universal connectivity from a same-machine test.
-
-No voice/video chat, account service, public matchmaking ladder, or dedicated gameplay backend is added by selecting Trystero. Those are separate potential features, not alpha requirements.
-
-## Required early networking prototype
-
-Before full multiplayer gameplay is built:
-
-1. Export a minimal Godot scene with the bundled Trystero adapter and verify a room can form between two independent browser sessions.
-2. Exchange a typed command and binary payload in both directions, preserve peer identity, and verify byte-for-byte receipt through the Godot bridge.
-3. Identify the creator as host and demonstrate one host-confirmed state change on both clients, including rejection of duplicate or unauthorized ownership requests.
-4. Join a GitHub Pages client to an itch.io client using the same room. Test the actual Pages subpath and itch.io frame, not only a local standalone HTML page.
-5. Repeat over different networks and verify direct connectivity, configured TURN fallback if available, and understandable failure states when connectivity cannot be established.
-6. Scale the test to five peers, measure message delay/throughput, and check host frame time in the single-threaded export.
-7. Verify host departure or detected connection loss ends every client's match without migration, retry, or resumption. Separately test a host player being eliminated while staying connected, browser focus changes, and non-host departure according to its eventual policy.
-
-The local prototype now demonstrates cross-origin browser room formation, binary transport with five peers, host-confirmed movement, and terminal host loss. Command sequencing and ownership checks are implemented, but hostile-protocol testing remains pending. Full gameplay replication, actual Pages/itch.io rooms, different networks, TURN, and measured five-player load remain release gates; desktop interoperability is deferred.
-
-## Transport liveness
-
-`config/networking.json` exposes `liveness.heartbeatIntervalMs` (1000 ms) and `liveness.peerTimeoutMs` (10000 ms). The timeout must exceed the heartbeat interval. Peers exchange small health messages on a separate Trystero action; any gameplay packet also refreshes that peer's deadline. The monotonic browser timer runs independently of simulation pause and speed.
-
-A missing host ends the guest match without recovery. A missing guest is eliminated by the host under the existing keep-assets-and-orders policy. Explicit departure and timeout share one deduplicated path; late packets from an expired peer are ignored. Leaving a session clears its timer and deadlines, and callbacks from older sessions cannot affect a new one. Browser/device suspension longer than the configured timeout is treated as disconnection. This bounds host-loss detection without depending on WebRTC's eventual peer-leave event.
+Verified in this workspace: five native peers with the local coordinator, mixed binary payloads larger than one frame, and terminal host loss; two native peers against the live Worker with relay-only ICE and the configured Metered subscription. Native-to-browser admission and browser-host loss also passed against the local coordinator, along with the exported browser host-confirmed movement test. Different-device/network coverage remains unverified.

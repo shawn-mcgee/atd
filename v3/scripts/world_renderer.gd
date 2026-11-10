@@ -290,7 +290,7 @@ func refresh_tiles() -> void:
 		tile_cache[cell] = signature
 		changed = true
 		var color := Color("080f18")
-		if explored.has(cell): color = Color("182733")
+		if explored.has(cell): color = Color("3b4b56")
 		if active.has(cell): color = Color("314651")
 		if light.has(cell): color = Color("858578")
 		color = color.lightened(fposmod(sin(float(cell.x * 71 + cell.y * 137)) * 43758.5, 1.0) * 0.035)
@@ -323,10 +323,10 @@ func refresh_tiles() -> void:
 			var size_by := Vector3(0.38, 0.23 + 0.11 * j, 0.38) if tile.resource != "gas" else Vector3(0.45, 0.08, 0.45)
 			basis = Basis(Vector3.UP, angle).scaled(size_by * (1.0 if has_resource and tile.resource != "gas" else 0.0))
 			deposits.multimesh.set_instance_transform(i * 3 + j, Transform3D(basis, Vector3(p.x + cos(angle) * 0.21, 0, p.y + sin(angle) * 0.21)))
-			deposits.multimesh.set_instance_color(i * 3 + j, (resource_color if active.has(cell) else resource_color.darkened(0.65)).srgb_to_linear())
+			deposits.multimesh.set_instance_color(i * 3 + j, (resource_color if active.has(cell) else resource_color.darkened(0.35)).srgb_to_linear())
 		var has_gas: bool = has_resource and tile.resource == "gas"
 		gas_vents.multimesh.set_instance_transform(i, Transform3D(Basis(Vector3.UP, float(cell.x + cell.y)).scaled(Vector3(1.2, 1, 0.9) * (1.0 if has_gas else 0.0)), Vector3(p.x, 0.03, p.y)))
-		gas_vents.multimesh.set_instance_color(i, (Color("54736e") if active.has(cell) else Color("1c2929")).srgb_to_linear())
+		gas_vents.multimesh.set_instance_color(i, (Color("54736e") if active.has(cell) else Color("3c5552")).srgb_to_linear())
 		gas_vapor.multimesh.set_instance_transform(i, Transform3D(Basis.IDENTITY.scaled(Vector3(0.65, 1, 0.65) * (1.0 if has_gas and active.has(cell) else 0.0)), Vector3(p.x, 0.22, p.y)))
 	if changed: _update_visibility_texture(explored, active, light)
 
@@ -339,7 +339,7 @@ func _update_visibility_texture(explored: Dictionary, active: Dictionary, light:
 		var mask: int = 255 | (65280 if active.has(cell) else 0) | (16711680 if light.has(cell) else 0) | (-16777216 if state.gloom.has(cell) else 0)
 		for index in visibility_splats.get(cell, PackedInt32Array()): pixels[index] = pixels[index] | mask
 	var image := Image.create_from_data(resolution, resolution, false, Image.FORMAT_RGBA8, pixels.to_byte_array())
-	if visibility_texture == null: visibility_texture = ImageTexture.create_from_image(image)
+	if visibility_texture == null or visibility_texture.get_width() != resolution: visibility_texture = ImageTexture.create_from_image(image)
 	else: visibility_texture.update(image)
 	ground_material.set_shader_parameter("visibility_map", visibility_texture)
 	fog_material.set_shader_parameter("visibility_map", visibility_texture)

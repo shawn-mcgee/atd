@@ -4,7 +4,7 @@ The active project is `v3/`. Run the commands in this guide from that directory;
 
 ## Run and tune
 
-Use the Godot version pinned in `.godot-version`. `npm test` runs actual Godot simulation and interface checks. `npm run export:web` builds the browser game; `npm run serve` serves it at localhost:8080. `npm run test:browser` exercises the exported game and Trystero. Export before browser tests whenever game scripts or configuration change.
+Use the Godot version pinned in `.godot-version`. `npm test` runs actual Godot simulation and interface checks. `npm run export:web` builds the browser game; `npm run serve` serves it at localhost:8080. `npm run test:browser` exercises the exported game and the custom coordinator. Export before browser tests whenever game scripts or configuration change.
 
 Edit `config/prototype.json` for gameplay, camera, and presentation values; edit `config/networking.json` for transport policy. Run `npm run config:check` for native validation with JSON-path errors. Run `npm run config:reference` to update the [searchable default-value index](config-reference.md). Restart the game or re-export the browser build to apply changes. Configuration is loaded once, not hot-reloaded mid-match.
 
@@ -18,6 +18,7 @@ The presence of a definition does not implement a feature. Check [implementation
 | --- | --- | --- |
 | Config loading, validation, hash, test patches | `scripts/settings.gd`, `ConfigRules` | `validate` returns errors, `merged` returns a deep copy, gameplay hash omits camera/metadata/presentation. |
 | Entities, commands, simulation ordering | `scripts/world_state.gd` | Host-owned mutable state; no scene nodes, input, audio, or wall-clock calls. |
+| Single-player contracts | `WorldState.Missions`, `config/prototype.json` `missions.*` | Start through `command`; seeded scenario setup, actual-delivery counters, simulation-owned completion. See [missions](missions.md). |
 | Last-seen enemy structures | `WorldState.structure_memory`, `observed_entity`, `observed_structures` | Observer records remain separate from simulation entities and collision. UI must use observed views. See [fog memory](fog-memory.md). |
 | Continuous routes and body clearance | `WorldState._route_path`, `MovementGraph`, `RouteNavigation` | Coarse hex topology, actual-position starts, clearance-aware shortcuts, swept collision and full movement budgets. See [navigation](navigation.md). |
 | Lightless probes, obstruction targets, attack/retreat paths | `WorldState._probe_step`, `LightlessTactics` | Uses known Anchors and personal vision; full routes, simulation-time retries, preserved attack objectives. See [Lightless AI](lightless-ai.md). |
@@ -29,8 +30,9 @@ The presence of a definition does not implement a feature. Check [implementation
 | Input and command panels | `scripts/main.gd` | Construct orders; route them through `_issue`, including multiplayer authority checks. |
 | Models, movement interpolation, lights | `scripts/world_renderer.gd`, `scene_art.gd` | Read simulation state. Presentation must not move authoritative units or deal damage. |
 | Tactical contacts and coverage | `scripts/tactical_overlay.gd` | Use `unknown_contacts`; never display a concealed enemy's identity/count/health. |
+| Current tasks and blockers | `WorldState.activity`, `ActivityRules`, `CommandSkin.StatusPanel` | Read-only queries; owned snapshot activity survives route stripping. Query only owned selection for task markers. |
 | Inspector and command art | `command_skin.gd`, `command_card.gd`, `unit_portrait.gd` | Display the same effective stats used by simulation. |
-| Browser transport | `web/bridge.mjs`, `network_session.gd` | Transport orders and filtered snapshots; clients do not run authoritative simulation. |
+| Native/browser transport | `network_session.gd` | Transport orders and filtered snapshots; clients do not run authoritative simulation. |
 
 The rule classes are currently nested in existing scripts to avoid creating additional `.gd` files while the local file-creation/editor termination issue is investigated. They have explicit state/query boundaries and can later be extracted without changing their callers' behavior. They are ordinary runtime classes, with no `@tool` annotations. The command-line `tools/` folder is excluded from editor scanning.
 

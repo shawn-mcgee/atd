@@ -14,7 +14,32 @@ func run() -> void:
 	root.add_child(game)
 	await process_frame
 	game.audio.muted = true
+	for mode in ["host", "guest"]:
+		game.network.role = mode
+		game._start_game(472, 2)
+		verify(not game.paused_button.visible and not game.speed_button.visible, "Multiplayer hides both time controls for " + mode)
+		game._pause()
+		verify(not game.state.paused, "Multiplayer still rejects the pause shortcut")
+	game.network.role = "solo"
 	game._start_game(472, 1)
+	verify(game.paused_button.visible and game.speed_button.visible, "Single player restores pause and speed controls")
+	verify(game.mission_choices.size() == 3, "All three missions are available from the menu without unlocking")
+	for key in game.mission_choices:
+		game.mission_choices[key].pressed.emit()
+		game.mission_deploy_button.pressed.emit()
+		game._update_hud()
+		verify(not game.state.mission.is_empty() and game.mission_label.text.contains(str(game.state.cfg.missions[key].title).to_upper()), "The selected mission deploys and displays its own objectives")
+		game._leave()
+	game._start_game(472, 1)
+	var cargo_worker: Dictionary = {}
+	for unit in game.state.units.values():
+		if unit.kind == "engineer" and unit.owner == 0: cargo_worker = unit; break
+	cargo_worker.cargo = {"ore": 7, "gas": 3, "nacre": 1}
+	game.selection = [cargo_worker.id]; game._update_hud()
+	verify(game.selection_status.visible and not game.detail_label.visible, "Selected units use the visual task card instead of the stats paragraph")
+	verify(game.selection_status.cargo_contents == cargo_worker.cargo, "Mixed cargo keeps its resource identities and quantities visible")
+	cargo_worker.cargo.clear()
+	verify(game.state.mission.is_empty() and game.state.cfg.match.extractionMinimumNacre == 500, "Ordinary expeditions restore standard rules after leaving a mission")
 	var anchor: Dictionary = game.state.structures[int(game.state.players[0].anchor)]
 	wall_paint_checks(game, anchor)
 	model_selection_checks(game, anchor)
@@ -82,7 +107,7 @@ func run() -> void:
 	verify(game.selection == [vehicle_id], "Boarding carries selection onto the occupied vehicle")
 	var radar_id: int = game.state.add_structure("radar", anchor.cell + Vector2i(2, -2), 0)
 	game.selection = [radar_id]; game._update_hud()
-	verify(game.status_label.text.contains("Amber markers"), "Radar selection provides relevant control guidance")
+	verify(game.selection_status.tooltip_text.contains("Amber markers"), "Radar selection provides relevant control guidance")
 	game.status_label.text = "Player order feedback"
 	game.state.resources(0).gas -= 1; game._update_hud()
 	verify(game.status_label.text == "Player order feedback", "Income does not overwrite order feedback with a selection hint")
