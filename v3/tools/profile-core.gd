@@ -21,6 +21,8 @@ func report(label: String, samples: Array[float]) -> Dictionary:
 	return result
 
 func run() -> void:
+	if "--snapshot-copy" in OS.get_cmdline_user_args():
+		snapshot_copy_profile(); quit(); return
 	var game = load("res://scenes/main.tscn").instantiate()
 	root.add_child(game)
 	await process_frame
@@ -151,3 +153,25 @@ func stress_fixture(world: WorldState, scale: int) -> bool:
 	for s in world.structures.values(): s.hp = float(world.cfg.structures[s.kind].health)
 	world.update_visibility()
 	return true
+
+func snapshot_copy_profile() -> void:
+	var config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	var world := WorldState.new(config); world.reset(472, 1)
+	var source: Dictionary = world.units.values()[0]
+	for route_length in [8, 64]:
+		var units: Array = []
+		for index in range(100):
+			var unit: Dictionary = source.duplicate(true)
+			for point in range(route_length): unit.route.append(Vector2(point, index))
+			units.append(unit)
+		measure("100_units_%d_waypoints_copy_then_discard" % route_length, func(): copy_batch(units, false), 40)
+		measure("100_units_%d_waypoints_omit_then_copy" % route_length, func(): copy_batch(units, true), 40)
+
+func copy_batch(units: Array, optimized: bool) -> void:
+	for unit in units:
+		var copy: Dictionary
+		if optimized:
+			var fields: Dictionary = unit.duplicate(false); fields.erase("route")
+			copy = fields.duplicate(true)
+		else: copy = unit.duplicate(true)
+		copy.erase("route")

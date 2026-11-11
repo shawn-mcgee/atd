@@ -21,3 +21,19 @@ Presentation refreshes the explored terrain edge instead of scanning the whole m
 Navigation retains the existing hex graph when only obstacle admission changes. No gameplay systems use wall-clock budgets or presentation frame timing. All caches are derived state and excluded from snapshots. Browser diagnostic site enumeration/serialization runs only with `?test=1` or `?diagnostics=1`.
 
 Initial idle measurements on the local desktop were approximately 103 ms per visibility refresh, 13.3 ms per terrain refresh, 16.3 ms per entity-presentation pass and 5.0 ms per pick. Following the pass these are approximately 1.0, 0.4, 2.2 and 0.1 ms respectively. Active combat and simultaneous movement/path requests remain the priority for the next pass. The rendered active fixture still showed roughly 7.9 ms mean / 17.1 ms p95 for combined game callbacks; do not interpret the idle gains as meeting the 4 ms frame target.
+
+## Multiplayer snapshot pass
+
+Snapshot compression now happens only when a queued state can enter the transport
+buffer. Coalescing removes obsolete unsent states before compression; one broadcast
+payload is shared across recipients. A real five-peer test reduces a burst of 32
+queued states to one body encoding across four guests. This removes redundant CPU
+work under congestion; it does not reduce the normal snapshot frequency or claim
+lower Internet latency. Guests apply only the newest pending snapshot per frame,
+avoiding repeated world reconstruction while catching up after a slow frame.
+
+`npm run profile:cpu -- --snapshot-copy` compares the existing unit deep-copy with
+omitting routes through a preliminary shallow copy (100 units, 8 or 64 waypoints).
+On this desktop, the candidate increased mean batch cost from roughly 0.30?0.33 ms
+to 0.43?0.44 ms. It was therefore rejected; production retains the original unit
+copy. These are isolated native copy timings, not end-to-end multiplayer FPS.

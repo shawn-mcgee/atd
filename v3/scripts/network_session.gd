@@ -202,24 +202,29 @@ func send(target: String, packet: Dictionary) -> void:
 	if terminal or peer == null: return
 	var encoded := var_to_bytes(packet)
 	if encoded.size() > int(configuration.limits.maxPacketBytes): received.emit({"type": "error", "message": "Network packet exceeds size limit"}); return
-	var body := PackedByteArray(); body.resize(5); body[0] = 0; body.encode_u32(1, encoded.size())
-	if encoded.size() >= int(configuration.limits.compressionThresholdBytes): body[0] = 1; body.append_array(encoded.compress(FileAccess.COMPRESSION_ZSTD))
-	else: body.append_array(encoded)
+	# Encoded bytes freeze the caller's state; recipients share one lazy payload.
+	var payload := {"encoded": encoded} if packet.get("kind", "") == "state" else {"bytes": _packet_body(encoded)}
 	var recipients: Array = last_seen.keys() if target.is_empty() else [int(target)]
 	for id in recipients:
 		if not outgoing.has(id): continue
 		serial += 1
-		var item := {"bytes": body, "offset": 0, "serial": serial, "started": Time.get_ticks_msec()}
+		var item := {"payload": payload, "offset": 0, "serial": serial, "started": Time.get_ticks_msec()}
 		if packet.get("kind", "") == "state": outgoing[id].latest = item
 		elif outgoing[id].commands.size() < int(configuration.limits.commandQueueLimit): outgoing[id].commands.append(item)
 		else: received.emit({"type": "error", "message": "Command queue is full; order was not sent"})
+
+func _packet_body(encoded: PackedByteArray) -> PackedByteArray:
+	var body := PackedByteArray(); body.resize(5); body[0] = 0; body.encode_u32(1, encoded.size())
+	if encoded.size() >= int(configuration.limits.compressionThresholdBytes): body[0] = 1; body.append_array(encoded.compress(FileAccess.COMPRESSION_ZSTD))
+	else: body.append_array(encoded)
+	return body
 
 func _flush(now: int) -> void:
 	for id in outgoing.keys():
 		if peer == null or not peer.has_peer(id): continue
 		var queue: Dictionary = outgoing[id]
 		for channel in [0, 1]:
-			if channel == 1 and queue.state.is_empty() and not queue.latest.is_empty(): queue.state = queue.latest; queue.latest = {}
+			if channel == 1 and not queue.latest.is_empty() and (queue.state.is_empty() or int(queue.state.offset) == 0): queue.state = queue.latest; queue.latest = {}
 			var frames := 0
 			while frames < int(configuration.limits.sendFramesPerPoll):
 				var item: Dictionary = queue.commands[0] if channel == 0 and not queue.commands.is_empty() else queue.state if channel == 1 else {}
@@ -227,13 +232,17 @@ func _flush(now: int) -> void:
 				if now - int(item.started) > int(configuration.limits.sendTimeoutMs): _lost(id); break
 				var channels: Array = peer.get_peer(id).channels
 				if channels[0 if channel == 0 else 3].get_buffered_amount() > int(configuration.limits.bufferedAmountBytes): break
-				var length := mini(int(configuration.limits.framePayloadBytes), item.bytes.size() - int(item.offset))
+				var payload: Dictionary = item.payload
+				if not payload.has("bytes"):
+					payload.bytes = _packet_body(payload.encoded); payload.erase("encoded")
+				var body: PackedByteArray = payload.bytes
+				var length := mini(int(configuration.limits.framePayloadBytes), body.size() - int(item.offset))
 				var frame := PackedByteArray(); frame.resize(16)
-				frame.encode_u32(0, MAGIC); frame.encode_u32(4, int(item.serial)); frame.encode_u32(8, int(item.offset)); frame.encode_u32(12, item.bytes.size())
-				frame.append_array(item.bytes.slice(int(item.offset), int(item.offset) + length))
+				frame.encode_u32(0, MAGIC); frame.encode_u32(4, int(item.serial)); frame.encode_u32(8, int(item.offset)); frame.encode_u32(12, body.size())
+				frame.append_array(body.slice(int(item.offset), int(item.offset) + length))
 				if _put(id, channel, frame) != OK: _lost(id); break
 				item.offset += length; frames += 1
-				if item.offset == item.bytes.size():
+				if item.offset == body.size():
 					if channel == 0: queue.commands.pop_front()
 					else: queue.state = {}; break
 			if peer == null or not outgoing.has(id): break

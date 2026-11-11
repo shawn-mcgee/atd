@@ -12,6 +12,8 @@ func capture() -> void:
 	game.audio.muted = true
 	game._start_game(472, 1)
 	game.state.paused = true; game.paused_button.text = "Resume"
+	if "--lightless-gallery" in OS.get_cmdline_user_args():
+		await lightless_gallery(game); return
 	if "--mother" in OS.get_cmdline_user_args():
 		await father_review(game, "mother"); return
 	if "--father" in OS.get_cmdline_user_args():
@@ -342,3 +344,28 @@ func father_review(game, kind: String = "father") -> void:
 		RenderingServer.force_draw()
 		root.get_texture().get_image().save_png("res://build/visual-review/%s-%d.png" % ["womb-menu" if "--womb-menu" in OS.get_cmdline_user_args() else kind, phase])
 	print(kind.capitalize(), " review captured"); quit()
+
+func lightless_gallery(game) -> void:
+	game.local_owner = -1; game._start_game(472, 1, "", 0, true)
+	game.state.paused = true
+	game.state.units.clear(); game.state.structures.clear(); game.state.gloom.clear()
+	for cell in HexGrid.disk(Vector2i.ZERO, 12):
+		game.state.tiles[cell].cliff = false; game.state.tiles[cell].resource = ""
+		game.state.gloom[cell] = 100.0; game.state.visible[-1][cell] = true; game.state.known[-1][cell] = true
+	var father: int = game.state.add_unit("father", Vector2(-3, 2), -1)
+	for entry in [["scavenger", -4], ["stalker", -2], ["ravager", 0], ["thresher", 2], ["shade", 4]]:
+		var id: int = game.state.add_unit(str(entry[0]), Vector2(float(entry[1]), -1), -1)
+		game.state.units[id].heading = PI
+		game.state.command(-1, {"action": "recruit", "ids": [father], "target": id})
+	game.state.add_structure("womb", Vector2i(0, 2), -1)
+	game.state.add_structure("stoma", Vector2i(2, 2), -1)
+	game.state.add_structure("gland", Vector2i(4, 2), -1)
+	game.state.add_structure("chyme_gland", Vector2i(6, 2), -1)
+	game.state._rebuild_navigation(); game.renderer.initialize(game.state, -1)
+	game.camera.focus = Vector3(0, 0.4, 0); game.camera.distance = 13; game.camera.target_distance = 13; game.camera._update_transform()
+	game.selection = [father]; game._update_hud()
+	game.set_process(false); game.set_physics_process(false); game.camera.set_process(false)
+	for i in range(10): await process_frame
+	DirAccess.make_dir_recursive_absolute("res://build/visual-review")
+	RenderingServer.force_draw(); root.get_texture().get_image().save_png("res://build/visual-review/lightless-gallery.png")
+	print("Lightless gallery captured"); quit()

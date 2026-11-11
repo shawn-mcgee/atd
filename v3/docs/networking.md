@@ -16,7 +16,7 @@ Host/Join work directly when running `project.godot`, as well as in the exported
 
 `NetworkSession` uses `WebSocketPeer` for coordinator signaling, `WebRTCPeerConnection` for negotiation, and **WebRTCMultiplayerPeer** for channel creation, peer events, sender identity and packet delivery. The browser JavaScript bridge is limited to diagnostics and test input. No gameplay packets cross JavaScriptBridge.
 
-Packets use Godot's binary Variant encoding with object decoding disabled. Payloads at least 1,024 bytes are Zstandard-compressed. Commands use the default reliable channel, snapshots use a separate reliable channel, and heartbeats have their own reliable channel. This avoids sharing one reliable stream for all three workloads. Snapshots waiting to send are coalesced per recipient; commands use a bounded FIFO.
+Packets use Godot's binary Variant encoding with object decoding disabled. Payloads at least 1,024 bytes are Zstandard-compressed. Commands use the default reliable channel, snapshots use a separate reliable channel, and heartbeats have their own reliable channel. This avoids sharing one reliable stream for all three workloads. Snapshots waiting to send are coalesced per recipient; commands use a bounded FIFO. Snapshot serialization freezes send-time values immediately, while compression waits until transport buffer space is available. Broadcast recipients share the same compressed payload. Replaced unsent snapshots are never compressed.
 
 Godot reports a 1,200-byte WebRTC packet limit, so larger encoded payloads use a 16-byte framing header and 1,184-byte payload chunks under that engine limit. Receivers check serial, contiguous offsets and declared size before reassembly, with a 4 MiB ceiling and bounded decompression. Objects cannot be instantiated through decoded packets. This small framing layer preserves native peer/channel handling while supporting existing large terrain snapshots.
 
@@ -39,3 +39,16 @@ Host loss ends every guest's match without migration, retries or resumption. Hos
 The earlier [multiplayer options research](multiplayer-options.md) is historical. This custom coordinator/Metered integration supersedes its proposed Cloudflare TURN migration.
 
 Verified in this workspace: five native peers with the local coordinator, mixed binary payloads larger than one frame, and terminal host loss; two native peers against the live Worker with relay-only ICE and the configured Metered subscription. Native-to-browser admission and browser-host loss also passed against the local coordinator, along with the exported browser host-confirmed movement test. Different-device/network coverage remains unverified.
+
+## Snapshot work under congestion
+
+Guests retain the newest valid host snapshot until the next presentation frame,
+then apply it once before rendering. Older ticks cannot replace a newer pending
+update. Starting/leaving a match and terminal host loss clear pending state, so
+an obsolete packet cannot restore a disconnected match. Commands and heartbeats
+retain their existing handling and transport format.
+
+The native five-peer regression queues 32 snapshots in one burst and verifies one
+body encoding across four guests, exact latest-payload delivery, and independence
+from caller mutations after send. Interface checks cover out-of-order pending
+ticks, frame consumption, and host loss with an unapplied snapshot.

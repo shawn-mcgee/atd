@@ -148,14 +148,24 @@ class ConfigRules:
 		for path in ["presentation.motherMotion.stepCyclesPerSecond", "presentation.fatherMotion.hoverCyclesPerSecond", "presentation.fatherMotion.tentacleCyclesPerSecond", "presentation.activityIndicators.sizePixels", "presentation.activityIndicators.pulseSeconds", "camera.edgeBandLogicalPixels", "camera.edgeIndicatorSizeLogicalPixels", "camera.edgeIndicatorPulseSeconds", "match.simulationTicksPerSecond", "match.extractionSeconds", "map.radiusTiles", "economy.workerCycleSeconds", "construction.engineerHealthPerSecond", "construction.idleEngineerSearchRangeTiles", "construction.idleEngineerSearchIntervalSeconds", "targeting.refreshIntervalTicks", "lightless.combatRepathSeconds", "lightless.retreatRepathSeconds", "lightless.medusaPassiveScavengerSeconds", "lightless.medusaChymeCycleSeconds", "lightless.brainDecisionIntervalSeconds", "lightless.cpuExpansionIntervalSeconds", "lightless.structureGestationSeconds", "lightless.wombReconfigureSeconds", "lightless.postMedusaWombSpawnRateMultiplier"]:
 			var value = at_path(config, path)
 			if not (value is float or value is int) or float(value) <= 0: errors.append(path + ": must be a positive number")
-		for key in ["cpuDesiredStomas", "cpuStomaMinOrganDistanceTiles"]:
+		for key in ["cpuDesiredStomas", "cpuStomaMinOrganDistanceTiles", "cpuAdditionalWombsPerType"]:
 			var value = config.lightless.get(key)
 			var minimum := 1 if key == "cpuStomaMinOrganDistanceTiles" else 0
 			if not (value is int or value is float) or not is_finite(float(value)) or float(value) < minimum or float(value) != floorf(float(value)): errors.append("lightless." + key + ": expected a whole number >= " + str(minimum))
+		for key in ["cpuWombCapacityPressure", "cpuFatherRetreatHealthFraction", "cpuFatherResumeHealthFraction"]:
+			var value = config.lightless.get(key)
+			if not (value is int or value is float) or not is_finite(float(value)) or float(value) <= 0 or float(value) > 1: errors.append("lightless." + key + ": expected a fraction in (0, 1]")
+		if float(config.lightless.get("cpuFatherRetreatHealthFraction", 0)) >= float(config.lightless.get("cpuFatherResumeHealthFraction", 1)): errors.append("lightless.cpuFatherRetreatHealthFraction: must be below resume health")
+		var path_budget = config.lightless.get("maxPathQueriesPerDecision")
+		if not (path_budget is int or path_budget is float) or not is_finite(float(path_budget)) or float(path_budget) < 1 or float(path_budget) != floorf(float(path_budget)): errors.append("lightless.maxPathQueriesPerDecision: expected a positive whole number")
 		var human_ai = config.lightless.get("soloCommonwealthAI", {})
-		for key in ["decisionIntervalSeconds", "desiredMarines", "attackGroupSize"]:
+		for key in ["decisionIntervalSeconds", "desiredMarines", "attackGroupSize", "desiredEngineers", "gasReserveTarget", "baseDefenseRadiusTiles", "regroupRadiusTiles"]:
 			var value = human_ai.get(key) if human_ai is Dictionary else null
 			if not (value is int or value is float) or not is_finite(float(value)) or float(value) <= 0 or (key != "decisionIntervalSeconds" and float(value) != floorf(float(value))): errors.append("lightless.soloCommonwealthAI." + key + ": expected a positive " + ("number" if key == "decisionIntervalSeconds" else "whole number"))
+		for key in ["storageHeadroomRatio", "repairHealthFraction", "retreatHealthFraction", "resumeHealthFraction"]:
+			var value = human_ai.get(key) if human_ai is Dictionary else null
+			if not (value is int or value is float) or not is_finite(float(value)) or float(value) <= 0 or float(value) > 1: errors.append("lightless.soloCommonwealthAI." + key + ": expected a fraction in (0, 1]")
+		if human_ai is Dictionary and float(human_ai.get("retreatHealthFraction", 0)) >= float(human_ai.get("resumeHealthFraction", 1)): errors.append("lightless.soloCommonwealthAI.retreatHealthFraction: must be below resumeHealthFraction")
 		if float(config.map.get("anchorEdgeInsetTiles", 0)) >= float(config.map.get("radiusTiles", 0)): errors.append("map.anchorEdgeInsetTiles: must be less than map.radiusTiles")
 		if not config.combat.get("minimumDamageMode", "") in ["zero_floor", "minimum_floor"]: errors.append("combat.minimumDamageMode: expected zero_floor or minimum_floor")
 		for table in ["units", "structures"]:

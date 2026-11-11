@@ -45,6 +45,8 @@ func _draw() -> void:
 		draw_colored_polygon(mantle, Color("887789"))
 		draw_arc(Vector2(39, 29), 18, PI, TAU, 16, Color("b8afa3"), 5, true)
 		for side in [-1, 1]: draw_circle(Vector2(39 + side * 11, 41), 3, Color("e1a77c"))
+	elif kind in ["scavenger", "stalker", "ravager", "thresher", "shade", "medusa", "womb", "stoma", "gland", "chyme_gland"]:
+		draw_texture_rect(CommandSkin.icon(kind), Rect2(7, 11, 64, 72), false)
 	elif structure:
 		draw_rect(Rect2(16, 70, 46, 9), Color("536965"))
 		draw_colored_polygon(PackedVector2Array([Vector2(24, 68), Vector2(24, 36), Vector2(33, 27), Vector2(47, 27), Vector2(55, 36), Vector2(55, 68)]), Color("81918d"))

@@ -180,28 +180,49 @@ func _creature(root: Node3D, e: Dictionary, presentation: Dictionary) -> void:
 	if e.kind == "mother":
 		_mother(root); return
 	var shell := Color("6f6d61")
-	piece(root, sphere, Vector3(0, 0.22, 0.05), Vector3(0.45, 0.26, 0.63), shell)
-	piece(root, wedge, Vector3(0, 0.24, -0.28), Vector3(0.27, 0.22, 0.32), BONE)
+	var bulk := Vector3(0.45, 0.26, 0.63)
+	if e.kind == "ravager": bulk = Vector3(0.72, 0.5, 0.8)
+	elif e.kind == "stalker": bulk = Vector3(0.3, 0.34, 0.72)
+	elif e.kind == "thresher": bulk = Vector3(0.7, 0.24, 0.88)
+	elif e.kind == "shade": bulk = Vector3(0.3, 0.58, 0.4); shell = Color("403f58")
+	piece(root, sphere, Vector3(0, bulk.y * 0.7, 0.05), bulk, shell)
+	piece(root, wedge, Vector3(0, bulk.y, -bulk.z * 0.45), Vector3(bulk.x * 0.6, 0.22, 0.32), BONE)
 	for side in [-1, 1]:
-		piece(root, sphere, Vector3(side * 0.085, 0.28, -0.42), Vector3(0.055, 0.04, 0.04), Color("e38c6c"), "", true)
+		piece(root, sphere, Vector3(side * 0.085, bulk.y + 0.04, -bulk.z * 0.6), Vector3(0.055, 0.04, 0.04), Color("a99fe0") if e.kind == "shade" else Color("e38c6c"), "", true)
 		for i in range(3):
-			var leg := piece(root, box, Vector3(side * 0.26, 0.11, (i - 1) * 0.19), Vector3(0.34, 0.055, 0.07), BONE.darkened(0.25), "Claw%d_%d" % [side, i])
+			var leg := piece(root, box, Vector3(side * bulk.x * 0.6, 0.11, (i - 1) * 0.19), Vector3(bulk.x * 0.8, 0.055, 0.07), BONE.darkened(0.25), "Claw%d_%d" % [side, i])
 			leg.rotation = Vector3(0, side * (i - 1) * -0.45, side * 0.38)
-
-	if e.kind == "ravager":
+	if e.kind == "scavenger":
+		for i in range(3):
+			piece(root, sphere, Vector3(0, 0.3, i * 0.19), Vector3(0.36 - i * 0.06, 0.18, 0.2), shell.lightened(i * 0.06))
 		for side in [-1, 1]:
-			piece(root, wedge, Vector3(side * 0.16, 0.34, -0.03), Vector3(0.26, 0.17, 0.47), BONE.darkened(0.14))
-			var tusk := piece(root, wedge, Vector3(side * 0.17, 0.17, -0.47), Vector3(0.09, 0.19, 0.35), BONE)
+			var jaw := piece(root, wedge, Vector3(side * 0.15, 0.12, -0.43), Vector3(0.1, 0.13, 0.3), BONE)
+			jaw.rotation.y = side * -0.3
+	elif e.kind == "ravager":
+		for i in range(3):
+			for side in [-1, 1]:
+				var plate := piece(root, wedge, Vector3(side * 0.22, 0.49, (i - 1) * 0.25), Vector3(0.4, 0.26, 0.38), BONE.darkened(0.14))
+				plate.rotation.z = side * 0.25
+		for side in [-1, 1]:
+			var tusk := piece(root, wedge, Vector3(side * 0.24, 0.2, -0.57), Vector3(0.13, 0.29, 0.48), BONE)
 			tusk.rotation.x = -0.5
-		piece(root, box, Vector3(0, 0.18, -0.4), Vector3(0.19, 0.09, 0.13), Color("302c2a"))
 	elif e.kind == "stalker":
 		for side in [-1, 1]:
-			var blade := piece(root, wedge, Vector3(side * 0.28, 0.27, -0.32), Vector3(0.07, 0.11, 0.5), BONE)
-			blade.rotation.y = side * 0.45
+			var blade := piece(root, wedge, Vector3(side * 0.36, 0.34, -0.35), Vector3(0.08, 0.24, 0.64), BONE)
+			blade.rotation = Vector3(-0.25, side * 0.55, side * -0.3)
+			var feeler := piece(root, cylinder, Vector3(side * 0.12, 0.53, -0.35), Vector3(0.025, 0.42, 0.025), shell)
+			feeler.rotation.z = side * -0.4
 	elif e.kind == "thresher":
 		for i in range(5):
-			var spine := piece(root, wedge, Vector3((i - 2) * 0.1, 0.35, 0.08), Vector3(0.075, 0.3, 0.22), BONE)
-			spine.rotation.z = (i - 2) * -0.18
+			var spine := piece(root, wedge, Vector3((i - 2) * 0.15, 0.39, 0.16), Vector3(0.12, 0.55 - abs(i - 2) * 0.08, 0.35), BONE)
+			spine.rotation.z = (i - 2) * -0.22
+		piece(root, cylinder, Vector3(0, 0.28, -0.57), Vector3(0.27, 0.45, 0.27), Color("372b30")).rotation.x = PI / 2
+	elif e.kind == "shade":
+		for i in range(7):
+			var a := i * TAU / 7
+			var veil := piece(root, wedge, Vector3(sin(a) * 0.27, 0.35, cos(a) * 0.27), Vector3(0.26, 0.63, 0.12), shell.lightened(0.1))
+			veil.rotation = Vector3(0.25, a, 0)
+		piece(root, sphere, Vector3(0, 0.7, 0), Vector3(0.22, 0.18, 0.23), BONE.darkened(0.15))
 
 func _mother(root: Node3D) -> void:
 	var skin := Color("777768")
@@ -311,11 +332,31 @@ func _structure(root: Node3D, e: Dictionary, team: Color) -> void:
 	elif e.kind == "medusa":
 		piece(root, sphere, Vector3(0, 0.61, 0), Vector3(2.65, 1.12, 2.4), Color("72635e"))
 		piece(root, sphere, Vector3(0, 1.0, 0), Vector3(1.45, 0.55, 1.55), Color("b1a18a"))
+		for i in range(5):
+			var a := i * TAU / 5
+			var crown := piece(root, wedge, Vector3(sin(a) * 0.46, 1.37, cos(a) * 0.46), Vector3(0.28, 0.85, 0.35), BONE)
+			crown.rotation = Vector3(-0.3, a, 0)
+		piece(root, sphere, Vector3(0, 1.28, 0), Vector3(0.55, 0.38, 0.55), Color("ca8c85"), "", true)
 		for i in range(8):
 			var a := i * TAU / 8
 			var rib := piece(root, wedge, Vector3(cos(a), 0.4, sin(a)), Vector3(0.4, 0.8, 1.35), BONE.darkened(0.24))
 			rib.rotation.y = -a + PI / 2
 			piece(root, sphere, Vector3(cos(a) * 0.7, 0.93, sin(a) * 0.7), Vector3(0.17, 0.12, 0.17), Color("ba796b"), "", true)
+	elif e.kind == "womb":
+		piece(root, sphere, Vector3(0, 0.14, 0), Vector3(1.25, 0.28, 1.1), Color("443b3b"))
+		piece(root, sphere, Vector3(0, 0.65, 0.08), Vector3(0.83, 1.18, 0.78), Color("9c6b70"))
+		piece(root, sphere, Vector3(0, 0.68, -0.31), Vector3(0.4, 0.66, 0.25), Color("c39785"), "", true)
+		for i in range(6):
+			var a := i * TAU / 6
+			var rib := piece(root, wedge, Vector3(sin(a) * 0.47, 0.44, cos(a) * 0.47), Vector3(0.16, 0.92, 0.4), BONE.darkened(0.24))
+			rib.rotation = Vector3(-0.25, a, 0)
+	elif e.kind == "stoma":
+		piece(root, sphere, Vector3(0, 0.18, 0), Vector3(1.24, 0.35, 1.24), Color("675251"))
+		piece(root, cylinder, Vector3(0, 0.38, 0), Vector3(0.62, 0.1, 0.62), Color("251b25"))
+		for i in range(10):
+			var a := i * TAU / 10
+			var tooth := piece(root, wedge, Vector3(sin(a) * 0.4, 0.4, cos(a) * 0.4), Vector3(0.16, 0.35, 0.24), BONE)
+			tooth.rotation = Vector3(-0.6, a, 0)
 	elif e.kind in ["gland", "chyme_gland"]:
 		piece(root, sphere, Vector3(0, 0.2, 0), Vector3(0.8, 0.35, 0.8), Color("594440"))
 		piece(root, sphere, Vector3(0, 0.45, 0), Vector3(0.52, 0.65, 0.52), Color("a76f61") if e.kind == "chyme_gland" else Color("86786c"))

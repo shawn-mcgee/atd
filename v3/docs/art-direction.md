@@ -110,3 +110,16 @@ match the shambler silhouette. This changes presentation only.
 and head lag. The existing Mother creature scale still applies. Use the native
 `tools/preview-vehicles.gd -- --mother` fixture for two walking-phase captures at
 `build/visual-review/mother-0.png` and `mother-1.png`, beside a Scavenger for scale.
+
+## Remaining Lightless silhouettes
+
+Scavengers have segmented abdomens and feeding jaws; Stalkers are narrow, with
+long hooked blades and feelers; Ravagers have broad layered armor and heavy tusks;
+Threshers have a low spined back and forward launch tube; Shades have a tall violet
+veil, pale head and idle drift. The Medusa has an organic crown. Wombs use a ribbed
+gestation sac, Stomas a toothed intake, and armor/income Glands retain distinct
+carapace/bulb forms. Original SVG command icons and matching portrait glyphs cover
+this roster; no external assets or gameplay bounds changed.
+
+Run `tools/preview-vehicles.gd -- --lightless-gallery` with the native renderer for
+`build/visual-review/lightless-gallery.png`, including the interactive Father roster.

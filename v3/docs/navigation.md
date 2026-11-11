@@ -54,3 +54,10 @@ Run the pinned Godot from `v3/` with
 `--headless --path . --script tests/simulation.gd -- --movement-only` for the
 focused regressions. `npm test` includes those plus gate, escort, construction,
 collision, snapshot, and Lightless behavior checks.
+
+Move commands retain their original destination when only a partial route is
+available. On exhaustion or a new obstruction they retry using simulation time
+and `expeditions.repathIntervalSeconds`, including directly controlled Lightless
+support units. Clearing terrain or unlocking a gate resumes the order; Stop cancels
+it. Unavailable destinations remain pending rather than falsely reporting arrival.
+The move completion goal uses the normal nearest-free endpoint for occupied cells.

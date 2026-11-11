@@ -93,14 +93,22 @@ disconnected/unsupported patches. Gloom growth and loss update sight immediately
 Gloom alone does not illuminate terrain or share vision with Commonwealth players. Hidden Commonwealth
 identities and colony Chyme remain filtered in network snapshots.
 
-Solo Lightless play runs an initial Commonwealth AI through ordinary `WorldState`
-commands and costs. It builds an Armory, mines Ore, requests Operators and Marine
-kits, equips reinforcements, scouts map corners, attacks visible organs, and sends
-its Engineer to harvest/deliver Nacre after Medusa death. It starts extraction once
-eligible. This is a baseline opponent, without advanced build orders or recovery
-from losing its only Engineer. Tuning under `lightless.soloCommonwealthAI` defaults
-to a 2-second decision interval, six desired Marines and a three-Marine attack group.
-Multiplayer Commonwealth factions remain human-controlled.
+Solo Lightless play runs a Commonwealth AI through ordinary `WorldState` commands
+and costs. It trains replacement Engineers, mines Ore and Gas, expands Ore/Gas
+storage near capacity, builds/rebuilds its Armory and power support, equips Marines,
+repairs its damaged Anchor, and scouts/attacks visible organs. Wounded Marines
+withdraw to Anchor healing and rejoin after recovery; visible threats and extraction
+keep available Marines defending home. After Medusa death, Engineers recover Nacre
+and start extraction when eligible. The AI reserves the cost of an Engineer kit and
+Operator before discretionary construction/personnel spending. Recovery still
+requires resources: an opponent with no workers and no replacement funds cannot
+recover for free. Multiplayer Commonwealth factions remain human-controlled.
+
+`lightless.soloCommonwealthAI` configures the decision interval, desired Engineers/
+Marines, attack-group size, Gas reserve, storage-expansion threshold, Anchor repair
+threshold, retreat/resume health fractions, base-defense radius and regroup radius.
+Retreat uses hysteresis: a Marine remains recovering until the higher resume
+threshold, rather than oscillating between orders at low health.
 
 ## Multiplayer pressure
 
@@ -170,3 +178,40 @@ Gloom. Losing a bridge between patches never drops a recruit; leaving Gloom beyo
 local range does. Father overrides and atomic transfer/capacity checks remain.
 Defense calls also reach available units on any Gloom patch. This global messaging
 rule does not change frontier-based growth, illumination damage or withering.
+
+## Father roster and CPU recovery
+
+A selected Father displays recruited units, health percentages and current count/
+limit. Click a roster card to release that unit; Release recruits still releases
+all. Recruitment targeting identifies the current Father so transfers are explicit;
+a full destination roster leaves the previous assignment intact. Targeted release
+validates that the selected Father owns that recruit.
+
+CPU Fathers synchronize their recruits to the same opposing Anchor, including
+ordinary extraction priority. Wounded Fathers switch their existing recruits to
+Gather and return toward the Medusa, restoring Attack after healing. Configure the
+health hysteresis with `cpuFatherRetreatHealthFraction` (0.35) and
+`cpuFatherResumeHealthFraction` (0.85). This never replaces player colony orders.
+
+After establishing its initial Womb types, the CPU adds capacity when population
+reaches `cpuWombCapacityPressure` (0.8) of the shared type cap, bounded by
+`cpuAdditionalWombsPerType` (2). Blueprint payment, Mother travel/transformation,
+placement restrictions, expansion intervals and Chyme reserves still apply.
+Recursive attacks remain deferred.
+
+## Thresher movement and bounded navigation
+
+Automatic Thresher deployment uses tentacle range and line of sight. It preserves
+combat objectives through deployment/emergence, stops an obsolete melee route
+when a valid firing position is reached, and emerges to reposition around blocked
+shots or follow a distant Father. Probe/Gather use the current buried/surface
+weapon consistently; buried units never search for walking routes.
+
+Failed Probe movement retries use `combatRepathSeconds` rather than every tick.
+Attack-position and retreat searches issue at most `maxPathQueriesPerDecision`
+(default 4) full A* queries per decision. Cursors continue through remaining
+candidates on subsequent decisions, so failed nearby candidates do not starve
+reachable alternatives. Search metadata remains host-only in filtered snapshots.
+The regression fixture records four path requests over 100 blocked Probe ticks,
+checks both query budgets and obstruction recovery, and verifies ranged firing
+while buried. This is a bounded simulation result, not a browser frame-time claim.

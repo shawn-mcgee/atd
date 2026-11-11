@@ -2,6 +2,13 @@ extends SceneTree
 
 const ConfigRules = preload("res://scripts/settings.gd").ConfigRules
 
+class CountingWorld:
+	extends WorldState
+	var path_queries := 0
+	func _route_path(unit: Dictionary, start: Vector2i, finish: Vector2i, partial: bool = false) -> PackedVector2Array:
+		path_queries += 1
+		return super._route_path(unit, start, finish, partial)
+
 var assertions := 0
 var failures: Array[String] = []
 var settings: Dictionary
@@ -712,7 +719,7 @@ func controlled_lightless_autonomy_checks() -> void:
 			var packet := w.snapshot(-1)
 			verify(packet.structures.all(func(site): return int(site.id) != int(anchor.id)), "Autonomous planning does not disclose an enemy Anchor in the player snapshot")
 			for unit in packet.units:
-				if unit.owner == -1: verify(int(unit.target) != int(anchor.id) and int(unit.get("activity", {}).get("target", 0)) != int(anchor.id) and not unit.has("last_target_position"), "Owned autonomous units do not disclose hidden target identities or coordinates")
+				if unit.owner == -1: verify(int(unit.target) != int(anchor.id) and int(unit.get("activity", {}).get("target", 0)) != int(anchor.id) and not unit.has("last_target_position") and not unit.job.has("path_search"), "Owned autonomous units do not disclose hidden target identities or coordinates")
 			verify(float(medusa.hp) == float(w.cfg.structures.medusa.health), "Default autonomous behavior never attacks the Medusa")
 			if int(slot) == 0 and stance == "attack":
 				w.cfg.units.scavenger.speedTilesPerSecond = 8
@@ -828,6 +835,117 @@ func lightless_player_checks() -> void:
 	verify(w.structures.values().any(func(organ): return organ.owner == 0 and organ.kind == "armory" and organ.built), "Solo Commonwealth AI builds an Armory using normal resources and Engineer work")
 	verify(w.units.values().filter(func(unit): return unit.owner == 0 and unit.kind == "marine").size() >= 2, "Solo Commonwealth AI produces and equips reinforcements")
 	verify(w.commonwealth_ai.size() > 0 and w.players[0].alive and w.players[-1].alive, "Solo Lightless play has an active opposing Commonwealth controller")
+
+func thresher_fixture() -> CountingWorld:
+	var cfg: Dictionary = settings.duplicate(true); cfg.map.radiusTiles = 12
+	var w := CountingWorld.new(cfg)
+	w.reset(472, 1); w.units.clear(); w.structures.clear(); w.gloom.clear(); w.illuminated.clear()
+	for tile in w.tiles.values(): tile.cliff = false; tile.resource = ""
+	w.players[0].anchor = w.add_structure("anchor", Vector2i(5, 0), 0)
+	w._rebuild_navigation(); w.update_visibility()
+	w.path_queries = 0
+	return w
+
+func thresher_navigation_checks() -> void:
+	var w := thresher_fixture()
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	var unit: Dictionary = w.units[w.add_unit("thresher", HexGrid.world(Vector2i(-1, 0)), -1)]
+	for cell in w.tiles:
+		if cell.x in [0, 1]: w.tiles[cell].cliff = true
+	w._rebuild_navigation()
+	unit.stance = "probe"
+	for i in range(100): w._unit_step(unit, 0.05)
+	verify(w.path_queries > 0 and w.path_queries <= 15, "Unreachable Thresher probes retry on simulation-time cooldown instead of issuing a full path query every tick")
+	print("Unreachable Thresher probe: ", w.path_queries, " path queries over 100 ticks")
+	w.path_queries = 0; unit.stance = "attack"; unit.job = {"kind": "attack"}; unit.target = anchor.id
+	WorldState.LightlessTactics.approach(w, unit, anchor, w.cfg.weapons.thresher_tentacle)
+	verify(w.path_queries > 0 and w.path_queries <= int(w.cfg.lightless.maxPathQueriesPerDecision), "Unreachable firing-position searches have a bounded full-path query budget")
+	w.path_queries = 0
+	for cell in HexGrid.disk(Vector2i(6, -3), 2): w.gloom[cell] = 20.0
+	WorldState.LightlessTactics.retreat(w, unit)
+	verify(w.path_queries > 0 and w.path_queries <= int(w.cfg.lightless.maxPathQueriesPerDecision), "Unreachable remote Gloom retreat searches share the bounded path-query budget")
+	for cell in w.tiles: w.tiles[cell].cliff = false
+	w._rebuild_navigation(); unit.job.repath_remaining = 0
+	WorldState.LightlessTactics.approach(w, unit, anchor, w.cfg.weapons.thresher_tentacle)
+	verify(not unit.route.is_empty(), "A bounded firing-position search resumes and finds a route after the obstruction clears")
+	w = thresher_fixture(); anchor = w.structures[int(w.players[0].anchor)]
+	unit = w.units[w.add_unit("thresher", w.entity_position(anchor) - Vector2(3, 0), -1)]
+	unit.buried = true; unit.stance = "probe"; unit.target = anchor.id
+	unit.job = {"kind": "probe", "pressure": 0.0, "damage_tick": int(unit.last_damage)}
+	var health := float(anchor.hp)
+	w._unit_step(unit, 0.05)
+	verify(unit.buried and unit.get("transition", "") == "" and anchor.hp < health and w.path_queries == 0, "Buried Probe Threshers fire their ranged tentacle without planning impossible melee movement")
+	unit.buried = false; unit.job = {"kind": "attack", "objective": anchor.id}; unit.target = anchor.id; unit.route = [w.entity_position(anchor)]
+	w._unit_step(unit, 0.05)
+	verify(unit.transition == "burrow" and int(unit.target) == int(anchor.id) and int(unit.job.objective) == int(anchor.id) and unit.route.is_empty(), "Automatic deployment stops travel at tentacle range while preserving the combat objective")
+	w._unit_step(unit, float(w.cfg.combat.thresherBurrowSeconds))
+	w.tiles[Vector2i(4, 0)].cliff = true; w._rebuild_navigation()
+	w._unit_step(unit, 0.05)
+	verify(unit.transition == "emerge" and int(unit.target) == int(anchor.id) and int(unit.job.objective) == int(anchor.id), "An obstructed buried Thresher emerges without losing its objective")
+	w._unit_step(unit, float(w.cfg.combat.thresherEmergeSeconds))
+	var start: Vector2 = unit.pos
+	for i in range(60): w._unit_step(unit, 0.05)
+	verify(unit.pos.distance_to(start) > 0.1, "An emerged Thresher actually navigates around the obstruction instead of remaining stuck in deployment transitions")
+
+func strategy_recovery_checks() -> void:
+	var w := world()
+	w.command(0, {"action": "control_lightless", "slot": 0, "solo_ai": true})
+	var anchor: Dictionary = w.structures[int(w.players[0].anchor)]
+	for id in w.units.keys():
+		if w.units[id].owner == 0: w._destroy(w.units[id])
+	w.resources(0).ore = 200; w.resources(0).gas = 100
+	advance(w, 35)
+	verify(w.units.values().any(func(unit): return unit.owner == 0 and unit.kind == "engineer"), "Commonwealth AI replaces its last lost Engineer through ordinary kits and personnel")
+	var marine: Dictionary = w.units[w.add_unit("marine", w.entity_position(anchor) + Vector2(6, 0), 0)]
+	marine.hp = 1; w.commonwealth_ai.timer = 0
+	WorldState.CommonwealthAI.update(w, 0.1)
+	verify(w.commonwealth_ai.recovering.has(int(marine.id)) and marine.job.kind == "move", "Wounded Commonwealth Marines withdraw toward their healing Anchor")
+	marine.hp = float(w.cfg.units.marine.health); w.commonwealth_ai.timer = 0
+	WorldState.CommonwealthAI.update(w, 0.1)
+	verify(not w.commonwealth_ai.recovering.has(int(marine.id)), "Recovered Commonwealth Marines rejoin available forces")
+	w = world()
+	var medusa: Dictionary = {}
+	for site in w.structures.values():
+		if site.kind == "medusa": medusa = site; break
+	var father: Dictionary = w.units[w.add_unit("father", Vector2.ZERO, -1)]
+	var recruit: Dictionary = w.units[w.add_unit("scavenger", Vector2(0.5, 0), -1)]
+	WorldState.LightlessColony.develop(w, medusa)
+	father.hp = 1
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(father.recovering and recruit.stance == "gather", "Wounded CPU Fathers recall their existing recruits with a Gather override")
+	father.hp = float(w.cfg.units.father.health)
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(not father.recovering and recruit.stance == "attack" and int(recruit.raid_owner) == int(WorldState.LightlessTactics.assigned_anchor(w, father).owner), "Recovered Fathers restore their recruits' Attack stance and coordinate the same opposing Anchor")
+	w.cfg.lightless.cpuWombPriority = ["scavenger"]
+	w.cfg.lightless.cpuArmorGlandsPerTypeBeforeMoreExpansion = 0; w.cfg.lightless.cpuChymeGlandsPerWombTarget = 0
+	var womb_cell: Vector2i = w.gloom.keys().filter(func(cell): return not w.blocked(cell) and w.tiles[cell].resource == "" and w.structure_cells.get(cell, []).is_empty())[0]
+	w.add_structure("womb", womb_cell, -1)
+	while w._population("scavenger") < WorldState.LightlessColony.cap(w, "scavenger"): w.add_unit("scavenger", Vector2.ZERO, -1)
+	w.add_unit("mother", w.entity_position(medusa), -1)
+	w.lightless_chyme = 500; w.lightless_expansion_time = float(w.cfg.lightless.cpuExpansionIntervalSeconds)
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(w.structures.values().filter(func(site): return site.kind == "womb").size() == 2, "CPU grows another typed Womb when the initial Womb's population capacity fills")
+	w = world(2); w.units.clear()
+	for owner in [0, 1]:
+		w.resources(owner).nacre = int(w.cfg.match.extractionMinimumNacre)
+		w.command(owner, {"action": "extract", "target": w.players[owner].anchor})
+	w.players[0].remaining = 0.01; w.players[1].remaining = 0.02
+	w.step(0.1)
+	verify(w.ended and w.result == "Player 1 extracted successfully", "Competing extractions completing in one tick award the earlier countdown rather than the last player iterated")
+	w = movement_world()
+	var worker: Dictionary = w.units[w.add_unit("operator", Vector2.ZERO, 0)]
+	for cell in w.tiles:
+		if cell.x == 2: w.tiles[cell].cliff = true
+	w._rebuild_navigation()
+	var destination := HexGrid.world(Vector2i(4, 0))
+	w.command(0, {"action": "move", "ids": [worker.id], "x": destination.x, "z": destination.y})
+	for i in range(50): w._unit_step(worker, 0.1)
+	verify(worker.job.kind == "move" and worker.home == destination and worker.pos.distance_to(destination) > 1, "A blocked move retains the requested destination after exhausting its partial route")
+	for cell in w.tiles:
+		if cell.x == 2: w.tiles[cell].cliff = false
+	w._rebuild_navigation()
+	for i in range(150): w._unit_step(worker, 0.1)
+	verify(worker.job.kind == "idle" and worker.pos.distance_to(destination) < 0.1, "Clearing a blocked route resumes and completes the original move without another command")
 
 func womb_reconfiguration_checks() -> void:
 	var w := world(2)
@@ -1150,7 +1268,7 @@ func chyme_collection_checks() -> void:
 
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
-	global_gloom_vision_checks(); controlled_lightless_autonomy_checks(); lightless_player_checks(); womb_reconfiguration_checks()
+	global_gloom_vision_checks(); controlled_lightless_autonomy_checks(); lightless_player_checks(); womb_reconfiguration_checks(); strategy_recovery_checks(); thresher_navigation_checks()
 	if "--lightless-only" in OS.get_cmdline_user_args(): print("Lightless checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	chyme_collection_checks(); gland_checks(); gather_checks(); extraction_assault_checks(); stoma_checks(); medusa_stance_checks(); father_coordination_checks(); lightless_defense_checks(); lightless_defend_stance_checks()
 	if "--missions-only" in OS.get_cmdline_user_args():
@@ -1702,6 +1820,7 @@ func gate_checks() -> void:
 	w.command(0, {"action": "move", "ids": [worker], "x": HexGrid.world(Vector2i(-3, 0)).x, "z": 0})
 	advance(w, 8)
 	verify(gate.locked and not gate.open and w.units[worker].pos.x > 0, "Locked closed gates prevent automatic passage")
+	w.command(0, {"action": "stop", "ids": [worker]}) # Keep friendly retry traffic out of the enemy-only check.
 	w.command(0, {"action": "gate_lock", "target": gate_id})
 	var enemy := w.add_unit("operator", HexGrid.world(Vector2i(-3, 0)), 1)
 	w.command(1, {"action": "move", "ids": [enemy], "x": HexGrid.world(Vector2i(3, 0)).x, "z": 0})
@@ -2182,6 +2301,14 @@ func complex_command_checks() -> void:
 	w.command(0, {"action": "mine", "ids": [ranger, replacement], "q": 3, "r": 0})
 	advance(w, 5); w._destroy(w.units[guard]); advance(w, 12)
 	verify(int(w.units[ranger].driver) == replacement, "A lost driver is replaced only by an existing expedition member while retaining a gatherer")
+	w = complex_fixture()
+	worker = w.add_unit("engineer", Vector2.ZERO, 0); guard = w.add_unit("marine", Vector2(0, 1), 0)
+	ranger = w.add_unit("ranger", Vector2(0, 4), 0)
+	w.command(0, {"action": "mine", "ids": [worker, guard, ranger], "q": 3, "r": 0})
+	w._destroy(w.units[ranger]); advance(w, 2)
+	verify(w.command_groups.values()[0].seats.values().all(func(id): return int(id) != ranger), "Destroyed convoy vehicles immediately relinquish stale seat reservations")
+	advance(w, 60)
+	verify(w.resources(0).ore > 0, "Surviving convoy members continue harvesting and delivering on foot after vehicle loss")
 	w = complex_fixture()
 	worker = w.add_unit("engineer", Vector2.ZERO, 0); guard = w.add_unit("marine", Vector2(0, 1), 0)
 	var escorted := w.add_unit("operator", Vector2(3, 0), 0)

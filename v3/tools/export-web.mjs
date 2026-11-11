@@ -6,7 +6,7 @@ import {readFile,writeFile} from 'node:fs/promises'
 import path from 'node:path'
 const version=(await readFile('.godot-version','utf8')).trim()
 const editor=process.env.GODOT_BIN || path.resolve(`.tools/godot/Godot_v${version}-stable_${process.platform==='win32'?'win64_console.exe':'linux.x86_64'}`)
-for (const args of [['--headless','--path','.', '--editor','--import','--quit'],['--headless','--path','.', '--export-release','Web','build/web/index.html']]) {
+for (const args of [['--headless','--path','.', '--editor','--recovery-mode','--import','--quit'],['--headless','--path','.', '--recovery-mode','--export-release','Web','build/web/index.html']]) {
   const result=spawnSync(editor,args,{encoding:'utf8'})
   process.stdout.write(result.stdout || '')
   process.stderr.write(result.stderr || '')

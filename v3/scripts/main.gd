@@ -21,6 +21,7 @@ var sequences: Dictionary = {}
 var sequence := 0
 var match_id := ""
 var snapshot_timer := 0.0
+var pending_snapshot: Dictionary = {}
 var terrain_timer := 0.0
 var diagnostic_timer := 0.0
 var drag_start := Vector2.ZERO
@@ -484,6 +485,7 @@ func _start_game(map_seed: int, count: int, mission_key: String = "", lightless_
 	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout.\nLast deployed seed: %d" % map_seed
 	sequence = 0
 	snapshot_timer = 0
+	pending_snapshot = {}
 	pending_orders.clear()
 	selection.clear(); control_groups.clear(); last_group_slot = -1
 	controls_panel.hide()
@@ -558,6 +560,7 @@ func _network_event(event: Dictionary) -> void:
 	elif type == "peer_join" and network.role == "guest" and str(event.peer) == network.host_id:
 		network.send(network.host_id, {"kind": "hello", "hash": Settings.gameplay_hash, "protocol": int(Settings.network.gameProtocolVersion)})
 	elif type == "host_lost":
+		pending_snapshot = {}
 		state.ended = true
 		state.result = "Host disconnected. Match ended; no recovery."
 		lobby_label.text = state.result
@@ -587,7 +590,7 @@ func _network_event(event: Dictionary) -> void:
 				match_id = str(packet.match)
 				_start_game(int(packet.seed), int(packet.count), "", int(packet.get("lightless_slot", -1)))
 			elif kind == "state" and active and packet.get("match", "") == match_id:
-				state.apply_snapshot(packet.data, local_owner)
+				if int(packet.data.tick) >= int(pending_snapshot.get("tick", state.tick)): pending_snapshot = packet.data
 		elif kind == "order" and network.role == "host" and peer_owners.has(peer) and packet.get("match", "") == match_id:
 			var number := int(packet.get("sequence", 0))
 			if number > int(sequences.get(peer, 0)) and packet.get("order") is Dictionary:
@@ -645,12 +648,21 @@ func _physics_process(delta: float) -> void:
 		_update_hud()
 
 func _process(delta: float) -> void:
+	if not pending_snapshot.is_empty():
+		var latest := pending_snapshot
+		pending_snapshot = {}
+		if active and network.role == "guest" and not network.terminal: state.apply_snapshot(latest, local_owner)
 	_update_cursor()
 	renderer.selection = selection
 	tactical.selected = selection
 	tactical.hovered = _pick(get_viewport().get_mouse_position()) if active and get_viewport().gui_get_hovered_control() == null else 0
 	if active: renderer.refresh_entities()
 	if active: audio.update(state, local_owner, delta)
+	if active and local_owner == -1 and interaction_mode == "recruit" and tactical.hovered != 0:
+		var candidate := _observed_entity(tactical.hovered)
+		if candidate.get("owner", 0) == -1 and candidate.has("pos"):
+			var parent := int(candidate.get("father_id", 0))
+			status_label.text = "%s #%d / %s. Click to recruit or transfer; capacity and eligibility still apply." % [str(candidate.kind).capitalize(), candidate.id, "Unrecruited" if parent == 0 else "Assigned to Father #%d" % parent]
 	camera.enabled = active and not tactical.map_expanded
 	camera.pointer_captured = minimap_dragging or wall_dragging or tactical.minimap_rect().has_point(get_viewport().get_mouse_position()) or (get_viewport().gui_get_hovered_control() != null and camera.edge_direction(get_viewport().get_mouse_position(), get_viewport().get_visible_rect().size) == Vector2.ZERO)
 	camera.letter_pan_blocked = build_panel.visible or depot_panel.visible or womb_panel.visible
@@ -742,6 +754,7 @@ func _pause() -> void:
 	if network.role == "solo": state.paused = not state.paused; paused_button.text = "Resume" if state.paused else "Pause"
 
 func _leave() -> void:
+	pending_snapshot = {}
 	tactical.set_map_expanded(false)
 	network.leave()
 	audio.stop()
@@ -852,6 +865,7 @@ func _update_hud() -> void:
 					selection = selection.filter(func(id): return _observed_entity(int(id)).get("kind", "") == kind); _selection_feedback(), group_roster)
 				button.icon = CommandSkin.icon(kind); button.expand_icon = true; button.add_theme_constant_override("icon_max_width", 20)
 				button.add_theme_font_size_override("font_size", 12); button.custom_minimum_size = Vector2(104, 40)
+	if local_owner == -1 and selection.size() == 1 and _observed_entity(int(selection[0])).get("kind", "") == "father": _refresh_father_roster(int(selection[0]))
 	_refresh_action_signature()
 	queue_view.refresh()
 	_refresh_group_bar()
@@ -872,6 +886,28 @@ func _command(title: String, icon: String, order: Dictionary, cost: Dictionary =
 	if Settings.data.controls.productionHotkeys.has(production_kind): button.hotkey = str(Settings.data.controls.productionHotkeys[production_kind])
 	button.tooltip_text = title + "\n" + _cost_text(cost) + "\n" + (reason if reason != "" else "Paid immediately. Unstarted queued orders can be canceled for a refund." if not cost.is_empty() else "Select to issue this command.")
 	return button
+
+func _refresh_father_roster(father_id: int) -> void:
+	var recruits: Array = state.units.values().filter(func(unit): return unit.owner == -1 and int(unit.get("father_id", 0)) == father_id)
+	recruits.sort_custom(func(a, b): return int(a.id) < int(b.id))
+	group_roster.show()
+	var signature := "father/" + str(father_id) + JSON.stringify(recruits.map(func(unit): return [unit.id, unit.kind]))
+	if roster_signature != signature:
+		roster_signature = signature
+		for child in group_roster.get_children(): group_roster.remove_child(child); child.queue_free()
+		var heading := _label("RECRUITS %d / %d · CLICK TO RELEASE" % [recruits.size(), int(state.cfg.lightless.fatherRecruitLimit)], 11)
+		heading.custom_minimum_size.x = 220; group_roster.add_child(heading)
+		for unit in recruits:
+			var button := CommandCard.new(); button.text = str(unit.kind).left(3).to_upper(); button.glyph = CommandSkin.icon(unit.kind)
+			button.set_meta("recruit", int(unit.id)); group_roster.add_child(button); button.custom_minimum_size = Vector2(68, 44)
+			button.pressed.connect(func(): _issue({"action": "release", "ids": [father_id], "target": unit.id}))
+	for child in group_roster.get_children():
+		if not child.has_meta("recruit"): continue
+		var unit: Dictionary = state.units.get(int(child.get_meta("recruit")), {})
+		if unit.is_empty(): continue
+		child.badge = "%d%%" % ceili(float(unit.hp) / float(state.cfg.units[unit.kind].health) * 100)
+		child.tooltip_text = "%s #%d / %d HP / %s\nClick to release this unit from Father #%d." % [str(unit.kind).capitalize(), unit.id, ceili(unit.hp), str(unit.stance).capitalize(), father_id]
+		child.disabled = state.ended or not state.players[-1].alive; child.queue_redraw()
 
 func _lightless_actions(e: Dictionary) -> void:
 	if e.has("pos") and not WorldState.LightlessControl.directly_controllable(e):

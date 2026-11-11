@@ -91,3 +91,10 @@ Initial timeouts are **8 seconds** for boarding, regrouping, and stuck detection
 The player should be able to inspect the active source, destination, participants, drivers, remaining cargo capacity, and current phase. Waiting states distinguish no storage capacity, no worker, no driver, no output, and no reachable route. These are command explanations, not additional resources or gameplay systems.
 
 The first playable is accepted only after the example above completes repeated trips, a foot-only worker can work, a single unavailable seat cannot deadlock the group, full storage causes a stable wait, and deaths or manual interruptions preserve inventory and membership rules.
+
+Seat allocation removes reservations for destroyed or detached convoy vehicles
+before assigning surviving crew. Existing crew members can replace lost drivers;
+a surviving lone gatherer remains a gatherer. Vehicle loss does not cancel the
+standing mining order: surviving members continue harvesting and delivering on
+foot when a reachable drop-off exists. Full storage and unavailable drop-offs
+retain cargo and expose waiting blockers rather than discarding it.

@@ -6,6 +6,34 @@ The repository now contains a Godot **4.7.2** project and a single-threaded brow
 
 The current art pass combines procedural industrial models, basic procedural animation, a generated ground material and title illustration, a revised command interface, and original synthesized sound. Models and audio still need production refinement. See [art direction and asset provenance](art-direction.md).
 
+## Current completion pass
+
+Multiplayer now defers snapshot compression until transmission, shares compressed
+broadcast payloads, and coalesces received guest snapshots to one application per
+presentation frame. Commands and packet formats are unchanged. A measured route-
+copy candidate was slower and was excluded from production.
+
+Thresher navigation now throttles failed Probe routes, bounds attack-position and
+retreat A* queries, preserves objectives through automatic transitions, uses the
+buried tentacle for Probe/Gather, and emerges to clear obstructed shots. Search
+cursors stay out of client snapshots. Regression coverage includes query counts
+and actual movement after emergence.
+
+Father selection now includes a health/count roster with individual authoritative
+release and assignment-aware recruitment targeting. Commonwealth solo AI now
+maintains Engineers, Ore/Gas gathering, storage expansion, Armory/power rebuilding,
+Anchor repairs, wounded-Marine recovery and home/extraction defense. CPU Fathers
+recall wounded cohorts and synchronize their opposing Anchor; capacity pressure
+can trigger additional typed Wombs within configurable limits.
+
+Remaining Lightless combat units and organs have distinct procedural silhouettes,
+SVG icons and matching portrait glyphs. Move orders retain blocked destinations
+and retry; convoy vehicle loss clears obsolete seat reservations while survivors
+continue on foot. Competing extraction completions in one tick now select the
+earlier timer, with player-slot ordering for exact ties. Recursive attacks and the
+Nacre wallet remain deferred. Internet multiplayer acceptance and gameplay balance
+still require real-player sessions; local checks do not establish those outcomes.
+
 ## Single-player interaction pass
 
 Gloom communication is now global rather than component-connected. Any unit on any Gloom patch receives the Medusa stance or can be remotely recruited by a Father, even when the sender is off Gloom. Local off-Gloom recruitment, Father overrides, retained off-Gloom stances and post-Medusa Attack priority remain. Structure defense calls also use the global channel. Connected-component calculation/caching was removed; growth still spreads through adjacent frontier tiles.
@@ -136,14 +164,35 @@ All listed Commonwealth construction buttons are now available, including Radar 
 | Power | Footprint-connected grids, fuel cycles, active-production demand, fixed brownout rates, blackout latching/recovery, enabled toggles. Detailed Relay loss behavior and all coverage edge cases need further testing. Unlocked friendly Gates open for routed passage and close after traffic clears; manual opening and locking are separate controls. |
 | Combat | Target attacks, flat armor, configurable minimum damage, flame cones, obstruction checks, turret engagement, defensive leash, concealment checks, healing/repairs and Fabricator armor upgrades. Radar/vision/illumination targeting rules, buried-area immunity, Thresher transitions, nonstacking powered Rampart armor, and turret contact overrides are implemented. Full stance edge cases and Lightless upgrades remain incomplete. |
 | Visibility and Gloom | Vision/illumination flood fills, personal vision without light, remembered terrain, visible entity filtering, Gloom frontier spread, illumination damage, unsupported withering and regeneration. Powered Radar and driven Scout detection expose unidentified occupied-tile contacts on the battlefield/minimap. Enemy identities are filtered consistently in rendering and snapshots; shared illumination remains separate from vision. Per-viewer last-seen structure records freeze hidden state and are cleared on rediscovery. Global Gloom membership supports Father recruitment and structure defense calls; Medusa stances propagate to all combat units on Gloom through a validated host-side testing command; player Medusa/Father stance controls are available. |
-| Lightless | Starting Chyme and Medusa income; CPU-paid Mother queues; reachable paid Womb blueprints, Mother transformation and health-based gestation; typed Womb caps/unlocks and free spawning; parallel paid queues with manual-first shared caps; retained capped/locked progress; post-Medusa Womb acceleration. Stalkers, Ravagers, Threshers and Shades now enter normal play through Wombs. Combat damage fills finite personal Chyme reserves, which deposit near a built Medusa or Stoma. Gather units return to reachable organs when full or damaged; CPU Wombs grow armor and income Glands, which reconnect to surviving or replacement Wombs. Existing Mothers can grow additional Wombs after Medusa death. CPU Fathers recruit through local range or any Gloom patch, guide recruits, and preserve their stance overrides. Threatened structures call available defenders on any Gloom patch, distributing them across calls without overriding Father recruits. Defend units protect a nearby structure or their Father within a bounded radius. One player may control Lightless in solo or multiplayer; solo adds a Commonwealth AI opponent. Further strategic AI development remains pending. |
-| Vehicles | Factory production; drivers and passenger limits; passenger-first unloading; empty-vehicle commandeering; protected occupants; destruction/elimination unloading; driver-dependent vision/light; forward headlight cones; Scout passenger weapons following the Scout stance; manual worker-to-vehicle cargo transfer; Excavator cliff clearing and rubble. Automated convoy execution remains pending. |
+| Lightless | Starting Chyme and Medusa income; CPU-paid Mother queues; reachable paid Womb blueprints, Mother transformation and health-based gestation; typed Womb caps/unlocks and free spawning; parallel paid queues with manual-first shared caps; retained capped/locked progress; post-Medusa Womb acceleration. Stalkers, Ravagers, Threshers and Shades now enter normal play through Wombs. Combat damage fills finite personal Chyme reserves, which deposit near a built Medusa or Stoma. Gather units return to reachable organs when full or damaged; CPU Wombs grow armor and income Glands, which reconnect to surviving or replacement Wombs. Existing Mothers can grow additional Wombs after Medusa death. CPU Fathers recruit through local range or any Gloom patch, guide recruits, and preserve their stance overrides. Threatened structures call available defenders on any Gloom patch, distributing them across calls without overriding Father recruits. Defend units protect a nearby structure or their Father within a bounded radius. One player may control Lightless in solo or multiplayer; solo adds a Commonwealth AI opponent. CPU Fathers coordinate targets and recover wounded cohorts; population pressure triggers bounded additional Wombs. Advanced strategy still needs playtesting. |
+| Vehicles | Factory production; drivers and passenger limits; passenger-first unloading; empty-vehicle commandeering; protected occupants; destruction/elimination unloading; driver-dependent vision/light; forward headlight cones; Scout passenger weapons following the Scout stance; manual worker-to-vehicle cargo transfer; Excavator cliff clearing and rubble. Automated convoy execution, crew replacement, and vehicle-loss continuation are implemented. |
 | Combat/work feedback | Bounded audience-filtered events survive frame/snapshot skips; weapon profiles drive tracers, flashes, recoil and sound. Hit/shield/death feedback, health trails, grouped damage labels, ready/delivery cues, working machinery, and visible Scout passengers are implemented. Effect budgets and look/audio values are configurable. See [feedback](feedback.md). |
-| Extraction | Medusa death exposes Nacre; Anchor delivery, 500/1,000 thresholds, 90-second timer, and elimination outcomes are implemented at state level. Ordinary raiders prioritize active extractions and retarget when an extracting player is eliminated. Full end-to-end balance and match acceptance remain unverified; boss stays disabled. |
+| Extraction | Medusa death exposes Nacre; Anchor delivery, 500/1,000 thresholds, 90-second timer, and elimination outcomes are implemented at state level. Ordinary raiders prioritize active extractions and retarget when an extracting player is eliminated. Concurrent countdown ordering is deterministic; full balance and Internet match acceptance remain unverified; boss stays disabled. |
 | Networking | Player rooms, compatibility check, host player slots, validated host-side orders, sequence deduplication, filtered snapshots, binary transport, bounded/coalesced state queues, terminal host loss. Non-host departure eliminates that player while retaining assets/orders. |
 | Release and persistence | Web packaging and build/test CI. Public deployment, saved Nacre wallet, account/cross-origin persistence policy, and final release verification remain pending. |
 
 ## Verification
+
+2026-11-11 multiplayer snapshot pass: full npm tests passed, including five native
+peers and the new compression/backpressure regressions. Final simulation/interface
+checks and web export passed; focused browser checks passed both browser-host/
+native-guest admission and native-host/Lightless-guest movement with terminal host
+loss. The final unsent-state replacement refinement passed the affected native
+transport test. Unit route-copy omission was excluded after its benchmark showed
+higher mean cost. See [CPU performance](performance.md#multiplayer-snapshot-pass).
+
+2026-11-11 completion/Thresher pass: simulation, interface, configuration and
+native transport tests passed; the web export and two focused Lightless browser
+checks passed. Native visual review covered creature/organ silhouettes and the
+Father roster. The initial full browser run passed 11 checks; its guest-role check
+ran while native configuration had advanced beyond the browser export. Rebuilding
+and rerunning that check passed authoritative movement and terminal host loss.
+The unrelated browser checks were not repeated after the Thresher fix.
+Regression coverage includes replacement Engineers, Marine/Father recovery,
+capacity-driven Wombs, individual recruit release, convoy vehicle loss, blocked
+move recovery, concurrent extraction ordering, bounded path queries and Thresher
+obstruction recovery. Asset import/export now use recovery mode to avoid the open
+Windows editor's temporary native-extension DLL lock; runtime tests remain normal.
 
 2026-11-11 global communication change: full tests, web export and the focused browser Lightless-controls check passed. Regressions cover Medusa stances across isolated patches, off-Gloom senders, remote Father recruitment, broken bridges, leaving/returning to Gloom, local recruitment, Father overrides, global defense calls and post-Medusa release behavior.
 

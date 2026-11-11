@@ -9,7 +9,7 @@ test('Godot simulation invariants, progression and serialization',()=>{
   const version=readFileSync('.godot-version','utf8').trim()
   const binary=process.env.GODOT_BIN || path.resolve(`.tools/godot/Godot_v${version}-stable_${process.platform==='win32'?'win64_console.exe':'linux.x86_64'}`)
   checkProject()
-  for (const args of [['--headless','--path','.', '--editor','--import','--quit'],['--headless','--path','.', '--script','tests/simulation.gd'],['--headless','--path','.', '--script','tests/interface.gd']]) {
+  for (const args of [['--headless','--path','.', '--editor','--recovery-mode','--import','--quit'],['--headless','--path','.', '--script','tests/simulation.gd'],['--headless','--path','.', '--script','tests/interface.gd']]) {
     const result=spawnSync(binary,args,{encoding:'utf8',timeout:90000})
     const output=result.stdout+result.stderr
     assert.equal(result.status,0,output)

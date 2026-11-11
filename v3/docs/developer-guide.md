@@ -74,3 +74,8 @@ Radar detects enemy occupied tiles through walls/cliffs without revealing terrai
 Ramparts add one fixed armor layer to friendly structures in range. Overlaps do not sum. Enabled, built and powered are required. Inspector armor includes the shield bonus. Gates retain separate open/locked/manual/automatic states; they open automatically only for friendly routes, and automatically opened gates close after traffic clears.
 
 The CPU Lightless controller still has simplified discovery and coordination. Wombs, Glands, Father recruitment, and Medusa network stance propagation are implemented. Host-side tests set network stances through `command(-1, {"action": "medusa_stance", "target": medusa_id, "stance": "defend"})`; player Lightless controls and solo Commonwealth AI are available; see the role controls in the Lightless AI guide. See [Lightless AI](lightless-ai.md) for connectivity and override rules. Human-side concealment filtering does not imply complete CPU knowledge.
+
+Asset import and web export use Godot's `--recovery-mode` so an open Windows editor
+does not contend for the native extension's temporary DLL. Runtime simulation,
+interface and native networking tests still load extensions normally. Import has
+no gameplay execution responsibility; the runtime suites catch script errors.

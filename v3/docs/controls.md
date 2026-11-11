@@ -80,6 +80,8 @@ The role uses an existing player slot; only one player can control the colony.
 - Mother: Grow Womb arms the remembered type (initially Scavenger). Place immediately or optionally choose a type in the submenu. Grow Stoma places a drop-off.
 - Womb: queue its unit type, place adjacent Glands, or Change type using the same submenu. Visible spawn badges show population/cap.
 - Father: set recruit stance, Recruit unit then click a unit, or Release recruits.
+  The recruit roster shows health/count; click a card to release just that unit.
+  Recruitment targeting identifies the unit's current Father before a transfer.
   Any unit standing on Gloom is eligible at any distance; nearby units need no Gloom.
 - Only unrecruited Mothers and Fathers accept direct movement and Stop [X].
   Combat units follow Medusa/Father stances; Threshers transition autonomously.

@@ -743,7 +743,6 @@ func command(owner: int, order: Dictionary, from_queue: bool = false) -> String:
 				u.job = {"kind": "move"}
 				u.home = p
 				move_to(u, p)
-				u.home = u.route.back() if not u.route.is_empty() else u.pos
 			elif action == "mine":
 				if not u.kind in ["operator", "engineer"]: continue
 				var cell := Vector2i(int(order.q), int(order.r))
@@ -1024,10 +1023,14 @@ func step(delta: float) -> void:
 	_healing(delta)
 	for s in structures.values():
 		if s.built and s.kind in ["sentry", "torch", "lance"] and s.powered: _fire(s, str(cfg.structures[s.kind].weapon), delta)
+	var extraction_winner := -1
+	var earliest := INF
 	for owner in players:
-		if players[owner].extracting and players[owner].alive:
-			players[owner].remaining -= delta
-			if players[owner].remaining <= 0: ended = true; result = "Player %d extracted successfully" % (owner + 1)
+		if owner < 0 or not players[owner].extracting or not players[owner].alive: continue
+		players[owner].remaining -= delta
+		if players[owner].remaining <= 0 and (float(players[owner].remaining) < earliest or (is_equal_approx(float(players[owner].remaining), earliest) and int(owner) < extraction_winner)):
+			extraction_winner = int(owner); earliest = float(players[owner].remaining)
+	if extraction_winner >= 0: ended = true; result = "Player %d extracted successfully" % (extraction_winner + 1)
 	if tick % int(cfg.targeting.refreshIntervalTicks) == 0: update_visibility(); _update_gloom(delta * int(cfg.targeting.refreshIntervalTicks))
 	Missions.update(self, delta)
 
@@ -1039,7 +1042,7 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 	if u.owner == -1 and lightless_controlled and u.get("manual_order", false):
 		if u.job.kind == "move":
 			_move(u, delta)
-			if u.route.is_empty(): u.job = {"kind": "idle"}; u.erase("manual_order")
+			_move_order_step(u, delta)
 			return
 		if u.job.kind == "attack" and not entity(int(u.target)).is_empty():
 			u.cooldown = maxf(0, float(u.cooldown) - delta)
@@ -1180,10 +1183,18 @@ func _unit_step(u: Dictionary, delta: float) -> void:
 			elif u.route.is_empty() or u.route.back().distance_to(vehicle.pos) > 1: move_to(u, vehicle.pos)
 		else: u.job = {"kind": "idle"}; u.route.clear()
 	_move(u, delta)
-	if u.job.kind == "move" and u.route.is_empty():
-		if u.pos.distance_to(u.home) > 0.3: move_to(u, u.home)
-		else: u.job = {"kind": "idle"}
+	if u.job.kind == "move": _move_order_step(u, delta)
 	if u.job.kind == "attack" and int(u.target) == 0 and u.route.is_empty(): u.job = {"kind": "idle"}
+
+func _move_order_step(u: Dictionary, delta: float) -> void:
+	if not u.route.is_empty(): return
+	var finish := nearest_free(HexGrid.cell(u.home))
+	var goal: Vector2 = u.home if not blocked(HexGrid.cell(u.home)) and RouteNavigation.clear_segment(self, u, u.home, u.home, true) else HexGrid.world(finish)
+	if u.pos.distance_to(goal) <= float(cfg.movement.pathfinding.waypointToleranceTiles):
+		u.job = {"kind": "idle"}; u.erase("manual_order"); return
+	u.job.retry = float(u.job.get("retry", 0.0)) - delta
+	if float(u.job.retry) <= 0:
+		move_to(u, u.home); u.job.retry = float(cfg.expeditions.repathIntervalSeconds)
 
 func _defend_stance_step(u: Dictionary, delta: float) -> void:
 	if u.job.kind != "defend_stance": u.job = {"kind": "defend_stance", "site": 0, "repath_remaining": 0.0}; u.target = 0; u.route.clear()
@@ -1290,7 +1301,7 @@ func _gather_step(u: Dictionary, delta: float) -> void:
 	LightlessTactics.prepare_attack(self, u)
 	target = entity(int(u.target))
 	if target.is_empty(): return
-	if not _fire(u, str(cfg.units[u.kind].weapon), delta): LightlessTactics.approach(self, u, target, cfg.weapons[str(cfg.units[u.kind].weapon)])
+	if not _fire(u, str(BurrowRules.weapon(self, u)), delta): LightlessTactics.approach(self, u, target, cfg.weapons[str(BurrowRules.weapon(self, u))])
 	_move(u, delta)
 
 func _probe_step(u: Dictionary, delta: float) -> void:
@@ -1303,7 +1314,7 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		return
 	if u.job.kind == "attack":
 		LightlessTactics.prepare_attack(self, u)
-		if not _fire(u, str(cfg.units[u.kind].weapon), delta): _move(u, delta)
+		if not _fire(u, str(BurrowRules.weapon(self, u)), delta): _move(u, delta)
 		return
 	if u.job.kind == "idle": u.job = {"kind": "probe", "pressure": 0.0, "damage_tick": int(u.last_damage)}
 	if int(u.last_damage) > int(u.job.get("damage_tick", -999)):
@@ -1311,7 +1322,8 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		LightlessTactics.retreat(self, u)
 		return
 	var goal := LightlessTactics.assigned_anchor(self, u)
-	if u.route.is_empty() and not goal.is_empty(): move_to(u, entity_position(goal))
+	if u.route.is_empty() and not goal.is_empty() and not u.get("buried", false) and float(u.job.get("repath_remaining", 0)) <= 0:
+		move_to(u, entity_position(goal)); u.job.repath_remaining = float(cfg.lightless.combatRepathSeconds)
 	var candidate: Dictionary = {}
 	var nearest := INF
 	var vision := _cached_sight(HexGrid.cell(u.pos), int(cfg.units[u.kind].visionRangeTiles))
@@ -1336,8 +1348,8 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		if int(u.target) != int(candidate.id):
 			u.job.pressure = 0.0; u.job.probe_damage = 0.0
 		u.target = candidate.id
-		if not _fire(u, str(cfg.units[u.kind].weapon), delta):
-			LightlessTactics.approach(self, u, candidate, cfg.weapons[str(cfg.units[u.kind].weapon)])
+		if not _fire(u, str(BurrowRules.weapon(self, u)), delta):
+			LightlessTactics.approach(self, u, candidate, cfg.weapons[str(BurrowRules.weapon(self, u))])
 		if float(u.job.get("probe_damage", 0)) > float(cfg.lightless.probePressureDamageThreshold): u.job.pressure += delta
 		if float(u.job.pressure) >= float(cfg.lightless.probeResistanceWindowSeconds):
 			var target_id := int(candidate.id)
@@ -2162,6 +2174,7 @@ func snapshot(owner: int) -> Dictionary:
 	for u in units.values():
 		if u.owner != owner and not TargetRules.identifiable(self, u, owner): continue
 		var d: Dictionary = u.duplicate(true)
+		for key in ["path_search", "path_cursor", "retreat_cursor"]: d.job.erase(key)
 		if u.owner == owner: d.activity = activity(u)
 		if owner == -1 and u.owner == owner:
 			var target := entity(int(u.get("target", 0)))
@@ -2454,6 +2467,7 @@ class LightlessTactics:
 			return
 
 	static func approach(world: RefCounted, unit: Dictionary, target: Dictionary, weapon: Dictionary) -> void:
+		if unit.get("buried", false) or unit.get("transition", "") != "": return
 		var center: Vector2 = world.entity_position(target)
 		var radius := float(weapon.rangeTiles)
 		if target.has("cell"): radius += int(world.cfg.structures[target.kind].footprintRadiusTiles) + float(world.cfg.combat.structureAimAllowanceTiles)
@@ -2465,30 +2479,46 @@ class LightlessTactics:
 		if not world.point_ids.has(start): return
 		var candidates := HexGrid.disk(HexGrid.cell(center), ceili(radius) + 1)
 		candidates.sort_custom(func(a: Vector2i, b: Vector2i): return unit.pos.distance_squared_to(HexGrid.world(a)) < unit.pos.distance_squared_to(HexGrid.world(b)))
-		for cell in candidates:
+		var search_key := "%d/%s/%s/%s" % [target.id, HexGrid.key(HexGrid.cell(center)), HexGrid.key(HexGrid.cell(unit.pos)), weapon.rangeTiles]
+		var cursor: int = int(unit.job.get("path_cursor", 0)) if unit.job.get("path_search", "") == search_key else 0
+		unit.job.path_search = search_key
+		var queries := 0
+		for offset in range(candidates.size()):
+			var index: int = (cursor + offset) % candidates.size()
+			var cell: Vector2i = candidates[index]
+			unit.job.path_cursor = (index + 1) % candidates.size()
 			var point := HexGrid.world(cell)
 			if world.blocked(cell) or point.distance_to(center) > radius or not clear_shot(world, point, center): continue
 			if not world.point_ids.has(cell): continue
 			# Partial paths are not attack positions: accepting one recreates the
 			# stationary crowd at an unreachable endpoint outside a base.
 			var path: PackedVector2Array = world._route_path(unit, start, cell)
-			if path.is_empty(): continue
-			RouteNavigation.assign(world, unit, path)
-			return
+			queries += 1
+			if not path.is_empty():
+				RouteNavigation.assign(world, unit, path); return
+			if queries >= int(world.cfg.lightless.maxPathQueriesPerDecision): return
 
 	static func retreat(world: RefCounted, unit: Dictionary) -> void:
+		if unit.get("buried", false) or unit.get("transition", "") != "": return
 		unit.job.repath_remaining = float(world.cfg.lightless.retreatRepathSeconds)
 		var start: Vector2i = world.nearest_free(HexGrid.cell(unit.pos))
 		if not world.point_ids.has(start): return
 		var candidates: Array = world.gloom.keys()
-		candidates.sort_custom(func(a: Vector2i, b: Vector2i): return unit.pos.distance_squared_to(HexGrid.world(a)) < unit.pos.distance_squared_to(HexGrid.world(b)))
-		for cell in candidates:
+		candidates.sort_custom(func(a: Vector2i, b: Vector2i):
+			var da: float = unit.pos.distance_squared_to(HexGrid.world(a)); var db: float = unit.pos.distance_squared_to(HexGrid.world(b))
+			return HexGrid.key(a) < HexGrid.key(b) if is_equal_approx(da, db) else da < db)
+		var cursor := int(unit.job.get("retreat_cursor", 0))
+		var queries := 0
+		for offset in range(candidates.size()):
+			var index: int = (cursor + offset) % candidates.size()
+			var cell: Vector2i = candidates[index]
+			unit.job.retreat_cursor = (index + 1) % candidates.size()
 			if world.blocked(cell) or world.is_lit(cell) or not world.point_ids.has(cell): continue
 			var path: PackedVector2Array = world._route_path(unit, start, cell)
-			if path.is_empty(): continue
-			unit.route.clear()
-			RouteNavigation.assign(world, unit, path)
-			return
+			queries += 1
+			if not path.is_empty():
+				RouteNavigation.assign(world, unit, path); return
+			if queries >= int(world.cfg.lightless.maxPathQueriesPerDecision): return
 
 class TargetRules:
 	extends RefCounted
@@ -2624,9 +2654,10 @@ class LightlessControl:
 		if action == "release":
 			var fathers: Array = selected.filter(func(id): return w.units[id].kind == "father")
 			if fathers.is_empty(): return "Select a Father to release recruits"
+			if order.has("target") and (target.get("owner", 0) != -1 or not fathers.has(int(target.get("father_id", 0)))): return "That unit is not recruited by the selected Father"
 			var network: Dictionary = w.gloom
 			for unit in w.units.values():
-				if unit.owner == -1 and fathers.has(int(unit.get("father_id", 0))): LightlessCoordination.release(w, unit, network)
+				if unit.owner == -1 and fathers.has(int(unit.get("father_id", 0))) and (not order.has("target") or int(unit.id) == int(target.id)): LightlessCoordination.release(w, unit, network)
 			return "Recruits released"
 		if action in ["attack", "burrow"]: return "Combat units are autonomous; guide them through Medusa or Father stances"
 		if action in ["move", "stop"]:
@@ -2677,6 +2708,35 @@ class LightlessControl:
 
 class CommonwealthAI:
 	extends RefCounted
+
+	static func affordable(w: RefCounted, owner: int, cost: Dictionary, reserve: Dictionary = {}) -> bool:
+		for resource in cost:
+			if int(w.resources(owner).get(resource, 0)) < int(cost[resource]) + int(reserve.get(resource, 0)): return false
+		return true
+
+	static func build(w: RefCounted, owner: int, worker: Dictionary, anchor: Dictionary, kind: String, resource: String, reserve: Dictionary) -> bool:
+		if not affordable(w, owner, w.cfg.structures[kind].cost, reserve): return false
+		var cells: Array = w.known[owner].keys()
+		cells.sort_custom(func(a, b):
+			var da: int = HexGrid.distance(a, anchor.cell); var db: int = HexGrid.distance(b, anchor.cell)
+			return da < db if da != db else a.x < b.x if a.x != b.x else a.y < b.y)
+		for cell in cells:
+			if HexGrid.distance(cell, anchor.cell) > int(w.cfg.structures.anchor.electricalRangeBeyondFootprintTiles) + int(w.cfg.structures.anchor.footprintRadiusTiles) + int(w.cfg.structures[kind].footprintRadiusTiles): continue
+			if w.placement_issue(owner, kind, cell) != "" or w.tiles[cell].resource != "": continue
+			if w.command(owner, {"action": "build", "kind": kind, "depot_type": resource, "ids": [worker.id], "q": cell.x, "r": cell.y}) == "Blueprint placed": return true
+		return false
+
+	static func gather(w: RefCounted, owner: int, worker: Dictionary, resource: String, anchor: Dictionary) -> void:
+		var group: Dictionary = w.command_groups.get(int(worker.get("command_group", 0)), {})
+		if not group.is_empty() and group.action == "mine" and w.tiles[HexGrid.cell(group.point)].resource == resource and group.blocker != "depleted": return
+		var patches: Array = w.known[owner].keys().filter(func(cell): return w.tiles[cell].resource == resource and int(w.tiles[cell].amount) > 0)
+		patches.sort_custom(func(a, b):
+			var da: int = HexGrid.distance(a, anchor.cell); var db: int = HexGrid.distance(b, anchor.cell)
+			return da < db if da != db else a.x < b.x if a.x != b.x else a.y < b.y)
+		for cell in patches:
+			var response: String = w.command(owner, {"action": "mine", "ids": [worker.id], "q": cell.x, "r": cell.y})
+			if response == "Mining expedition started": return
+
 	static func update(w: RefCounted, delta: float) -> void:
 		if w.commonwealth_ai.is_empty(): return
 		var brain: Dictionary = w.commonwealth_ai
@@ -2684,57 +2744,93 @@ class CommonwealthAI:
 		if not w.players[owner].alive: return
 		brain.timer -= delta
 		if brain.timer > 0: return
-		brain.timer = float(w.cfg.lightless.soloCommonwealthAI.decisionIntervalSeconds)
+		var rules: Dictionary = w.cfg.lightless.soloCommonwealthAI
+		brain.timer = float(rules.decisionIntervalSeconds)
 		var anchor: Dictionary = w.structures.get(int(w.players[owner].anchor), {})
 		if anchor.is_empty(): return
-		var engineers: Array = []; var operators: Array = []; var marines: Array = []; var armory: Dictionary = {}
+		if w.players[owner].request_personnel: w.command(owner, {"action": "global_personnel", "enabled": false})
+		var engineers: Array = []; var operators: Array = []; var marines: Array = []
 		for unit in w.units.values():
 			if unit.owner != owner: continue
 			if unit.kind == "engineer": engineers.append(unit)
-			if unit.kind == "operator": operators.append(unit)
-			if unit.kind == "marine": marines.append(unit)
+			elif unit.kind == "operator": operators.append(unit)
+			elif unit.kind == "marine": marines.append(unit)
+		var armory: Dictionary = {}; var unfinished: Array = []; var depots: Dictionary = {}
 		for site in w.structures.values():
-			if site.owner == owner and site.kind == "armory": armory = site; break
-		if armory.is_empty() and not engineers.is_empty():
-			var cells: Array = w.known[owner].keys()
-			cells.sort_custom(func(a, b):
-				var da: int = HexGrid.distance(a, anchor.cell); var db: int = HexGrid.distance(b, anchor.cell)
-				return da < db if da != db else a.x < b.x if a.x != b.x else a.y < b.y)
-			for cell in cells:
-				if HexGrid.distance(cell, anchor.cell) > int(w.cfg.structures.anchor.electricalRangeBeyondFootprintTiles) + int(w.cfg.structures.anchor.footprintRadiusTiles) + int(w.cfg.structures.armory.footprintRadiusTiles): continue
-				if w.placement_issue(owner, "armory", cell) == "" and w.tiles[cell].resource == "":
-					w.command(owner, {"action": "build", "kind": "armory", "ids": [engineers[0].id], "q": cell.x, "r": cell.y}); break
-		if armory.get("built", false):
-			var desired := int(w.cfg.lightless.soloCommonwealthAI.desiredMarines)
-			if marines.size() + armory.kits.size() < desired: w.command(owner, {"action": "kit", "kind": "marine", "target": armory.id})
-			if marines.size() + operators.size() + anchor.operators.size() < desired: w.command(owner, {"action": "operator", "target": anchor.id})
-			for unit in operators:
-				if unit.job.kind == "idle": w.command(owner, {"action": "equip", "ids": [unit.id], "target": armory.id})
+			if site.owner != owner: continue
+			if site.kind == "armory": armory = site
+			if not site.built: unfinished.append(site)
+			if site.kind == "depot": depots[site.depot_type] = true
+		var reserve: Dictionary = {}
+		for resource in w.cfg.personnel.operatorCost:
+			reserve[resource] = int(w.cfg.personnel.operatorCost[resource]) + int(w.cfg.personnel.kits.engineer.cost.get(resource, 0))
+		var pending_engineers: int = anchor.kits.filter(func(kit): return kit.kind == "engineer").size()
+		if engineers.size() + pending_engineers < int(rules.desiredEngineers):
+			w.command(owner, {"action": "kit", "target": anchor.id, "kind": "engineer"})
+		if armory.get("built", false) and marines.size() + armory.kits.size() < int(rules.desiredMarines) and affordable(w, owner, w.cfg.personnel.kits.marine.cost, reserve):
+			w.command(owner, {"action": "kit", "target": armory.id, "kind": "marine"})
+		var requested: int = anchor.kits.size() + armory.get("kits", []).size()
+		if operators.size() + anchor.operators.size() < requested and affordable(w, owner, w.cfg.personnel.operatorCost, {} if engineers.is_empty() else reserve):
+			w.command(owner, {"action": "operator", "target": anchor.id})
+		for unit in operators:
+			var source: Dictionary = anchor if not anchor.kits.is_empty() else armory
+			if source.is_empty() or source.get("kits", []).is_empty(): continue
+			if unit.job.kind != "equip" or int(unit.job.get("target", 0)) != int(source.id): w.command(owner, {"action": "equip", "ids": [unit.id], "target": source.id})
+		var builder: Dictionary = engineers[0] if not engineers.is_empty() else {}
+		if not builder.is_empty() and unfinished.is_empty():
+			if armory.is_empty(): build(w, owner, builder, anchor, "armory", "ore", reserve)
+			elif not armory.powered and not w.structures.values().any(func(site): return site.owner == owner and site.kind == "generator"): build(w, owner, builder, anchor, "generator", "ore", reserve)
+			else:
+				for resource in ["ore", "gas"]:
+					if not depots.has(resource) and float(w.resources(owner).get(resource, 0)) >= w.capacity(owner, resource) * float(rules.storageHeadroomRatio):
+						if build(w, owner, builder, anchor, "depot", resource, reserve): break
+		# Refresh the unfinished list after an accepted blueprint.
+		unfinished = w.structures.values().filter(func(site): return site.owner == owner and not site.built)
+		var resource_index := 0
 		for worker in engineers:
-			if not armory.is_empty() and not armory.built:
-				if worker.job.kind != "build": w.command(owner, {"action": "work", "ids": [worker.id], "target": armory.id})
-			elif worker.job.kind == "idle" and int(worker.get("command_group", 0)) == 0:
-				var patches: Array = w.known[owner].keys().filter(func(cell): return w.tiles[cell].resource == ("nacre" if w.medusa_dead else "ore") and int(w.tiles[cell].amount) > 0)
-				patches.sort_custom(func(a, b):
-					var da: int = HexGrid.distance(a, anchor.cell); var db: int = HexGrid.distance(b, anchor.cell)
-					return da < db if da != db else a.x < b.x if a.x != b.x else a.y < b.y)
-				if not patches.is_empty(): w.command(owner, {"action": "mine", "ids": [worker.id], "q": patches[0].x, "r": patches[0].y})
-			elif w.medusa_dead and w.corpse != null and worker.job.get("kind", "") != "build":
-				var group: Dictionary = w.command_groups.get(int(worker.get("command_group", 0)), {})
-				if not group.is_empty() and group.point != HexGrid.world(w.corpse): w.command(owner, {"action": "mine", "ids": [worker.id], "q": w.corpse.x, "r": w.corpse.y})
+			if not unfinished.is_empty() and int(worker.id) == int(builder.id):
+				if worker.job.kind != "build" or int(worker.job.get("target", 0)) != int(unfinished[0].id): w.command(owner, {"action": "work", "ids": [worker.id], "target": unfinished[0].id})
+				continue
+			if float(anchor.hp) < float(w.cfg.structures.anchor.health) * float(rules.repairHealthFraction) and int(worker.id) == int(builder.id) and int(w.resources(owner).get("ore", 0)) > 0:
+				if worker.job.kind != "repair": w.command(owner, {"action": "repair", "ids": [worker.id], "target": anchor.id})
+				continue
+			var resource := "nacre" if w.medusa_dead and w.corpse != null and w.known[owner].has(w.corpse) and resource_index == 0 else "gas" if resource_index % 2 == 1 and int(w.resources(owner).get("gas", 0)) < int(rules.gasReserveTarget) else "ore"
+			gather(w, owner, worker, resource, anchor); resource_index += 1
 		if int(w.resources(owner).get("nacre", 0)) >= int(w.cfg.match.extractionMinimumNacre) and not w.players[owner].extracting: w.command(owner, {"action": "extract", "target": anchor.id})
-		if marines.size() < int(w.cfg.lightless.soloCommonwealthAI.attackGroupSize): return
+		var threat: Dictionary = {}; var nearest := INF
+		for enemy in w.units.values():
+			if enemy.owner == owner or not TargetRules.identifiable(w, enemy, owner): continue
+			var distance: float = enemy.pos.distance_to(w.entity_position(anchor))
+			if distance <= float(rules.baseDefenseRadiusTiles) and distance < nearest: nearest = distance; threat = enemy
+		var ready: Array = []
+		var recovering: Dictionary = brain.get("recovering", {})
+		for unit in marines:
+			var fraction := float(unit.hp) / float(w.cfg.units.marine.health)
+			if fraction < float(rules.retreatHealthFraction): recovering[int(unit.id)] = true
+			if fraction >= float(rules.resumeHealthFraction): recovering.erase(int(unit.id))
+			if recovering.has(int(unit.id)) or w.players[owner].extracting or not threat.is_empty():
+				w.command(owner, {"action": "stance", "ids": [unit.id], "stance": "defensive"})
+				if not threat.is_empty() and not recovering.has(int(unit.id)):
+					if int(unit.target) != int(threat.id): w.command(owner, {"action": "attack", "ids": [unit.id], "target": threat.id})
+				elif unit.pos.distance_to(w.entity_position(anchor)) > float(rules.regroupRadiusTiles) and (unit.job.kind != "move" or unit.home.distance_to(w.entity_position(anchor)) > float(rules.regroupRadiusTiles)):
+					w.command(owner, {"action": "move", "ids": [unit.id], "x": w.entity_position(anchor).x, "z": w.entity_position(anchor).y})
+			else: ready.append(unit)
+		brain.recovering = recovering
+		if ready.size() < int(rules.attackGroupSize):
+			for unit in ready:
+				w.command(owner, {"action": "stance", "ids": [unit.id], "stance": "defensive"})
+				if unit.job.kind == "attack": w.command(owner, {"action": "stop", "ids": [unit.id]})
+			return
 		var target: Dictionary = {}
 		for site in w.observed_structures(owner):
-			if site.owner == -1 and not site.get("remembered", false): target = site; break
-		if target.is_empty() and marines.all(func(unit): return unit.route.is_empty()): brain.scout = (int(brain.scout) + 1) % 6
-		for unit in marines:
+			if site.owner == -1 and not site.get("remembered", false) and (target.is_empty() or site.kind == "medusa"): target = site
+		if target.is_empty() and ready.all(func(unit): return unit.route.is_empty()): brain.scout = (int(brain.scout) + 1) % 6
+		for unit in ready:
 			w.command(owner, {"action": "stance", "ids": [unit.id], "stance": "aggressive"})
 			if not target.is_empty():
 				if int(unit.target) != int(target.id): w.command(owner, {"action": "attack", "ids": [unit.id], "target": target.id})
 			elif unit.job.kind == "idle":
-				var direction: Vector2i = HexGrid.DIRECTIONS[int(brain.scout) % 6]
-				var cell: Vector2i = direction * (w.radius - int(w.cfg.map.anchorEdgeInsetTiles))
+				var cell: Vector2i = HexGrid.DIRECTIONS[int(brain.scout) % 6] * (w.radius - int(w.cfg.map.anchorEdgeInsetTiles))
 				w.command(owner, {"action": "move", "ids": [unit.id], "x": HexGrid.world(cell).x, "z": HexGrid.world(cell).y})
 
 class LightlessCoordination:
@@ -3014,14 +3110,27 @@ class LightlessColony:
 		for fid in unit_ids:
 			var father: Dictionary = world.units[fid]
 			if father.owner >= 0 or father.kind != "father": continue
-			father.group_stance = "attack"
+			var retreating: bool = father.get("recovering", false)
+			var health: float = float(father.hp) / float(world.cfg.units.father.health)
+			if health < float(world.cfg.lightless.cpuFatherRetreatHealthFraction): retreating = true
+			if health >= float(world.cfg.lightless.cpuFatherResumeHealthFraction): retreating = false
+			if retreating != bool(father.get("recovering", false)): father.route.clear()
+			father.recovering = retreating
+			LightlessCoordination.set_stance(world, father, "gather" if retreating else "attack")
 			for uid in unit_ids:
 				var candidate: Dictionary = world.units[uid]
 				if candidate.owner >= 0 or candidate.kind in ["father", "mother"] or int(candidate.get("father_id", 0)) != 0 or not candidate.job.kind in ["idle", "probe"]: continue
 				LightlessCoordination.recruit(world, father, candidate, network)
-			if father.route.is_empty():
-				var objective := LightlessTactics.assigned_anchor(world, father)
-				if not objective.is_empty(): world.move_to(father, world.entity_position(objective))
+			var objective := LightlessTactics.assigned_anchor(world, father)
+			for uid in unit_ids:
+				var recruit: Dictionary = world.units[uid]
+				if int(recruit.get("father_id", 0)) != int(father.id) or objective.is_empty(): continue
+				if int(recruit.get("raid_owner", -1)) != int(objective.owner):
+					recruit.raid_owner = objective.owner; recruit.job = {"kind": "idle"}; recruit.target = 0; recruit.route.clear()
+			if retreating:
+				if not medusa.is_empty() and father.pos.distance_to(world.entity_position(medusa)) > float(world.cfg.lightless.fatherLocalRangeTiles):
+					if father.route.is_empty(): world.move_to(father, world.entity_position(medusa))
+			elif father.route.is_empty() and not objective.is_empty(): world.move_to(father, world.entity_position(objective))
 		var mother: Dictionary = {}
 		for u in world.units.values():
 			if u.owner < 0 and u.kind == "mother" and u.job.kind == "idle": mother = u; break
@@ -3065,6 +3174,11 @@ class LightlessColony:
 			for s in world.structures.values():
 				if s.owner < 0 and s.kind == "womb" and s.get("unit_type", "") == kind: exists = true; break
 			if not exists: next_type = kind; break
+		if next_type == "":
+			for kind in world.cfg.lightless.cpuWombPriority:
+				var count: int = world.structures.values().filter(func(site): return site.owner < 0 and site.kind == "womb" and site.get("unit_type", "") == kind).size()
+				if count < 1 + int(world.cfg.lightless.cpuAdditionalWombsPerType) and world._population(kind) >= cap(world, kind) * float(world.cfg.lightless.cpuWombCapacityPressure):
+					next_type = kind; break
 		var reserve := int(world.cfg.lightless.cpuMinimumChymeReserve)
 		var cost := int(world.cfg.structures.womb.cost.chyme)
 		if next_type != "" and not mother.is_empty() and world.lightless_expansion_time >= float(world.cfg.lightless.cpuExpansionIntervalSeconds) and world.lightless_chyme >= reserve + cost:
@@ -3198,11 +3312,13 @@ class BurrowRules:
 	extends RefCounted
 	## Request, transition and weapon selection form one capability. Transition state
 	## lives on the unit, so save/snapshot transport does not need a second timer store.
-	static func request(world: RefCounted, unit: Dictionary, buried: bool) -> bool:
+	static func request(world: RefCounted, unit: Dictionary, buried: bool, preserve_orders: bool = false) -> bool:
 		if not world.cfg.units[unit.kind].has("buriedWeapon") or unit.get("transition", "") != "" or bool(unit.get("buried", false)) == buried: return false
 		unit.transition = "burrow" if buried else "emerge"
 		unit.transition_remaining = float(world.cfg.combat.thresherBurrowSeconds if buried else world.cfg.combat.thresherEmergeSeconds)
-		unit.route.clear(); unit.target = 0; unit.job = {"kind": "idle"}
+		if not preserve_orders:
+			unit.route.clear(); unit.target = 0; unit.job = {"kind": "idle"}
+		elif buried: unit.route.clear()
 		return true
 
 	static func update(world: RefCounted, unit: Dictionary, delta: float) -> bool:
@@ -3217,12 +3333,18 @@ class BurrowRules:
 		var father: Dictionary = world.units.get(int(unit.get("father_id", 0)), {})
 		var target: Dictionary = world.entity(int(unit.get("target", 0)))
 		if target.is_empty() and unit.stance in ["attack", "probe", "gather"]: target = LightlessTactics.assigned_anchor(world, unit)
-		var weapon_name = world.cfg.units[unit.kind].get("buriedWeapon" if unit.stance in ["attack", "defend"] else "weapon")
-		var reach := float(world.cfg.weapons[weapon_name].rangeTiles) if weapon_name != null else 0.0
+		var weapon_name = world.cfg.units[unit.kind].buriedWeapon
+		var reach := float(world.cfg.weapons[weapon_name].rangeTiles)
 		if target.has("cell"): reach += int(world.cfg.structures[target.kind].footprintRadiusTiles) + float(world.cfg.combat.structureAimAllowanceTiles)
-		var traveling: bool = not unit.route.is_empty() or (not father.is_empty() and unit.pos.distance_to(father.pos) > 2.0) or (not target.is_empty() and unit.pos.distance_to(world.entity_position(target)) > reach)
-		if unit.get("buried", false) and traveling: return request(world, unit, false)
-		if not unit.get("buried", false) and not traveling and (unit.job.kind in ["idle", "rally", "defend_stance"] or (unit.job.kind == "attack" and not target.is_empty())): return request(world, unit, true)
+		var following: bool = not father.is_empty() and unit.pos.distance_to(father.pos) > 2.0
+		var returning: bool = unit.job.kind in ["retreat", "gather_return"]
+		var firing_position: bool = not target.is_empty() and unit.pos.distance_to(world.entity_position(target)) <= reach and LightlessTactics.clear_shot(world, unit.pos, world.entity_position(target))
+		if firing_position and not following and not returning:
+			if not unit.get("buried", false): return request(world, unit, true, true)
+			unit.route.clear(); return false
+		var traveling: bool = not unit.route.is_empty() or following or returning or not target.is_empty()
+		if unit.get("buried", false) and traveling: return request(world, unit, false, true)
+		if not unit.get("buried", false) and not traveling and unit.job.kind in ["idle", "rally", "defend_stance"]: return request(world, unit, true, true)
 		return false
 
 	static func weapon(world: RefCounted, unit: Dictionary) -> Variant:
@@ -3452,6 +3574,9 @@ class ComplexCommands:
 	static func allocate(w: RefCounted, g: Dictionary) -> void:
 		var vehicles: Array = []; var free: Array = []; var workers := 0
 		g.seats = g.seats.duplicate()
+		for id in g.seats.keys():
+			var vehicle_id := int(g.seats[id])
+			if not g.members.has(int(id)) or not g.members.has(vehicle_id) or not w.units.has(vehicle_id): g.seats.erase(id)
 		for id in g.members:
 			var u: Dictionary = w.units[id]
 			if w.cfg.units[u.kind].has("driverSeats"):

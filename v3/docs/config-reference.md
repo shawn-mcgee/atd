@@ -256,6 +256,14 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `lightless.soloCommonwealthAI.decisionIntervalSeconds` | number | `2` |
 | `lightless.soloCommonwealthAI.desiredMarines` | number | `6` |
 | `lightless.soloCommonwealthAI.attackGroupSize` | number | `3` |
+| `lightless.soloCommonwealthAI.desiredEngineers` | number | `2` |
+| `lightless.soloCommonwealthAI.gasReserveTarget` | number | `40` |
+| `lightless.soloCommonwealthAI.storageHeadroomRatio` | number | `0.8` |
+| `lightless.soloCommonwealthAI.repairHealthFraction` | number | `0.85` |
+| `lightless.soloCommonwealthAI.retreatHealthFraction` | number | `0.4` |
+| `lightless.soloCommonwealthAI.resumeHealthFraction` | number | `0.85` |
+| `lightless.soloCommonwealthAI.baseDefenseRadiusTiles` | number | `8` |
+| `lightless.soloCommonwealthAI.regroupRadiusTiles` | number | `3` |
 | `lightless.cpuDesiredStomas` | number | `2` |
 | `lightless.cpuStomaMinOrganDistanceTiles` | number | `6` |
 | `lightless.cpuArmorGlandsPerTypeBeforeMoreExpansion` | number | `1` |
@@ -264,6 +272,11 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `lightless.extractionTargetPolicy` | string | `"lowest_remaining_countdown_then_path_distance"` |
 | `lightless.gloomDisconnectionPolicy` | string | `"retain_last_stance_off_gloom_until_return_or_override"` |
 | `lightless.darkPathLightPenalty` | number | `40` |
+| `lightless.cpuAdditionalWombsPerType` | number | `2` |
+| `lightless.cpuWombCapacityPressure` | number | `0.8` |
+| `lightless.cpuFatherRetreatHealthFraction` | number | `0.35` |
+| `lightless.cpuFatherResumeHealthFraction` | number | `0.85` |
+| `lightless.maxPathQueriesPerDecision` | number | `4` |
 
 ## units
 

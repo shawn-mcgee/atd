@@ -42,6 +42,7 @@ func run() -> void:
 	verify(game.state.mission.is_empty() and game.state.cfg.match.extractionMinimumNacre == 500, "Ordinary expeditions restore standard rules after leaving a mission")
 	var anchor: Dictionary = game.state.structures[int(game.state.players[0].anchor)]
 	lightless_control_checks(game)
+	snapshot_coalescing_checks(game)
 	game._start_game(472, 1)
 	anchor = game.state.structures[int(game.state.players[0].anchor)]
 	wall_paint_checks(game, anchor)
@@ -192,6 +193,25 @@ func run() -> void:
 	await process_frame
 	print("Interface checks complete; failures: ", failures)
 	quit(0 if failures == 0 else 1)
+
+func snapshot_coalescing_checks(game) -> void:
+	game._start_game(472, 1)
+	game.network.role = "guest"; game.network.host_id = "1"
+	var original_tick: int = game.state.tick
+	var packet: Dictionary = game.state.snapshot(0).duplicate(true)
+	for tick in [40, 42, 41]:
+		var data: Dictionary = packet.duplicate(true); data.tick = tick
+		game._network_event({"type": "packet", "peer": "1", "message": {"kind": "state", "match": game.match_id, "data": data}})
+	verify(game.state.tick == original_tick and int(game.pending_snapshot.tick) == 42, "Snapshot bursts retain the newest tick without repeatedly rebuilding the guest world")
+	game._process(0)
+	verify(game.state.tick == 42 and game.pending_snapshot.is_empty(), "The presentation frame consumes the latest snapshot exactly once")
+	packet.tick = 43
+	game._network_event({"type": "packet", "peer": "1", "message": {"kind": "state", "match": game.match_id, "data": packet}})
+	game._network_event({"type": "host_lost"})
+	game._process(0)
+	verify(game.state.ended and game.state.result.contains("Host disconnected") and game.pending_snapshot.is_empty(), "A queued snapshot cannot undo terminal host loss")
+	game.network.role = "solo"
+	game._leave()
 
 func wall_paint_checks(game, anchor: Dictionary) -> void:
 	var worker: Dictionary = {}
@@ -429,6 +449,15 @@ func lightless_control_checks(game) -> void:
 		if unit.kind == "father": father = unit; break
 	game.selection = [father.id]; game._refresh_actions()
 	verify(game.actions.get_children().any(func(button): return button.text == "Recruit unit"), "Fathers expose recruitment targeting")
+	var recruit_a: int = game.state.add_unit("scavenger", father.pos, -1)
+	var recruit_b: int = game.state.add_unit("stalker", father.pos, -1)
+	game.state.command(-1, {"action": "recruit", "ids": [father.id], "target": recruit_a})
+	game.state.command(-1, {"action": "recruit", "ids": [father.id], "target": recruit_b})
+	game._update_hud()
+	var roster_cards: Array = game.group_roster.get_children().filter(func(card): return card is CommandCard)
+	verify(game.group_roster.visible and roster_cards.size() == 2, "Selected Fathers display their actual recruit roster")
+	roster_cards[0].pressed.emit(); game._physics_process(0); game._update_hud()
+	verify(not game.state.units[recruit_a].has("father_id") and int(game.state.units[recruit_b].father_id) == int(father.id), "Clicking a roster card releases only that recruit through an authoritative order")
 	var mother: int = game.state.add_unit("mother", father.pos, -1)
 	game.selection = [mother]; game._refresh_actions()
 	verify(not game.actions.get_children().any(func(button): return button is OptionButton), "Mother construction uses an optional submenu rather than a mandatory type dropdown")

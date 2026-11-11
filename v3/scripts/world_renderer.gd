@@ -593,6 +593,9 @@ func _animate(body: Node3D, e: Dictionary, pos: Vector2, delta: float) -> void:
 		if e.kind != "mother": model.scale = Vector3(anatomy.x, anatomy.y * (1.0 + sin(display_time * 3 + int(e.id)) * 0.025), anatomy.z)
 		for claw in body.get_meta("claws"):
 			claw.node.rotation.y = int(claw.side) * (int(claw.index) - 1) * -0.45 + (sin(phase * 1.3 + int(claw.index) * 2) * 0.35 if walking else 0.0)
+		if e.kind == "shade":
+			model.position.y = 0.1 + sin(display_time * 2 + int(e.id)) * 0.06
+			model.rotation.z = sin(display_time * 1.5 + int(e.id)) * 0.05
 		if e.kind == "father":
 			var motion: Dictionary = state.cfg.presentation.fatherMotion
 			var hover := display_time * TAU * float(motion.hoverCyclesPerSecond) + int(e.id) * 0.7

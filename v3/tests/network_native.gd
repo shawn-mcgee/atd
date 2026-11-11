@@ -1,5 +1,12 @@
 extends SceneTree
 
+class CountingSession:
+	extends NetworkSession
+	var body_encodes := 0
+	func _packet_body(encoded: PackedByteArray) -> PackedByteArray:
+		body_encodes += 1
+		return super._packet_body(encoded)
+
 var sessions: Array[NetworkSession] = []
 var failures := 0
 var ready_room := ""
@@ -41,7 +48,7 @@ func run() -> void:
 	if not join_code.is_empty():
 		await crossplay_guest(config, join_code); return
 	for i in range(count):
-		var session := NetworkSession.new(); root.add_child(session)
+		var session := CountingSession.new(); root.add_child(session)
 		session.configuration = config.duplicate(true)
 		session.received.connect(func(event): on_event(i, event))
 		sessions.append(session)
@@ -58,6 +65,27 @@ func run() -> void:
 	sessions[0].send("", payload)
 	verify(await wait_until(func(): return packets.size() == count - 1), "Large binary packets reach every guest")
 	for i in range(1, count): verify(packets.get(i, {}) == payload, "Typed binary payload survives compression and fragmentation")
+	packets.clear()
+	var host: CountingSession = sessions[0]
+	var before := host.body_encodes
+	var latest: Dictionary = {}
+	for revision in range(31):
+		latest = {"kind": "state", "revision": revision, "blob": blob}
+		host.send("", latest)
+	var buffer_limit: int = host.configuration.limits.bufferedAmountBytes
+	host.configuration.limits.bufferedAmountBytes = -1 # Exercise a saturated transport buffer without flooding the connection.
+	host._flush(Time.get_ticks_msec())
+	latest = {"kind": "state", "revision": 31, "blob": blob}
+	host.send("", latest)
+	latest.revision = 999
+	host._flush(Time.get_ticks_msec())
+	verify(host.body_encodes == before, "Superseded queued snapshots are never compressed")
+	for queue in host.outgoing.values(): verify(bytes_to_var(queue.state.payload.encoded).revision == 31, "A snapshot blocked before its first frame is replaced by the newest pending state")
+	host.configuration.limits.bufferedAmountBytes = buffer_limit
+	verify(await wait_until(func(): return packets.size() == count - 1), "Coalesced snapshots reach every guest")
+	for i in range(1, count): verify(packets.get(i, {}).get("revision", -1) == 31 and packets[i].blob == blob, "Deferred encoding preserves send-time values and the complete latest payload")
+	verify(host.body_encodes == before + 1, "One transmitted broadcast snapshot is compressed once across all recipients")
+	print("Snapshot burst: 32 queued, ", host.body_encodes - before, " body encoded across ", count - 1, " guests")
 	packets.clear()
 	sessions[1].send("1", {"kind": "order", "sequence": 1, "owner": 1})
 	verify(await wait_until(func(): return packets.has(0)), "Guest orders reach the host")
