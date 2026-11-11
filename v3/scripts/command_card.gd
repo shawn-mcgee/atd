@@ -4,6 +4,7 @@ extends Button
 var glyph: Texture2D
 var cost: Dictionary = {}
 var hotkey := ""
+var badge := ""
 const FONT := preload("res://assets/fonts/BarlowSemiCondensed-SemiBold.ttf")
 const TINTS := {"ore": Color("c8aa75"), "gas": Color("83b3ae"), "alloy": Color("a4b3bb"), "polymer": Color("b7b18a"), "crystal": Color("a4a5c9")}
 
@@ -34,3 +35,4 @@ func _draw() -> void:
 		else: draw_colored_polygon(PackedVector2Array([point + Vector2(0, -4), point + Vector2(3, 0), point + Vector2(0, 4), point + Vector2(-3, 0)]), color)
 		draw_string(FONT, Vector2(x + 10, size.y - 6), str(int(cost[resource])), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
 		x += 30
+	if not badge.is_empty(): draw_string(FONT, Vector2(size.x - 48, size.y - 6), badge, HORIZONTAL_ALIGNMENT_RIGHT, 40, 10, tint)

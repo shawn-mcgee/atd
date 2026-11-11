@@ -1,11 +1,8 @@
 # Project instructions
 
-The active Godot 4.7.2 browser alpha lives in v3/. Open v3/project.godot and run npm/Python project commands from v3/. Read v3/README.md and v3/docs/developer-guide.md; implementation coverage is in v3/docs/implementation-status.md.
-
-Keep simulation deterministic and independent of presentation. Gameplay commands pass through WorldState. Configuration lives in v3/config/; document new values and regenerate the configuration reference. Preserve existing script UID sidecars; do not regenerate caches or add @tool scripts without need.
-
-Run npm test, npm run export:web, and npm run test:browser from v3/ for relevant changes. The repository workflow stages the exported build at both / and /v3/ using v3/tools/stage-site.py. CI also exports legacy v1 separately with v3/tools/export-legacy.py and stages it under /v1/. Do not deploy the legacy game at the root URL.
-
-v1/ is preserved legacy code. Its instructions are in v3/docs/legacy-project-instructions.md. Do not mix its tooling or assets into v3/.
-
-Keep communication concise, inspect narrow relevant code ranges, and finish authorized work without unnecessary confirmations.
+- Work in `v3/` (Godot 4.7.2); open `v3/project.godot`. Run npm/Python there. Read relevant sections of `README.md`, `docs/developer-guide.md`, and `docs/implementation-status.md` once; reuse findings.
+- Minimize tokens/compute: use targeted `rg` searches and small line ranges, bounded tool output, and batched independent reads. Avoid whole-file dumps, repeated inspection, speculative refactors, redundant tests, and delegation unless requested. Keep updates/final concise; finish authorized work without unnecessary confirmation.
+- Keep simulation deterministic and presentation-independent; commands use `WorldState`. Put tuning in `config/`; document new values and regenerate the configuration reference. Preserve script UID sidecars; avoid needless cache regeneration or `@tool` scripts.
+- For gameplay changes, finish edits, then run `npm test`, `npm run export:web`, and `npm run test:browser` once. Rerun only checks affected by subsequent edits/failures. Skip game suites for documentation-only changes.
+- `tools/stage-site.py` stages v3 at `/` and `/v3/`. CI's `tools/export-legacy.py` exports v1 separately under `/v1/`; never at `/`.
+- Preserve `v1/`; consult `v3/docs/legacy-project-instructions.md` before legacy work. Keep its tooling/assets out of v3.

@@ -24,7 +24,7 @@ The `limits` configuration defines maximum peers (4 guests), frame payload bytes
 
 ## Authority and lifecycle
 
-The hosting player runs WorldState and Lightless simulation. Guests send orders and display host-filtered state. Ownership, payload, build/protocol, gameplay configuration, match identity and command sequencing checks remain in the game. Transport connection alone does not admit a player to a match. Up to five Commonwealth players can participate; late join is rejected after launch.
+The hosting player runs WorldState and Lightless simulation. Guests send orders and display host-filtered state. Ownership, payload, build/protocol, gameplay configuration, match identity and command sequencing checks remain in the game. Transport connection alone does not admit a player to a match. Up to five players can participate; the host may assign one existing slot to Lightless before launch. That peer is authoritatively mapped to owner `-1`; all others remain Commonwealth. Guests receive the same role assignment at startup and filtered role-specific snapshots. With no assigned player, the Lightless use the CPU. A departing Lightless guest returns the colony to CPU control; host loss remains terminal. Late join is rejected after launch.
 
 Host loss ends every guest's match without migration, retries or resumption. Host gameplay elimination is independent of hosting while still connected. A departing guest is eliminated while retaining surviving assets and orders; vehicles unload under the existing rules. Signals, connections, pending packets, ICE and deadlines are cleared on leaving a session.
 

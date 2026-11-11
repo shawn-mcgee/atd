@@ -85,3 +85,28 @@ For combat review, the same helper accepts `-- --combat` and saves `build/visual
 
 Remaining art work includes more individual industrial structure designs, refined animation and work/weapon effects, detailed Lightless silhouettes, and a broader sound palette. The current models are still procedural production placeholders.
 
+
+## Father silhouette
+
+The Father is a floating squid-like coordinator with a broad flesh-toned mantle,
+pale dorsal carapace plates, lateral fins, amber eyes and eight tapered hanging
+arms. Two longer feeding arms and curled tips distinguish it from crawling
+Scavengers. It has an original command icon and matching squid portrait.
+Hover, travel lean and staggered tentacle waves follow the presentation clock and
+freeze while paused; movement, collision and gameplay ranges remain simulation-owned.
+`presentation.fatherMotion` controls hover amplitude/frequency, tentacle amplitude/
+frequency and movement lean. The existing Father creature scale still applies.
+Use `tools/preview-vehicles.gd -- --father` with the native renderer to capture
+`build/visual-review/father-0.png` and `father-1.png` beside a Scavenger for scale.
+
+## Mother shambler
+
+The Mother is a hunched biped with an oversized, lopsided head, sunken eyes, slack
+jaw, exposed ribs, long hanging arms and splayed feet. Its uneven zombie-like gait
+uses a stronger lead step, a delayed dragging leg, rocking shoulders and head lag.
+The idle pose stays stooped; pausing freezes the pose. Its portrait and command icon
+match the shambler silhouette. This changes presentation only.
+`presentation.motherMotion` controls step frequency, leg swing, drag ratio, body sway
+and head lag. The existing Mother creature scale still applies. Use the native
+`tools/preview-vehicles.gd -- --mother` fixture for two walking-phase captures at
+`build/visual-review/mother-0.png` and `mother-1.png`, beside a Scavenger for scale.

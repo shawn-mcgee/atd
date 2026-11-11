@@ -17,6 +17,10 @@ func _process(_delta: float) -> void: queue_redraw()
 
 func _draw() -> void:
 	if world == null or not world.players.has(owner_id): return
+	if owner_id == -1:
+		draw_string(BOLD, Vector2(12, 29), "CHYME  %d" % int(world.lightless_chyme), HORIZONTAL_ALIGNMENT_LEFT, -1, 23, Color("dec0af"))
+		draw_string(FONT, Vector2(190, 27), "LIGHTLESS  /  Damage, deliver, grow", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("a5b5ab"))
+		return
 	var width := size.x / 6
 	for i in range(6):
 		var x := i * width

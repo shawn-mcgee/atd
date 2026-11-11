@@ -18,7 +18,7 @@ The engine is **Godot**, using **3D presentation**, GDScript, Compatibility rend
 - Illumination, vision, fog-of-war memory, detection, Shade targeting, Thresher burrowing, guaranteed-hit weapons, flame areas, armor, repairs, and healing.
 - Gloom health, growth, withering, communication, passive and manual spawning, population caps, stances, Fathers, recruitment, and upgrade dependencies.
 - Four initial Fabricator armor upgrades: one each for Engineer, Marine, Flamer, and Lancer. The initial Gland upgrade is the already discussed armor effect, alongside Chyme income Glands.
-- The testing-only Lightless control option, with structure placement, Womb upgrades, Medusa stance selection, and Father-based unit coordination.
+- One optional player-controlled Lightless slot, with structure placement, Womb upgrades, Medusa stance selection, and Father-based unit coordination.
 - Nacre harvesting, delivery, extraction defense, multiplayer elimination, and retaining the winner's delivered Nacre as currency.
 
 ## Explicitly deferred

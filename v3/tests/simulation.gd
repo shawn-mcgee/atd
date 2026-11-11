@@ -595,7 +595,7 @@ func lightless_defend_stance_checks() -> void:
 	var unit: Dictionary = w.units[w.add_unit("scavenger", Vector2(0.5, 0), -1)]
 	var enemy: Dictionary = w.units[w.add_unit("engineer", Vector2(1.0, 0), 0)]
 	father.group_stance = "defend"
-	WorldState.LightlessCoordination.recruit(w, father, unit, WorldState.LightlessCoordination.components(w))
+	WorldState.LightlessCoordination.recruit(w, father, unit, w.gloom)
 	var hp := float(enemy.hp)
 	w._unit_step(unit, 0.05)
 	verify(unit.job.kind == "defend_stance" and float(enemy.hp) < hp, "A Father's Defend stance engages visible enemies nearby")
@@ -607,7 +607,7 @@ func lightless_defend_stance_checks() -> void:
 	w._unit_step(unit, 0.05)
 	verify(not unit.route.is_empty() and unit.route.back().distance_to(father.pos) < 2, "A defender outside its radius returns toward its Father")
 	var thresher: Dictionary = w.units[w.add_unit("thresher", Vector2.ZERO, -1)]
-	WorldState.LightlessCoordination.recruit(w, father, thresher, WorldState.LightlessCoordination.components(w))
+	WorldState.LightlessCoordination.recruit(w, father, thresher, w.gloom)
 	thresher.buried = true
 	var nearby: Dictionary = w.units[w.add_unit("engineer", Vector2(1.0, 0), 0)]
 	w.shots.clear()
@@ -618,7 +618,6 @@ func lightless_defense_checks() -> void:
 	var w := world()
 	w.gloom.clear()
 	for cell in HexGrid.disk(Vector2i.ZERO, 4): w.gloom[cell] = 20.0
-	w.gloom_components.clear()
 	var a: Dictionary = w.structures[w.add_structure("womb", Vector2i(-2, 0), -1)]
 	var b: Dictionary = w.structures[w.add_structure("womb", Vector2i(2, 0), -1)]
 	var enemy_a: Dictionary = w.units[w.add_unit("marine", w.entity_position(a) + Vector2(0.3, 0), 0)]
@@ -628,20 +627,23 @@ func lightless_defense_checks() -> void:
 	var father: Dictionary = w.units[w.add_unit("father", Vector2.ZERO, -1)]
 	var recruit: Dictionary = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
 	father.group_stance = "gather"
-	WorldState.LightlessCoordination.recruit(w, father, recruit, WorldState.LightlessCoordination.components(w))
+	WorldState.LightlessCoordination.recruit(w, father, recruit, w.gloom)
 	var remote: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(Vector2i(8, 0)), -1)]
 	var weapon: Dictionary = w.cfg.weapons.marine_rifle
 	w._weapon_damage(a, weapon, enemy_a); w._weapon_damage(b, weapon, enemy_b)
 	WorldState.LightlessCoordination.update_defense(w)
 	verify(defender_a.job.kind == "lightless_defend" and defender_b.job.kind == "lightless_defend" and int(defender_a.job.site) != int(defender_b.job.site), "Connected available defenders distribute across threatened structures")
 	verify(int(recruit.father_id) == int(father.id) and recruit.stance == "gather" and recruit.job.kind != "lightless_defend", "Defense calls cannot take a Father's recruits")
-	verify(remote.job.kind != "lightless_defend", "Disconnected units do not receive a defense call")
+	verify(remote.job.kind != "lightless_defend", "Units off Gloom do not receive a remote defense call")
+	w.gloom[HexGrid.cell(remote.pos)] = 20.0
+	WorldState.LightlessCoordination.update_defense(w)
+	verify(remote.job.kind == "lightless_defend", "A unit on a remote isolated Gloom patch can answer a global defense call")
 	var selected: Dictionary = defender_a if int(defender_a.job.site) == int(a.id) else defender_b
 	selected.pos = enemy_a.pos + Vector2(0.4, 0)
 	var hp := float(enemy_a.hp)
 	w._unit_step(selected, 0.05)
 	verify(float(enemy_a.hp) < hp, "A defender attacks the threat to its assigned structure")
-	w.gloom.erase(HexGrid.cell(selected.pos)); w.gloom_components.clear()
+	w.gloom.erase(HexGrid.cell(selected.pos))
 	WorldState.LightlessCoordination.update_defense(w)
 	verify(selected.job.kind == "lightless_defend", "A defender retains an active call after leaving Gloom")
 	w.visible[0][HexGrid.cell(selected.pos)] = true
@@ -651,7 +653,389 @@ func lightless_defense_checks() -> void:
 	verify(not observed.is_empty() and int(observed[0].target) == 0 and not observed[0].has("last_target_position"), "Visible defenders do not disclose the position or identity of their unseen target")
 	w._destroy(enemy_a); w._destroy(enemy_b)
 	WorldState.LightlessCoordination.update_defense(w)
-	verify(defender_a.job.kind == "idle" and defender_b.job.kind == "idle", "Defenders return to their stance after threats disappear")
+	verify(defender_a.job.kind == "idle" and defender_b.job.kind == "idle" and remote.job.kind == "idle", "Defenders return to their stance after threats disappear")
+
+func global_gloom_vision_checks() -> void:
+	var config := settings.duplicate(true)
+	config.map.radiusTiles = 24
+	var w := WorldState.new(config); w.reset(472, 3)
+	w.command(0, {"action": "control_lightless", "slot": 1})
+	var remote := Vector2i.ZERO
+	for cell in HexGrid.disk(remote, 5): w.tiles[cell].cliff = false; w.tiles[cell].resource = ""
+	w._rebuild_navigation()
+	verify(not w.visible[-1].has(remote) and not w.gloom.has(remote), "Global Gloom test starts outside personal vision and the colony's network")
+	var intruder: Dictionary = w.units[w.add_unit("marine", HexGrid.world(remote), 0)]
+	w.gloom[remote] = 0.1
+	w.update_visibility()
+	verify(w.visible[-1].get(remote, false) is bool and w.visible[-1].get(remote, false) and w.known[-1].has(remote), "Even an isolated unsupported Gloom tile grants global Lightless vision")
+	verify(WorldState.TargetRules.identifiable(w, intruder, -1), "Global Gloom sight identifies ordinary enemy occupants without a nearby Lightless unit")
+	verify(not w.visible[2].has(remote), "Gloom does not grant another Commonwealth player shared vision")
+	var packet: Dictionary = JSON.parse_string(JSON.stringify(w.snapshot(-1)))
+	var client := WorldState.new(w.cfg); client.reset(472, 3); client.apply_snapshot(packet, -1)
+	verify(client.visible[-1].has(remote) and client.units.has(int(intruder.id)), "Remote Gloom visibility and occupants reach a Lightless network client")
+	w._update_gloom(1)
+	verify(not w.gloom.has(remote) and not w.visible[-1].has(remote) and w.known[-1].has(remote), "Withered remote Gloom immediately loses active sight while preserving explored terrain")
+	verify(not WorldState.TargetRules.identifiable(w, intruder, -1) and w.snapshot(-1).units.all(func(unit): return int(unit.id) != int(intruder.id)), "Enemies disappear from snapshots as soon as their remote Gloom sight is lost")
+	w.cfg.structures.stoma.visionRangeBeyondFootprintTiles = 0
+	w.cfg.gloom.newTilesPerStructurePerInterval = 1
+	var organ_cell := Vector2i(0, 3)
+	w.add_structure("stoma", organ_cell, -1)
+	w.gloom[organ_cell] = float(w.cfg.gloom.tileHealth)
+	w.update_visibility()
+	var before: Dictionary = w.gloom.duplicate()
+	w.gloom_spread_time = float(w.cfg.gloom.spreadIntervalSeconds)
+	w._update_gloom(0)
+	var grown: Array = w.gloom.keys().filter(func(cell): return not before.has(cell))
+	verify(not grown.is_empty() and grown.all(func(cell): return w.visible[-1].get(cell, false) == true and w.known[-1].has(cell)), "New Gloom grants immediate global vision beyond an organ's personal sight")
+
+func controlled_lightless_autonomy_checks() -> void:
+	for slot in [0, 1]:
+		for stance in ["probe", "attack", "gather"]:
+			var config := settings.duplicate(true)
+			config.map.radiusTiles = 24
+			config.units.scavenger.speedTilesPerSecond = 0.8
+			var w := WorldState.new(config); w.reset(472, 2)
+			w.command(0, {"action": "control_lightless", "slot": slot})
+			var medusa: Dictionary = w.structures[int(w.players[-1].anchor)]
+			medusa.passive = -10000
+			var enemy_owner := 1 - int(slot)
+			var anchor: Dictionary = w.structures[int(w.players[enemy_owner].anchor)]
+			verify(not w.known[-1].has(anchor.cell), "Autonomy regression starts with an unexplored enemy Anchor")
+			var raiders: Array = w.units.values().filter(func(unit): return unit.owner == -1 and unit.kind == "scavenger")
+			var origins: Dictionary = {}
+			for unit in raiders: origins[int(unit.id)] = unit.pos
+			w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": stance})
+			var enemy_health := float(anchor.hp)
+			advance(w, 3)
+			verify(raiders.any(func(unit): return unit.pos.distance_to(origins[int(unit.id)]) > 0.5 and not unit.route.is_empty()), "Player-controlled %s units autonomously advance through fog for slot %d" % [stance, slot])
+			verify(float(anchor.hp) == enemy_health and not w.known[-1].has(anchor.cell), "Planning a raid neither reveals nor damages an unseen distant Anchor")
+			var packet := w.snapshot(-1)
+			verify(packet.structures.all(func(site): return int(site.id) != int(anchor.id)), "Autonomous planning does not disclose an enemy Anchor in the player snapshot")
+			for unit in packet.units:
+				if unit.owner == -1: verify(int(unit.target) != int(anchor.id) and int(unit.get("activity", {}).get("target", 0)) != int(anchor.id) and not unit.has("last_target_position"), "Owned autonomous units do not disclose hidden target identities or coordinates")
+			verify(float(medusa.hp) == float(w.cfg.structures.medusa.health), "Default autonomous behavior never attacks the Medusa")
+			if int(slot) == 0 and stance == "attack":
+				w.cfg.units.scavenger.speedTilesPerSecond = 8
+				var engaged := false
+				for tick_index in range(400):
+					w.step(0.05)
+					if float(anchor.hp) < enemy_health: engaged = true; break
+				verify(engaged and w.structure_visible(-1, anchor), "An autonomous raid discovers and damages its enemy Anchor without player orders")
+
+func lightless_player_checks() -> void:
+	for slot in [0, 1]:
+		var regression := world(2)
+		regression.command(0, {"action": "control_lightless", "slot": slot})
+		var own_medusa: Dictionary = regression.structures[int(regression.players[-1].anchor)]
+		var raider: Dictionary = regression.units[regression.add_unit("scavenger", HexGrid.world(regression.nearest_free(own_medusa.cell)), -1)]
+		for opponent in regression.players:
+			if int(opponent) >= 0: regression.known[-1].erase(regression.structures[int(regression.players[opponent].anchor)].cell)
+		raider.erase("raid_owner")
+		verify(WorldState.LightlessTactics.assigned_anchor(regression, raider).get("owner", -1) >= 0, "An unassigned Lightless raid selects an opposing Commonwealth player, never its own Medusa")
+		raider.raid_owner = -1
+		regression.command(-1, {"action": "medusa_stance", "target": own_medusa.id, "stance": "attack"})
+		var health := float(own_medusa.hp)
+		advance(regression, 1)
+		verify(int(raider.target) != int(own_medusa.id) and float(own_medusa.hp) == health, "Attack stance preserves the Medusa when no enemy Anchor is known, for either player slot")
+		raider.target = own_medusa.id; raider.job = {"kind": "attack"}
+		WorldState.LightlessTactics.prepare_attack(regression, raider)
+		verify(int(raider.target) != int(own_medusa.id), "Automatic attacks discard or replace stale friendly objectives")
+		var enemy_owner := 1 - int(slot)
+		var enemy_anchor: Dictionary = regression.structures[int(regression.players[enemy_owner].anchor)]
+		regression.known[-1][enemy_anchor.cell] = true
+		verify(WorldState.LightlessTactics.assigned_anchor(regression, raider).get("id", 0) == enemy_anchor.id, "Attack stance selects a discovered opposing Commonwealth Anchor")
+	var w := world(3)
+	w.command(1, {"action": "control_lightless", "slot": 1})
+	verify(not w.lightless_controlled, "Guests cannot assign the Lightless role")
+	w.command(0, {"action": "control_lightless", "slot": 1})
+	verify(w.lightless_controlled and w.players.has(-1) and not w.players.has(1) and w.players.has(0) and w.players.has(2), "One multiplayer slot becomes Lightless without removing opponents")
+	verify(w.units.values().all(func(unit): return unit.owner != 1) and w.structures.values().all(func(site): return site.owner != 1), "The Lightless slot retains no Commonwealth assets")
+	w.command(0, {"action": "control_lightless", "slot": 2})
+	verify(w.players.has(2) and w.players.size() == 3, "A second Lightless player cannot be assigned")
+	var medusa: Dictionary = w.structures[int(w.players[-1].anchor)]
+	var father: Dictionary = w.units.values().filter(func(unit): return unit.kind == "father")[0]
+	var id := w.add_unit("scavenger", father.pos, -1)
+	w.command(-1, {"action": "father_stance", "ids": [father.id], "stance": "gather"})
+	w.command(-1, {"action": "recruit", "ids": [father.id], "target": id})
+	verify(w.units[id].stance == "gather" and int(w.units[id].father_id) == int(father.id), "Player Father controls recruit and apply stance through WorldState")
+	w.lightless_brain_time = 0
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.brainDecisionIntervalSeconds))
+	verify(father.group_stance == "gather", "The CPU does not override a player-controlled colony")
+	w.command(-1, {"action": "release", "ids": [father.id]})
+	verify(not w.units[id].has("father_id"), "Player release commands end recruitment")
+	w.lightless_chyme = 500
+	var before := w.lightless_chyme
+	w.command(-1, {"action": "spawn", "target": medusa.id, "kind": "mother"})
+	verify(medusa.spawn_queue.size() == 1 and w.lightless_chyme < before, "Lightless production commands pay Chyme immediately")
+	w.command(-1, {"action": "cancel_spawn", "target": medusa.id, "index": 0})
+	verify(medusa.spawn_queue.is_empty() and w.lightless_chyme == before, "Unstarted player spawn orders refund their Chyme")
+	for payload in [{"action": "cancel_spawn"}, {"action": "move", "x": "bad", "z": 0}, {"action": "spawn", "target": medusa.id, "kind": "marine"}]:
+		w.command(-1, payload)
+	verify(w.lightless_chyme == before, "Malformed Lightless orders do not mutate resources")
+	var goal: Vector2 = father.pos + (father.pos - w.entity_position(medusa)).normalized() * 0.3
+	var origin: Vector2 = father.pos
+	w.command(-1, {"action": "move", "ids": [father.id], "x": goal.x, "z": goal.y})
+	w._unit_step(father, 0.1)
+	verify(father.pos != origin, "Player movement actually moves a Father")
+	var thresher: Dictionary = w.units[w.add_unit("thresher", father.pos, -1)]
+	thresher.buried = true
+	var enemy: Dictionary = engineer(w)
+	enemy.pos = father.pos + Vector2(1, 0); w.update_visibility()
+	for action in ["move", "attack", "stop", "burrow"]:
+		w.command(-1, {"action": action, "ids": [thresher.id], "target": enemy.id, "x": goal.x, "z": goal.y})
+		verify(thresher.job.kind == "idle" and int(thresher.target) == 0 and thresher.buried, "Combat units reject direct " + action + " orders")
+	WorldState.LightlessCoordination.recruit(w, father, thresher, w.gloom)
+	var previous_position: Vector2 = father.pos
+	father.pos += Vector2(3, 0)
+	w._unit_step(thresher, 0.05)
+	verify(thresher.transition == "emerge", "A buried recruit autonomously emerges to follow its Father")
+	w._unit_step(thresher, float(w.cfg.combat.thresherEmergeSeconds))
+	verify(not thresher.buried, "Father-guided movement completes the autonomous emerge transition")
+	father.pos = previous_position
+	w.command(-1, {"action": "father_stance", "ids": [father.id], "stance": "defend"})
+	thresher.job = {"kind": "defend_stance", "site": 0, "repath_remaining": 0.0}; thresher.route.clear()
+	w._unit_step(thresher, 0.05)
+	verify(thresher.transition == "burrow", "A recruit autonomously burrows again when it reaches its defensive position")
+	var mother := w.add_unit("mother", father.pos, -1)
+	var candidates: Array = w.gloom.keys().filter(func(cell): return not w.blocked(cell) and w.tiles[cell].resource == "" and w.structure_cells.get(cell, []).is_empty())
+	var site: Dictionary = {}
+	for cell in candidates:
+		w.command(-1, {"action": "build", "kind": "womb", "unit_type": "thresher", "ids": [mother], "q": cell.x, "r": cell.y})
+		for organ in w.structures.values():
+			if organ.kind == "womb": site = organ; break
+		if not site.is_empty(): break
+	verify(not site.is_empty() and site.unit_type == "thresher" and w.units[mother].job.kind == "grow", "Player Mothers place typed Wombs and travel to grow them")
+	w.command(-1, {"action": "cancel_build", "target": site.id})
+	verify(not w.structures.has(int(site.id)) and w.lightless_chyme == before, "Canceling a player blueprint refunds its paid cost")
+	w.update_visibility()
+	verify(w.gloom.keys().all(func(cell): return w.visible[-1].has(cell)), "Lightless players see Gloom without revealing it to Commonwealth players")
+	var packet: Dictionary = JSON.parse_string(JSON.stringify(w.snapshot(-1)))
+	var replica := WorldState.new(w.cfg); replica.reset(472, 3); replica.apply_snapshot(packet, -1)
+	verify(replica.lightless_controlled and replica.lightless_chyme == w.lightless_chyme and replica.players.has(-1), "Lightless ownership, resources and visibility survive network snapshots")
+	verify(float(w.snapshot(0).lightless_chyme) == 0, "Enemy snapshots do not disclose colony Chyme")
+	w.eliminate(0); w.eliminate(2)
+	verify(w.ended and w.result.contains("Lightless win"), "Lightless win after all opposing Anchors are eliminated")
+	w = world(2); w.command(0, {"action": "control_lightless", "slot": 1})
+	w.eliminate(-1)
+	verify(not w.lightless_controlled and not w.players.has(-1) and not w.ended, "A departing Lightless player hands the colony back to the CPU")
+	w = world(2); w.command(0, {"action": "control_lightless", "slot": 0})
+	verify(w.players.has(-1) and not w.players.has(0) and w.players.has(1) and w.commonwealth_ai.is_empty(), "The multiplayer host can be Lightless while its guest remains human-controlled Commonwealth")
+	w = world(); w.command(0, {"action": "control_lightless", "slot": 0, "solo_ai": true})
+	w.cfg.lightless.soloCommonwealthAI.decisionIntervalSeconds = 0.2
+	w.cfg.lightless.soloCommonwealthAI.desiredMarines = 3
+	w.cfg.lightless.soloCommonwealthAI.attackGroupSize = 2
+	advance(w, 75)
+	verify(w.structures.values().any(func(organ): return organ.owner == 0 and organ.kind == "armory" and organ.built), "Solo Commonwealth AI builds an Armory using normal resources and Engineer work")
+	verify(w.units.values().filter(func(unit): return unit.owner == 0 and unit.kind == "marine").size() >= 2, "Solo Commonwealth AI produces and equips reinforcements")
+	verify(w.commonwealth_ai.size() > 0 and w.players[0].alive and w.players[-1].alive, "Solo Lightless play has an active opposing Commonwealth controller")
+
+func womb_reconfiguration_checks() -> void:
+	var w := world(2)
+	w.command(0, {"action": "control_lightless", "slot": 1})
+	w.lightless_chyme = 500; w.cfg.lightless.medusaChymePerCycle = 0
+	for cell in HexGrid.disk(Vector2i.ZERO, 4): w.tiles[cell].cliff = false; w.tiles[cell].resource = ""
+	var medusa: Dictionary = w.structures[int(w.players[-1].anchor)]
+	var womb: Dictionary = w.structures[w.add_structure("womb", Vector2i.ZERO, -1)]
+	var old_cap := WorldState.LightlessColony.cap(w, "scavenger")
+	var base := int(w.cfg.units.scavenger.basePopulationCap)
+	for i in range(base + 1): w.add_unit("scavenger", w.entity_position(medusa), -1)
+	w.command(-1, {"action": "womb_type", "target": womb.id, "unit_type": "stalker"})
+	verify(womb.unit_type == "scavenger" and WorldState.LightlessColony.cap(w, "scavenger") == old_cap, "A Womb cannot reconfigure if removing capacity would exceed the old type's cap")
+	var last := 0
+	for unit in w.units.values():
+		if unit.owner == -1 and unit.kind == "scavenger": last = int(unit.id)
+	w.units.erase(last)
+	w.command(-1, {"action": "spawn", "target": womb.id, "kind": "scavenger"})
+	w.command(-1, {"action": "womb_type", "target": womb.id, "unit_type": "stalker"})
+	verify(womb.unit_type == "scavenger" and womb.spawn_queue.size() == 1, "Reconfiguration preserves paid orders by requiring the source queue to be cleared first")
+	w.command(-1, {"action": "cancel_spawn", "target": womb.id, "index": 0})
+	var gland: Dictionary = w.structures[w.add_structure("gland", Vector2i(1, 0), -1)]
+	gland.unit_type = "scavenger"
+	WorldState.LightlessColony.connect_glands(w)
+	verify(WorldState.LightlessColony.connected(w, gland), "An original typed Gland starts connected")
+	womb.passive = 9.0
+	w.command(0, {"action": "womb_type", "target": womb.id, "unit_type": "stalker"})
+	verify(womb.unit_type == "scavenger", "Commonwealth players cannot reconfigure the colony's Wombs")
+	w.command(-1, {"action": "womb_type", "target": womb.id, "unit_type": "stalker"})
+	verify(womb.unit_type == "stalker" and float(womb.configuration_remaining) > 0 and float(womb.passive) == 0, "A safe reconfiguration starts a cooldown and resets passive progress")
+	verify(WorldState.LightlessColony.cap(w, "scavenger") == base and WorldState.LightlessColony.cap(w, "stalker") == int(w.cfg.units.stalker.basePopulationCap), "Old capacity is removed immediately and new capacity waits for the cooldown")
+	verify(not WorldState.LightlessColony.unlocked(w, medusa, "stalker") and not WorldState.LightlessColony.connected(w, gland) and gland.unit_type == "scavenger", "Cooldowns grant no unlock, and old Glands retain their type without providing mismatched upgrades")
+	verify(w.activity(womb).task == "configure", "Womb reconfiguration exposes progress to the inspector")
+	var replica := WorldState.new(w.cfg); replica.reset(472, 2)
+	replica.apply_snapshot(JSON.parse_string(JSON.stringify(w.snapshot(-1))), -1)
+	verify(replica.structures[int(womb.id)].unit_type == "stalker" and replica.structures[int(womb.id)].configuration_remaining == womb.configuration_remaining and WorldState.LightlessColony.cap(replica, "scavenger") == base, "Womb type, cooldown and capacity survive network snapshots")
+	var duration := float(womb.configuration_remaining)
+	w.step(0.05)
+	verify(is_equal_approx(float(womb.configuration_remaining), duration - 0.05), "Womb cooldown advances once per simulation step")
+	WorldState.LightlessColony.update(w, float(womb.configuration_remaining) * 0.5)
+	verify(float(womb.passive) == 0 and w._population("stalker") == 0, "A reconfiguring Womb does not progress passive production")
+	WorldState.LightlessColony.update(w, float(womb.configuration_remaining))
+	verify(WorldState.LightlessColony.cap(w, "stalker") > 0 and WorldState.LightlessColony.unlocked(w, medusa, "stalker"), "Cooldown completion enables the new type's capacity and Medusa unlock")
+	WorldState.LightlessColony.queue_spawn(w, medusa, "stalker")
+	medusa.spawn_queue[0].progress = 1.0
+	w.command(-1, {"action": "womb_type", "target": womb.id, "unit_type": "scavenger"})
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.wombReconfigureSeconds))
+	verify(float(medusa.spawn_queue[0].progress) == 1.0, "Losing the last typed Womb pauses a paid Medusa order without losing its progress")
+	verify(WorldState.LightlessColony.connected(w, gland), "Returning to a matching Womb type reconnects its preserved Glands")
+	womb.passive = float(w.cfg.units.scavenger.wombPassiveSpawnSeconds)
+	WorldState.LightlessColony.update(w, 0)
+	verify(w._population("scavenger") == base + 1, "The reconfigured Womb produces its new type within its restored cap")
+	w._destroy(womb)
+	verify(w._population("scavenger") == base + 1 and not WorldState.LightlessColony.spawn(w, medusa, "scavenger"), "Destroyed capacity preserves over-cap survivors and blocks further spawning")
+	var blueprint: Dictionary = w.structures[w.add_structure("womb", Vector2i(3, 0), -1, false)]
+	w.command(-1, {"action": "womb_type", "target": blueprint.id, "unit_type": "ravager"})
+	verify(blueprint.unit_type == "ravager" and float(blueprint.configuration_remaining) == 0 and WorldState.LightlessColony.cap(w, "ravager") == int(w.cfg.units.ravager.basePopulationCap), "Unstarted Womb blueprints change type without granting premature capacity")
+	blueprint.started = true
+	w.command(-1, {"action": "womb_type", "target": blueprint.id, "unit_type": "shade"})
+	verify(blueprint.unit_type == "ravager", "Gestating Wombs cannot change type")
+
+func stoma_fixture() -> WorldState:
+	var w := movement_world()
+	w.cfg.lightless.cpuWombPriority = []; w.cfg.lightless.cpuDesiredFathers = 0
+	w.cfg.lightless.cpuDesiredMothers = 1; w.cfg.lightless.cpuDesiredStomas = 1
+	w.cfg.lightless.medusaChymePerCycle = 0
+	w.lightless_chyme = 200; w.lightless_brain_time = -10000
+	w.lightless_expansion_time = float(w.cfg.lightless.cpuExpansionIntervalSeconds)
+	var medusa := w.add_structure("medusa", Vector2i(-8, 0), -1)
+	w.structures[medusa].passive = -10000
+	for q in range(-8, 2):
+		var cell := Vector2i(q, 0)
+		w.gloom[cell] = 100.0; w.tiles[cell].resource = ""
+	var carrier := w.add_unit("scavenger", HexGrid.world(Vector2i(1, 0)), -1)
+	w.units[carrier].chyme = 5.0
+	w.add_unit("mother", HexGrid.world(Vector2i(-5, 0)), -1)
+	w._rebuild_navigation()
+	return w
+
+func stoma_checks() -> void:
+	var w := stoma_fixture()
+	var medusa: Dictionary = w.structures.values()[0]
+	var mother: Dictionary = w.units.values().filter(func(u): return u.kind == "mother")[0]
+	var carrier: Dictionary = w.units.values().filter(func(u): return u.kind == "scavenger")[0]
+	var cost := int(w.cfg.structures.stoma.cost.chyme)
+	var reserve := int(w.cfg.lightless.cpuMinimumChymeReserve)
+	carrier.chyme = 0
+	verify(WorldState.LightlessColony.stoma_sites(w).is_empty(), "The CPU does not build drop-offs without distant Chyme carriers")
+	carrier.chyme = 5.0
+	w.lightless_chyme = reserve + cost - 1
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(w.structures.size() == 1 and w.lightless_chyme == reserve + cost - 1, "Stoma construction preserves the CPU reserve when unaffordable")
+	w.lightless_chyme = 200
+	var replay := stoma_fixture()
+	WorldState.LightlessColony.develop(w, medusa)
+	WorldState.LightlessColony.develop(replay, replay.structures.values()[0])
+	var site: Dictionary = w.structures.values().filter(func(s): return s.kind == "stoma")[0]
+	verify(site.cell == replay.structures.values().filter(func(s): return s.kind == "stoma")[0].cell and w.lightless_chyme == replay.lightless_chyme, "Stoma placement and payment replay deterministically")
+	verify(w.lightless_chyme == 200 - cost and not site.started and mother.job.kind == "grow", "A Mother travels to a Stoma blueprint paid exactly once")
+	verify(HexGrid.distance(site.cell, medusa.cell) >= int(w.cfg.lightless.cpuStomaMinOrganDistanceTiles) and site.cell != HexGrid.cell(carrier.pos), "Forward drop-offs respect organ spacing and occupied cells")
+	verify(WorldState.LightlessColony.stoma_sites(w).is_empty(), "Unstarted Stomas count toward the configured construction limit")
+	w._destroy(mother)
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(medusa.spawn_queue.any(func(job): return job.kind == "mother"), "The CPU requests a replacement Mother for an orphaned Stoma")
+	mother = w.units[w.add_unit("mother", HexGrid.world(Vector2i(-5, 0)), -1)]
+	var paid := w.lightless_chyme
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(mother.job.kind == "grow" and int(mother.job.target) == int(site.id) and w.lightless_chyme == paid, "A replacement Mother resumes the existing paid Stoma")
+	mother.pos = HexGrid.world(site.cell)
+	WorldState.LightlessColony.mother_step(w, mother, 0)
+	verify(site.started and not site.built and not w.units.has(int(mother.id)), "Starting Stoma gestation consumes its Mother")
+	carrier.pos = HexGrid.world(site.cell + Vector2i(1, 0))
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.structureGestationSeconds) * 0.5)
+	w._unit_step(carrier, 0)
+	verify(not site.built and carrier.chyme == 5.0, "Gestating Stomas cannot accept Chyme")
+	site.hp -= 10
+	WorldState.LightlessColony.update(w, float(w.cfg.lightless.structureGestationSeconds) * 0.5)
+	verify(not site.built, "Damage delays Stoma gestation")
+	WorldState.LightlessColony.update(w, 1)
+	paid = w.lightless_chyme
+	w._unit_step(carrier, 0)
+	verify(site.built and carrier.chyme == 0 and w.lightless_chyme == paid + 5, "Completed forward Stomas accept physically delivered Chyme")
+	w = stoma_fixture(); medusa = w.structures.values()[0]
+	for cell in w.gloom: w.tiles[cell].cliff = true
+	w._rebuild_navigation()
+	WorldState.LightlessColony.develop(w, medusa)
+	verify(w.structures.size() == 1 and w.lightless_chyme == 200, "Blocked Stoma sites do not spend Chyme or create blueprints")
+	w.cfg.lightless.cpuDesiredStomas = 0
+	verify(WorldState.LightlessColony.stoma_sites(w).is_empty(), "A zero Stoma target disables CPU construction")
+
+func medusa_stance_checks() -> void:
+	var w := world()
+	var medusa: Dictionary = {}
+	for organ in w.structures.values():
+		if organ.kind == "medusa": medusa = organ; break
+	var line := HexGrid.line(medusa.cell, Vector2i.ZERO)
+	w.gloom.clear()
+	for i in range(4): w.gloom[line[i]] = 20.0
+	w.gloom[line[5]] = 20.0
+	var connected: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(line[3]), -1)]
+	var isolated: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(line[5]), -1)]
+	var father: Dictionary = w.units[w.add_unit("father", HexGrid.world(line[1]), -1)]
+	var recruit: Dictionary = w.units[w.add_unit("scavenger", father.pos, -1)]
+	var mother: Dictionary = w.units[w.add_unit("mother", father.pos, -1)]
+	father.group_stance = "gather"
+	WorldState.LightlessCoordination.recruit(w, father, recruit, w.gloom)
+	var baseline := str(w.cfg.lightless.startingStance)
+	var friendly := engineer(w)
+	var friendly_stance := str(friendly.stance)
+	for payload in [{"stance": "invalid", "target": medusa.id}, {"stance": 1, "target": medusa.id}, {"stance": "attack", "target": "bad"}, {"stance": "attack", "target": float(medusa.id) + 0.5}, {"stance": "attack", "target": father.id}, {"stance": "attack"}]:
+		payload.action = "medusa_stance"
+		w.command(-1, payload)
+	verify(medusa.network_stance == baseline and connected.stance == baseline, "Malformed Medusa stance orders leave colony state unchanged")
+	w.command(0, {"action": "medusa_stance", "target": medusa.id, "stance": "attack"})
+	w.command(-2, {"action": "medusa_stance", "target": medusa.id, "stance": "attack"})
+	verify(medusa.network_stance == baseline, "Commonwealth and unknown actors cannot command the Medusa")
+	medusa.built = false
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "attack"})
+	verify(medusa.network_stance == baseline, "Unfinished Medusas cannot command a network")
+	medusa.built = true
+	w.ended = true
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "attack"})
+	verify(medusa.network_stance == baseline, "Ended matches reject Medusa stance changes")
+	w.ended = false
+	w.paused = true
+	for stance in ["attack", "defend", "gather", "probe"]:
+		w.command(-1, {"action": "medusa_stance", "target": float(medusa.id), "stance": stance})
+		verify(connected.stance == stance and isolated.stance == stance and medusa.network_stance == stance, "Medusa propagates %s globally across separate Gloom patches while paused" % stance)
+	verify(isolated.stance == baseline and recruit.stance == "gather" and mother.stance == baseline and father.group_stance == "gather" and friendly.stance == friendly_stance, "Global Gloom commands preserve Father overrides, support units and Commonwealth stances")
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "defend"})
+	connected.job = {"kind": "move"}; connected.route = [Vector2.ZERO]; connected.target = 123
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "defend"})
+	verify(connected.job.kind == "move" and connected.route.size() == 1 and int(connected.target) == 123, "Repeated network stances preserve existing orders")
+	w.gloom.erase(line[2])
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "attack"})
+	verify(connected.stance == "attack" and isolated.stance == "attack", "Removing a Gloom bridge does not block global Medusa commands")
+	connected.job = {"kind": "move"}; connected.route = [Vector2.ZERO]; connected.target = 123
+	w.gloom.erase(line[3])
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "gather"})
+	verify(connected.stance == "attack" and connected.job.kind == "move" and isolated.stance == "gather", "Only leaving Gloom retains the last stance and orders")
+	w.gloom[line[3]] = 20.0
+	WorldState.LightlessCoordination.update(w)
+	verify(connected.stance == "gather" and connected.job.kind == "idle", "Returning to any Gloom patch applies the latest global stance")
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "attack"})
+	var spawned: Dictionary = w.units[w.add_unit("scavenger", connected.pos, -1)]
+	WorldState.LightlessCoordination.update(w)
+	verify(spawned.stance == "attack", "New Lightless adopt the current global Gloom stance")
+	WorldState.LightlessCoordination.release(w, recruit, w.gloom)
+	verify(recruit.stance == "attack", "Released recruits adopt the current Medusa stance")
+	WorldState.LightlessCoordination.recruit(w, father, recruit, w.gloom)
+	w.gloom.erase(line[1])
+	WorldState.LightlessCoordination.release(w, recruit, w.gloom)
+	verify(recruit.stance == "gather", "Recruits released without a Medusa connection retain their Father's last stance")
+	w.gloom[line[1]] = 20.0
+	WorldState.LightlessCoordination.recruit(w, father, recruit, w.gloom)
+	w.gloom.erase(medusa.cell)
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "defend"})
+	verify(connected.stance == "defend" and isolated.stance == "defend", "The Medusa can broadcast even when its own tile is not Gloom")
+	w.visible[0][medusa.cell] = true
+	var client := WorldState.new(w.cfg); client.reset(472)
+	client.apply_snapshot(JSON.parse_string(JSON.stringify(w.snapshot(0))), 0)
+	verify(client.structures.has(int(medusa.id)) and client.structures[int(medusa.id)].network_stance == "defend", "Observed Medusa stance survives a JSON snapshot round trip")
+	w._destroy(medusa)
+	WorldState.LightlessCoordination.update(w)
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "probe"})
+	verify(connected.stance == "attack" and isolated.stance == "attack" and recruit.stance == "gather", "Medusa death supersedes network commands while preserving Father recruits")
+	WorldState.LightlessCoordination.release(w, recruit, w.gloom)
+	verify(recruit.stance == "attack", "Post-Medusa release removes the Father override")
 
 func father_coordination_checks() -> void:
 	var w := world()
@@ -664,8 +1048,8 @@ func father_coordination_checks() -> void:
 	var unit: Dictionary = w.units[w.add_unit("scavenger", HexGrid.world(Vector2i(8, 0)), -1)]
 	var extra: Dictionary = w.units[w.add_unit("stalker", other.pos, -1)]
 	father.group_stance = "gather"; other.group_stance = "probe"
-	var network := WorldState.LightlessCoordination.components(w)
-	verify(WorldState.LightlessCoordination.recruit(w, father, unit, network) and unit.stance == "gather", "A Father recruits a remote unit through continuous Gloom and applies its stance")
+	var network := w.gloom
+	verify(WorldState.LightlessCoordination.recruit(w, father, unit, network) and unit.stance == "gather", "A Father recruits a remote unit through global Gloom and applies its stance")
 	verify(not WorldState.LightlessCoordination.set_stance(w, father, "invalid") and unit.stance == "gather", "Invalid Father stances do not change recruits")
 	verify(WorldState.LightlessCoordination.set_stance(w, father, "probe") and unit.stance == "probe", "Changing a Father's stance updates its existing recruits")
 	verify(not WorldState.LightlessCoordination.recruit(w, father, extra, network), "A Father cannot exceed its recruit limit")
@@ -673,15 +1057,20 @@ func father_coordination_checks() -> void:
 	verify(not WorldState.LightlessCoordination.recruit(w, other, unit, network) and int(unit.father_id) == int(father.id), "A failed transfer leaves the original Father's assignment intact")
 	w.gloom.erase(Vector2i(4, 0))
 	WorldState.LightlessCoordination.update(w)
-	verify(not unit.has("father_id") and int(extra.father_id) == int(other.id), "Disconnected remote recruits release while local recruits remain assigned")
+	verify(int(unit.father_id) == int(father.id), "Breaking the Gloom path does not end global recruitment")
+	w.gloom.erase(Vector2i(8, 0))
+	WorldState.LightlessCoordination.update(w)
+	verify(not unit.has("father_id") and int(extra.father_id) == int(other.id), "A remote recruit releases only after leaving Gloom; local recruits remain assigned")
+	w.gloom.erase(Vector2i.ZERO); w.gloom[Vector2i(8, 0)] = 20.0
+	verify(WorldState.LightlessCoordination.recruit(w, father, unit, w.gloom), "A Father off Gloom can remotely recruit a unit standing on an isolated Gloom patch")
 	w.medusa_dead = true
-	WorldState.LightlessCoordination.release(w, extra, WorldState.LightlessCoordination.components(w))
+	WorldState.LightlessCoordination.release(w, extra, w.gloom)
 	verify(extra.stance == "attack", "Released recruits adopt Attack after Medusa death")
 	w = world()
 	father = w.units[w.add_unit("father", Vector2.ZERO, -1)]
 	unit = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
 	father.group_stance = "gather"
-	WorldState.LightlessCoordination.recruit(w, father, unit, WorldState.LightlessCoordination.components(w))
+	WorldState.LightlessCoordination.recruit(w, father, unit, w.gloom)
 	for organ in w.structures.values():
 		if organ.kind == "medusa": w._destroy(organ); break
 	verify(unit.stance == "gather" and int(unit.father_id) == int(father.id), "Medusa death does not override a Father's recruited stance")
@@ -708,7 +1097,8 @@ func gather_checks() -> void:
 		if s.kind == "medusa": medusa = s; break
 	var id := w.add_unit("scavenger", w.entity_position(medusa) + Vector2(4, 0), -1)
 	var u: Dictionary = w.units[id]
-	u.stance = "gather"; u.chyme = float(w.cfg.units.scavenger.chymeCapacity)
+	w.command(-1, {"action": "medusa_stance", "target": medusa.id, "stance": "gather"})
+	u.chyme = float(w.cfg.units.scavenger.chymeCapacity)
 	var before := w.lightless_chyme
 	w._unit_step(u, 0.05)
 	verify(u.job.kind == "gather_return" and not u.route.is_empty(), "A full Gather unit routes to a reachable delivery organ")
@@ -760,7 +1150,9 @@ func chyme_collection_checks() -> void:
 
 func run() -> void:
 	settings = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
-	chyme_collection_checks(); gland_checks(); gather_checks(); extraction_assault_checks(); father_coordination_checks(); lightless_defense_checks(); lightless_defend_stance_checks()
+	global_gloom_vision_checks(); controlled_lightless_autonomy_checks(); lightless_player_checks(); womb_reconfiguration_checks()
+	if "--lightless-only" in OS.get_cmdline_user_args(): print("Lightless checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
+	chyme_collection_checks(); gland_checks(); gather_checks(); extraction_assault_checks(); stoma_checks(); medusa_stance_checks(); father_coordination_checks(); lightless_defense_checks(); lightless_defend_stance_checks()
 	if "--missions-only" in OS.get_cmdline_user_args():
 		mission_playthrough_checks(); print("Mission checks: ", assertions, "; failures: ", failures.size()); quit(0 if failures.is_empty() else 1); return
 	if "--complex-only" in OS.get_cmdline_user_args():
@@ -1321,6 +1713,10 @@ func gate_checks() -> void:
 
 func config_checks() -> void:
 	verify(ConfigRules.validate(settings).is_empty(), "Shipped configuration validates before starting the game")
+	for patch in [{"cpuDesiredStomas": -1}, {"cpuDesiredStomas": 1.5}, {"cpuStomaMinOrganDistanceTiles": 0}, {"cpuStomaMinOrganDistanceTiles": "six"}]:
+		var invalid := settings.duplicate(true)
+		invalid.lightless.merge(patch, true)
+		verify(ConfigRules.validate(invalid).any(func(error): return error.contains("lightless." + str(patch.keys()[0]))), "Invalid Stoma tuning reports its configuration path")
 	var changed: Dictionary = ConfigRules.merged(settings, {"units": {"marine": {"armor": 7}}})
 	verify(changed.units.marine.armor == 7 and settings.units.marine.armor == 1 and changed.units.marine.health == settings.units.marine.health, "Config patches merge recursively without mutating base definitions")
 	changed.units.marine.weapon = "missing_weapon"

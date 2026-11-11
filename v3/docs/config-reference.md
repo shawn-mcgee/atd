@@ -245,6 +245,7 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `lightless.postMedusaWombSpawnRateMultiplier` | number | `2` |
 | `lightless.glandGestationSeconds` | number | `12` |
 | `lightless.structureGestationSeconds` | number | `20` |
+| `lightless.wombReconfigureSeconds` | number | `5` |
 | `lightless.extractionRecruitedOverrideAllowed` | boolean | `true` |
 | `lightless.brainDecisionIntervalSeconds` | number | `2` |
 | `lightless.cpuMinimumChymeReserve` | number | `25` |
@@ -252,11 +253,16 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `lightless.cpuWombPriority` | array | `["scavenger","stalker","ravager","thresher","shade","mother","father"]` |
 | `lightless.cpuDesiredFathers` | number | `1` |
 | `lightless.cpuDesiredMothers` | number | `2` |
+| `lightless.soloCommonwealthAI.decisionIntervalSeconds` | number | `2` |
+| `lightless.soloCommonwealthAI.desiredMarines` | number | `6` |
+| `lightless.soloCommonwealthAI.attackGroupSize` | number | `3` |
+| `lightless.cpuDesiredStomas` | number | `2` |
+| `lightless.cpuStomaMinOrganDistanceTiles` | number | `6` |
 | `lightless.cpuArmorGlandsPerTypeBeforeMoreExpansion` | number | `1` |
 | `lightless.cpuChymeGlandsPerWombTarget` | number | `1` |
 | `lightless.cpuAutomaticFatherTransfer` | boolean | `false` |
 | `lightless.extractionTargetPolicy` | string | `"lowest_remaining_countdown_then_path_distance"` |
-| `lightless.gloomDisconnectionPolicy` | string | `"retain_last_stance_until_reconnected_or_overridden"` |
+| `lightless.gloomDisconnectionPolicy` | string | `"retain_last_stance_off_gloom_until_return_or_override"` |
 | `lightless.darkPathLightPenalty` | number | `40` |
 
 ## units
@@ -1087,6 +1093,16 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `presentation.feedback.damageNumberGroupSeconds` | number | `0.25` |
 | `presentation.feedback.shieldSoundIntervalSeconds` | number | `0.12` |
 | `presentation.feedback.depositSoundIntervalSeconds` | number | `0.1` |
+| `presentation.motherMotion.stepCyclesPerSecond` | number | `0.8` |
+| `presentation.motherMotion.legSwingRadians` | number | `0.28` |
+| `presentation.motherMotion.dragRatio` | number | `0.48` |
+| `presentation.motherMotion.swayRadians` | number | `0.07` |
+| `presentation.motherMotion.headLagRadians` | number | `0.08` |
+| `presentation.fatherMotion.hoverHeightTiles` | number | `0.07` |
+| `presentation.fatherMotion.hoverCyclesPerSecond` | number | `0.45` |
+| `presentation.fatherMotion.tentacleSwayRadians` | number | `0.14` |
+| `presentation.fatherMotion.tentacleCyclesPerSecond` | number | `0.7` |
+| `presentation.fatherMotion.movementLeanRadians` | number | `0.1` |
 | `presentation.creatureScales.scavenger` | array | `[0.72,0.8,0.8]` |
 | `presentation.creatureScales.stalker` | array | `[1.05,1.15,1.4]` |
 | `presentation.creatureScales.ravager` | array | `[1.65,1.85,1.6]` |
@@ -1175,6 +1191,13 @@ Definitions include pending mechanics. Consult [implementation status](implement
 | `controls.productionHotkeys.reaper` | string | `"H"` |
 | `controls.productionHotkeys.cremator` | string | `"C"` |
 | `controls.productionHotkeys.javelin` | string | `"J"` |
+| `controls.wombHotkeys.scavenger` | string | `"C"` |
+| `controls.wombHotkeys.mother` | string | `"M"` |
+| `controls.wombHotkeys.father` | string | `"F"` |
+| `controls.wombHotkeys.stalker` | string | `"S"` |
+| `controls.wombHotkeys.ravager` | string | `"R"` |
+| `controls.wombHotkeys.thresher` | string | `"T"` |
+| `controls.wombHotkeys.shade` | string | `"H"` |
 | `controls.depotHotkeys.ore` | string | `"O"` |
 | `controls.depotHotkeys.gas` | string | `"G"` |
 | `controls.depotHotkeys.alloy` | string | `"A"` |

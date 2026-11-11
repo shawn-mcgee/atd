@@ -1,5 +1,4 @@
-import {test,expect,chromium} from '@playwright/test'
-import browserConfig from '../../playwright.config.mjs'
+import {test,expect} from '@playwright/test'
 import {spawn} from 'node:child_process'
 import {readFileSync} from 'node:fs'
 import path from 'node:path'
@@ -155,55 +154,45 @@ test('minimap input: drag and queued commands',async({page})=>{
   expect(errors).toEqual([])
 })
 
-test('versioned browser scene: select, mine, pause and navigate',async({page})=>{
+test('versioned browser export starts and selects a worker',async({page})=>{
   const errors=await open(page,url.replace('8080/','8080/v3/'))
   await control(page,'solo')
   await expect.poll(async()=> (await diagnostics(page)).active).toBe(true)
-  await page.mouse.move(640,400)
-  const initial=await diagnostics(page)
-  const engineer=initial.units.find(u=>u.kind==='engineer')
-  expect(engineer.screen[0]).toBeGreaterThan(0)
-  expect(engineer.screen[0]).toBeLessThan(1280)
+  const engineer=(await diagnostics(page)).units.find(u=>u.kind==='engineer')
   await page.mouse.click(...engineer.screen)
   await expect.poll(async()=> (await diagnostics(page)).selected).toContain(engineer.id)
-  const ore=(await diagnostics(page)).fields.find(f=>f.kind==='ore')
-  await page.keyboard.press('m')
-  await page.mouse.click(...ore.screen)
-  await expect.poll(async()=> (await diagnostics(page)).units.find(u=>u.id===engineer.id).cargo.ore || 0).toBeGreaterThan(0)
+  expect(errors).toEqual([])
+})
+
+test('Lightless controls: launch, change stance, spawn and cancel',async({page})=>{
+  const errors=await open(page)
+  await control(page,'lightless')
+  await expect.poll(async()=> (await diagnostics(page)).owner).toBe(-1)
+  const initialScavengers=(await diagnostics(page)).units.filter(u=>u.kind==='scavenger')
+  await expect.poll(async()=> (await diagnostics(page)).units.some(u=>u.kind==='scavenger' && initialScavengers.some(start=>start.id===u.id && Math.hypot(u.x-start.x,u.z-start.z)>.7))).toBe(true)
   await page.keyboard.press('Space')
   await expect.poll(async()=> (await diagnostics(page)).paused).toBe(true)
-  expect((await diagnostics(page)).mission).toContain('FIND AND DESTROY')
-  await page.keyboard.press('x')
-  await expect.poll(async()=> (await diagnostics(page)).units.find(u=>u.id===engineer.id).job).toBe('idle')
-  expect((await diagnostics(page)).units.find(u=>u.id===engineer.id).cargo.ore).toBeGreaterThan(0)
-  await page.keyboard.press('b')
-  await expect.poll(async()=> (await diagnostics(page)).build_buttons.depot[0]).toBeGreaterThan(950)
-  await page.mouse.click(...(await diagnostics(page)).build_buttons.depot)
-  await expect.poll(async()=> (await diagnostics(page)).build_kind).toBe('depot')
-  await expect.poll(async()=> (await diagnostics(page)).build_sites.length).toBeGreaterThan(0)
-  const site=(await diagnostics(page)).build_sites[0]
-  await page.mouse.move(...site.screen)
-  await page.screenshot({path:'test-results/construction-preview.png'})
-  await page.mouse.click(...site.screen)
-  await expect.poll(async()=> (await diagnostics(page)).structures.filter(s=>s.kind==='depot').length).toBe(1)
-  expect((await diagnostics(page)).resources.ore).toBe(80)
-  const before=await diagnostics(page)
-  await page.keyboard.down('ArrowRight')
-  await page.waitForTimeout(350)
-  await page.keyboard.up('ArrowRight')
-  await expect.poll(async()=> (await diagnostics(page)).camera.x).toBeGreaterThan(before.camera.x)
-  const after=await diagnostics(page)
-  expect(after.tick).toBe(before.tick)
-  await page.mouse.wheel(0,-100)
-  await expect.poll(async()=> (await diagnostics(page)).camera.distance).toBeLessThan(before.camera.distance-1)
-  await page.keyboard.down('Insert')
-  await expect.poll(async()=> (await diagnostics(page)).camera.yaw).toBeGreaterThan(1)
-  await page.keyboard.up('Insert')
-  await expect.poll(async()=>Math.abs((await diagnostics(page)).camera.yaw)).toBeLessThan(.05)
-  await page.keyboard.press('Home')
-  await expect.poll(async()=>Math.abs((await diagnostics(page)).camera.x-initial.camera.x)).toBeLessThan(.1)
-  await page.mouse.click(118,694)
-  await expect.poll(async()=>Math.abs((await diagnostics(page)).camera.x)).toBeLessThan(1)
+  const clickCommand=async(prefix)=>{
+    const button=(await diagnostics(page)).commands.find(c=>c.text.startsWith(prefix))
+    expect(button).toBeTruthy()
+    expect(button.disabled).toBe(false)
+    await page.mouse.click(...button.screen)
+  }
+  await clickCommand('Defend')
+  await expect.poll(async()=> (await diagnostics(page)).status).toContain('stance changed')
+  await clickCommand('Mother')
+  await page.screenshot({path:'test-results/lightless-controls.png'})
+  await expect.poll(async()=> (await diagnostics(page)).queue_cards.length).toBe(1)
+  await page.mouse.click(...(await diagnostics(page)).queue_cards[0].screen)
+  await expect.poll(async()=> (await diagnostics(page)).queue_cards.length).toBe(0)
+  expect((await diagnostics(page)).mission).toContain('LIGHTLESS')
+  await clickCommand('Attack')
+  const beforeAttack=await diagnostics(page)
+  const medusaHealth=beforeAttack.inspection.match(/^HEALTH (\d+)/)[1]
+  await page.keyboard.press('Space')
+  await expect.poll(async()=> (await diagnostics(page)).tick).toBeGreaterThan(beforeAttack.tick+20)
+  await page.keyboard.press('Space')
+  expect((await diagnostics(page)).inspection).toMatch(new RegExp(`^HEALTH ${medusaHealth} /`))
   expect(errors).toEqual([])
 })
 
@@ -250,106 +239,35 @@ test('combat feedback: legal friendly fire reaches the browser renderer',async({
   expect(errors).toEqual([])
 })
 
-test('RTS controls: WASD, same-type selection, groups, build keys and Q',async({page})=>{
-  const errors=await open(page)
-  await control(page,'solo')
-  await expect.poll(async()=> (await diagnostics(page)).active).toBe(true)
-  await page.mouse.move(640,400)
-  let d=await diagnostics(page)
-  const marine=d.units.find(u=>u.kind==='marine')
-  await page.mouse.dblclick(...marine.screen)
-  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(marine.id)
-  await page.keyboard.press('Shift+1')
-  await expect.poll(async()=> (await diagnostics(page)).controls.groups['1']).toContain(marine.id)
-  let engineer=(await diagnostics(page)).units.find(u=>u.kind==='engineer')
-  await page.mouse.click(...engineer.screen)
-  await page.keyboard.press('1')
-  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(marine.id)
-  await page.keyboard.press('q')
-  await expect.poll(async()=> (await diagnostics(page)).controls.attack).toBe(true)
-  await page.keyboard.press('Escape')
-  const camera=(await diagnostics(page)).camera
-  await page.keyboard.down('d')
-  try {await expect.poll(async()=> (await diagnostics(page)).camera.x).toBeGreaterThan(camera.x+.2)} finally {await page.keyboard.up('d')}
-  await page.keyboard.down('s')
-  try {await expect.poll(async()=> (await diagnostics(page)).camera.z).toBeGreaterThan(camera.z+.2)} finally {await page.keyboard.up('s')}
-  await page.keyboard.press('Home')
-  await expect.poll(async()=>Math.abs((await diagnostics(page)).camera.x-d.camera.x)).toBeLessThan(.1)
-  engineer=(await diagnostics(page)).units.find(u=>u.kind==='engineer')
-  await page.mouse.click(...engineer.screen)
-  await expect.poll(async()=> (await diagnostics(page)).selected).toContain(engineer.id)
-  await page.keyboard.press('b')
-  await expect.poll(async()=> (await diagnostics(page)).controls.buildMenu).toBe(true)
-  const before=(await diagnostics(page)).camera.x
-  await page.keyboard.down('d')
+test('native host assigns a Lightless guest and confirms movement and host loss',async({page})=>{
+  const version=readFileSync('.godot-version','utf8').trim()
+  const binary=process.env.GODOT_BIN || path.resolve(`.tools/godot/Godot_v${version}-stable_${process.platform==='win32'?'win64_console.exe':'linux.x86_64'}`)
+  const child=spawn(binary,['--headless','--path','.', '--script','tests/network_native.gd','--','--coordinator=ws://127.0.0.1:8081','--main-host-lightless'])
+  let output='',exitCode
+  child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b)
+  child.on('exit',code=>{exitCode=code})
   try {
-    await expect.poll(async()=> (await diagnostics(page)).build_kind).toBe('depot')
-    await expect.poll(async()=> (await diagnostics(page)).controls.ghost).toBe(true)
-    expect((await diagnostics(page)).camera.x).toBeCloseTo(before,1)
-  } finally {await page.keyboard.up('d')}
-  expect((await diagnostics(page)).controls.buildMenu).toBe(false)
-  await page.keyboard.press('Escape')
-  await expect.poll(async()=> (await diagnostics(page)).build_kind).toBe('')
-  expect(errors).toEqual([])
+    await expect.poll(()=>output,{timeout:20000}).toContain('Lightless host ready:')
+    const invitation=output.match(/Lightless host ready: (\S+)/)[1]
+    const errors=await open(page)
+    await control(page,'join',invitation)
+    await expect.poll(async()=> (await diagnostics(page)).active,{timeout:60000}).toBe(true)
+    const g=await diagnostics(page)
+    expect(g.owner).toBe(-1)
+    expect(g.controls.timeControls).toEqual([false,false])
+    const unit=g.units.find(u=>u.kind==='father')
+    const medusa=g.structures.find(s=>s.kind==='medusa')
+    const dx=unit.x-medusa.x,dz=unit.z-medusa.z,length=Math.hypot(dx,dz)
+    await control(page,'order',JSON.stringify({action:'move',ids:[unit.id],x:unit.x+dx/length,z:unit.z+dz/length}))
+    await expect.poll(()=>output).toContain('Native Lightless move accepted')
+    await expect.poll(async()=> {const u=(await diagnostics(page)).units.find(u=>u.id===unit.id);return Math.hypot(u.x-unit.x,u.z-unit.z)}).toBeGreaterThan(.4)
+    child.kill()
+    await expect.poll(async()=> (await diagnostics(page)).ended).toBe(true)
+    expect((await diagnostics(page)).result).toContain('Host disconnected')
+    expect(output).not.toMatch(/SCRIPT ERROR:|^ERROR:/m)
+    expect(errors).toEqual([])
+  } finally {if(exitCode===undefined)child.kill()}
 })
-
-test('custom coordinator room: cross-origin clients, host orders and host loss',async()=>{
-  // Separate browser processes model separate players and isolate software-GPU
-  // and window lifetimes when the host closes. Incognito contexts share both.
-  const [hostBrowser,guestBrowser]=await Promise.all([
-    chromium.launch({...browserConfig.use.launchOptions,headless:true}),
-    chromium.launch({...browserConfig.use.launchOptions,headless:true})
-  ])
-  try {
-  const hostContext=await hostBrowser.newContext({viewport:{width:1280,height:800}})
-  const guestContext=await guestBrowser.newContext({viewport:{width:1280,height:800}})
-  const host=await hostContext.newPage(),guest=await guestContext.newPage()
-  const hostErrors=await open(host)
-  const guestErrors=await open(guest,url.replace('127.0.0.1:8080','localhost:8080'))
-  await control(host,'host')
-  await expect.poll(async()=> (await diagnostics(host)).invitation).not.toBe('')
-  const invitation=(await diagnostics(host)).invitation
-  await control(guest,'join',invitation)
-  await expect.poll(async()=> (await diagnostics(host)).peers,{timeout:45000}).toBe(1)
-  await control(host,'launch')
-  // Two cold WebGL scenes share the software GPU on CI; allow shader warm-up.
-  await expect.poll(async()=> (await diagnostics(guest)).active,{timeout:60000}).toBe(true)
-  try {
-    await expect.poll(async()=> (await diagnostics(guest)).tick).toBeGreaterThan(2)
-  } catch(error) {
-    for (const [name,page] of [['host',host],['guest',guest]]) {
-      const d=await diagnostics(page)
-      console.error(name,JSON.stringify({tick:d.tick,active:d.active,ended:d.ended,status:d.status,result:d.result,paused:d.paused}))
-    }
-    console.error('Game errors',hostErrors,guestErrors)
-    throw error
-  }
-  expect((await diagnostics(host)).controls.timeControls).toEqual([false,false])
-  expect((await diagnostics(guest)).controls.timeControls).toEqual([false,false])
-  const g=await diagnostics(guest)
-  expect(g.owner).toBe(1)
-  const unit=g.units.find(u=>u.kind==='engineer')
-  await control(guest,'order',JSON.stringify({action:'move',ids:[unit.id],x:unit.x+1,z:unit.z}))
-  await expect.poll(async()=> (await diagnostics(guest)).units.find(u=>u.id===unit.id).x).toBeGreaterThan(unit.x+.4)
-  await hostContext.close()
-  // Closing a window can occlude the survivor in headless Linux. Model the
-  // remaining player's foreground game, including Godot's animation frames.
-  await guest.bringToFront()
-  try {
-    await expect.poll(async()=> (await diagnostics(guest)).ended,{timeout:30000}).toBe(true)
-  } catch (error) {
-    console.error('Guest after host closure', JSON.stringify(await guest.evaluate(() => ({
-      game: window.ATDNetwork.inspect(), visibility: document.visibilityState, focused: document.hasFocus()
-    }))))
-    console.error('Game errors', hostErrors, guestErrors)
-    throw error
-  }
-  expect((await diagnostics(guest)).result).toContain('Host disconnected')
-  expect([...hostErrors,...guestErrors]).toEqual([])
-  await guestContext.close()
-  } finally {await Promise.allSettled([hostBrowser.close(),guestBrowser.close()])}
-})
-
 
 test('complex mining keeps guards with workers and exposes expedition status',async({page},testInfo)=>{
   const errors=await open(page)

@@ -69,3 +69,40 @@ The main menu separates Expedition, Field missions and Multiplayer. Map seeds ar
 Click **Map** on the minimap to open the full-screen tactical map. Drag to pan, right-click to issue context orders, or hold Shift to queue. Use **Close map** or **Escape** to return. The map uses the same fog, remembered structures and anonymous radar contacts as the minimap; opening it does not pause the match.
 
 Mixed selections keep a shared complex order: mining forms a hauling expedition, repair/build/research assigns Engineers with guards, and patrol/escort moves the selected group together. Selected occupied vehicles include their friendly crew; drivers remain aboard during work. Manual replacement orders remove only the affected participants. The status card shows role, shared phase, blockers and cargo; selecting a group marks its worksite and delivery destination.
+
+## Lightless
+
+Choose **Play as Lightless** for a solo Commonwealth AI opponent. For multiplayer,
+the host assigns CPU or one player using the **Lightless** selector before launch.
+The role uses an existing player slot; only one player can control the colony.
+
+- Medusa: select a network stance or queue units; click queue chips to cancel.
+- Mother: Grow Womb arms the remembered type (initially Scavenger). Place immediately or optionally choose a type in the submenu. Grow Stoma places a drop-off.
+- Womb: queue its unit type, place adjacent Glands, or Change type using the same submenu. Visible spawn badges show population/cap.
+- Father: set recruit stance, Recruit unit then click a unit, or Release recruits.
+  Any unit standing on Gloom is eligible at any distance; nearby units need no Gloom.
+- Only unrecruited Mothers and Fathers accept direct movement and Stop [X].
+  Combat units follow Medusa/Father stances; Threshers transition autonomously.
+  Release recruits through their Father, not through individual unit orders.
+- Select an unstarted blueprint to refund it; right click it with a Mother to resume.
+
+Lightless globally see every current Gloom tile, including disconnected and unsupported
+patches, regardless of unit range or connection to the Medusa. Growth grants sight
+immediately; lost Gloom leaves remembered terrain when no personal vision remains.
+
+Lightless retain control after Medusa death and win by destroying all opposing
+Anchors. Commonwealth players retain their extraction victory. If a Lightless guest
+leaves, the CPU takes over. Solo pause and speed controls remain available.
+
+Womb type shortcuts apply while its submenu is open: C Scavenger, M Mother,
+F Father, S Stalker, R Ravager, T Thresher, H Shade. The chosen type is remembered
+for subsequent placements. Unstarted blueprints can change type immediately.
+Completed Wombs require their manual spawn queue to be cleared and enough remaining
+old-type capacity for the living population. Reconfiguration removes old capacity
+immediately, then enables the new capacity/unlock after five seconds. Passive
+progress resets; Glands keep their original type and require a matching active Womb.
+
+Gloom is a global communication channel: the Medusa reaches every unit on any
+Gloom patch, and Fathers can recruit receivers on any patch without a connecting
+path. Only the receiver needs Gloom. Father stance overrides remain in force while
+recruited; recruitment ends only when outside local range and off Gloom.

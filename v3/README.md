@@ -17,7 +17,7 @@ Open `http://127.0.0.1:8080/`. Run `npm test` for headless simulation checks and
 
 ### Browser alpha
 
-The first playable is an alpha distributed primarily through the **browser** targeting all confirmed systems in this document, including single player, up to five Commonwealth players in player-hosted Godot WebRTC multiplayer, the complete current roster and economy, complex mining expeditions, and testing-only Lightless control. The Godot editor/native Windows/Linux x86_64 runtime also supports network play; downloadable desktop exports are deferred. This is a substantial RTS implementation and should be built through integrated milestones.
+The first playable is an alpha distributed primarily through the **browser** targeting all confirmed systems in this document, including single player, up to five players in player-hosted Godot WebRTC multiplayer, the complete current roster and economy, complex mining expeditions, and optional player-controlled Lightless. The Godot editor/native Windows/Linux x86_64 runtime also supports network play; downloadable desktop exports are deferred. This is a substantial RTS implementation and should be built through integrated milestones.
 
 The **extraction boss is excluded from the first version**. Unique commander differences, additional undesigned upgrade effects, and between-match purchases remain later design work. The initial Fabricator content is one armor upgrade for each specialization: Engineer, Marine, Flamer, and Lancer.
 
@@ -60,7 +60,7 @@ The proposed camera values and input behavior are documented in the [engine and 
 
 #### Participants and factions
 
-The Solar Commonwealth factions are player-controlled. Matches support up to **five players**. The Lightless are CPU-controlled in normal play. A player-controlled Lightless option is planned strictly for testing and discovering useful strategies, rather than as a normal playable faction.
+Matches support up to **five players**. The host may assign exactly one of those slots to the Lightless; all remaining players control Solar Commonwealth factions. If no slot is assigned, the CPU controls the Lightless. Solo **Play as Lightless** adds a Commonwealth AI opponent.
 
 In multiplayer, players are hostile to one another. They compete for access to the Medusa's remains and the Nacre harvested there.
 
@@ -80,7 +80,7 @@ Players will choose from additional commanders within each faction. Commanders a
 
 Each mission takes place on a randomly generated map. The Lightless begin with one Medusa, **five Scavengers**, and **100 stored Chyme**. The initial Gloom radius begins fully covered. The Medusa passively generates Chyme, providing income for producing units and structures. The proposed preset covers the Medusa's full eight-tile Gloom extension and generates one Chyme per second; both values are configurable.
 
-In player-controlled Lightless testing, the starting force also includes **one Father**, allowing the tester to recruit and guide units immediately.
+Player-controlled Lightless start with **one Father** in addition to the normal colony, allowing immediate recruitment and coordination.
 
 Each player faction begins with:
 
@@ -505,6 +505,8 @@ Other unit types require a relevant Womb. Placing a Womb of a particular type ex
 
 Destroying a Womb reduces the population cap for its unit type. Existing population can temporarily exceed that reduced cap. For types that require a Womb to unlock Medusa spawning, losing the last relevant Womb removes that spawning option. Mothers, Fathers, and Scavengers are available at the Medusa by default and use their own base caps.
 
+Womb placement defaults to Scavengers and offers an optional type submenu, remembering the last choice. Unstarted blueprints can change type. Completed Wombs can reconfigure only after clearing their own manual queue and only if removing old capacity still supports the current population. Old capacity is removed immediately; the new capacity and unlock arrive after the configurable five-second cooldown. Passive spawn progress resets, and Glands retain their original type rather than changing upgrades automatically.
+
 When the Medusa dies, all Wombs receive the permanent spawn-rate buff described in the mission objective. Type caps, costs, spawn times, and the provisional twofold Womb production-rate buff are configurable in `units` and `lightless`.
 
 **Glands and type-wide upgrades**
@@ -543,15 +545,15 @@ Tiles containing Gloom are always visible to the Lightless. The proposed CPU use
 
 **Strategy development and testing**
 
-The first-playable specification proposes a configurable baseline CPU for spawning, expansion, Womb construction, and Gland development; its long-term strategy remains open to testing. The testing-only Lightless player can exercise placement, upgrades, Medusa stances, and Fathers to discover useful strategies. Testing substitutes for CPU control and does not add a sixth competitive Commonwealth player.
+The first-playable specification proposes a configurable baseline CPU for spawning, expansion, Womb construction, and Gland development; its long-term strategy remains open to testing. A Lightless player can control placement, upgrades, Medusa stances, and Fathers. This replaces the colony CPU and occupies one existing multiplayer slot; solo Lightless play supplies a Commonwealth AI opponent.
 
 #### Lightless testing controls and coordination
 
-The testing player can control structure placement and Womb upgrades, move Fathers, choose their recruits, and set stances. Recruited units do not receive individual direct-control orders, even from their Father. They organize around the Father's position and assigned stance.
+The Lightless player controls structure placement and Womb upgrades, moves unrecruited Mothers and Fathers, chooses recruits, and sets stances. Combat units and recruited units do not receive individual move, attack, Stop or burrow orders, even from their Father. They organize around the Father's position and assigned stance.
 
 **Medusa stance**
 
-The player can set a global Lightless stance through the Medusa. It affects Lightless connected to the Medusa's Gloom network, subject to a recruited unit's Father override.
+The player can set a global Lightless stance through the Medusa. It affects Lightless standing on any Gloom tile globally, subject to a recruited unit's Father override.
 
 These Lightless coordination stances are separate from Commonwealth aggressive, defensive, and neutral combat stances:
 
@@ -582,9 +584,9 @@ A Father's commands take precedence over Gloom and Medusa commands, including ne
 
 **Recruitment loss and stance restoration**
 
-A unit becomes un-recruited if it is both outside its Father's local range and disconnected from that Father through Gloom. Either local range or a Gloom connection is sufficient to preserve recruitment.
+A unit becomes un-recruited only if it is both outside its Father's local range and no longer standing on Gloom. Any Gloom patch preserves remote recruitment; the Father need not stand on Gloom.
 
-When recruitment ends, including release or the Father's death, a unit adopts its Gloom network's stance if connected to Gloom. Otherwise, it retains the stance most recently assigned by its Father. The proposed transfer is atomic: verify the receiving Father's eligibility and free roster slot before releasing the old assignment.
+When recruitment ends, including release or the Father's death, a unit adopts the global Medusa stance if standing on Gloom. Otherwise, it retains the stance most recently assigned by its Father. The proposed transfer is atomic: verify the receiving Father's eligibility and free roster slot before releasing the old assignment.
 
 **Medusa death response**
 
@@ -774,13 +776,13 @@ Lightless units passively regenerate while on Gloom. Completed Lightless structu
 
 Light does not directly damage Lightless units. It influences their pathfinding: when they are not attacking a player, Lightless go to great lengths to avoid routes through illuminated areas.
 
-Stalkers avoid light and do not advance alone into illuminated areas under their normal behavior. Fathers act as coordinators and can override Lightless behavior concerning both light and aggression. They can recruit nearby units without using Gloom as well as recruit through the Gloom network. Competing commands should split the Lightless population between them, but a Father's command always takes precedence over Gloom and Medusa commands. The proposed CPU distributes available non-recruited defenders among active structure requests, using stable IDs to resolve equal priorities.
+Stalkers avoid light and do not advance alone into illuminated areas under their normal behavior. Fathers act as coordinators and can override Lightless behavior concerning both light and aggression. They can recruit nearby units without Gloom and remotely recruit any unit standing on any Gloom patch. Competing commands should split the Lightless population between them, but a Father's command always takes precedence over Gloom and Medusa commands. The CPU distributes available non-recruited defenders on Gloom among global active structure requests, using stable IDs to resolve equal priorities.
 
 #### Gloom
 
-Gloom is a tile-based communication network used by the Lightless. Each Gloom tile has health. Its spread, survival, and connectivity determine where the colony can maintain communication.
+Gloom is a global communication channel used by the Lightless. Each Gloom tile has health. Any unit standing on any living Gloom tile can receive colony communication; separate patches do not need a continuous connection.
 
-**Growth and connectivity**
+**Growth**
 
 Gloom spawns on dark tiles within range of Lightless structures. New growth must connect to existing Gloom or a Lightless structure, and spreads at random to eligible unilluminated frontier tiles. Walls and cliffs do not block Gloom spread, even though they block illumination and vision propagation.
 
@@ -790,17 +792,17 @@ Illumination deals damage to Gloom over time and prevents it from spreading onto
 
 **Communication**
 
-Lightless standing on Gloom can receive commands from arbitrarily far away, provided the Gloom network connecting them remains continuous. Communication through Gloom depends on network connectivity rather than proximity to the command source.
+Lightless standing on Gloom can receive Medusa commands or be recruited by a Father at any distance, including across disconnected patches. Only the receiving unit needs to stand on Gloom; neither the Father nor the Medusa needs Gloom underneath it to broadcast. Fathers can still recruit nearby units off Gloom.
 
-The network supports several confirmed behaviors:
+The global channel supports several behaviors:
 
 - **Structure defense:** A Lightless structure under attack can reach out through Gloom to recruit defenders, subject to the higher priority of Father commands.
 - **Attack coordination:** A Father can recruit units for an attack through Gloom.
-- **Colony stance:** The Medusa can specify attack, defend, gather, or probe stance for Lightless connected to its network. A Father's recruited-unit stance overrides this while recruitment lasts.
+- **Colony stance:** The Medusa can specify attack, defend, gather, or probe stance for Lightless standing on any Gloom tile. A Father's recruited-unit stance overrides this while recruitment lasts.
 
 **Orders outside Gloom**
 
-A unit that leaves Gloom retains its orders. When those orders finish or are interrupted, the unit returns to its default behavior. In the proposed implementation, loss of a network connection retains the last network stance until reconnection or a higher-priority override. Father recruitment still ends if both local range and Gloom connectivity are lost.
+A unit that leaves Gloom retains its orders. When those orders finish or are interrupted, the unit returns to its default behavior. In the proposed implementation, leaving Gloom retains the last global stance until returning to any Gloom tile or receiving a higher-priority override. Father recruitment ends only when the unit is off Gloom and outside local range.
 
 Gloom health, radii, spread timing, illumination damage, and unsupported withering are defined in the proposed settings. Spread uses the map seed; illumination damage applies once per lit tile rather than stacking per light source.
 

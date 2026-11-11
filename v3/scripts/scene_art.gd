@@ -175,6 +175,10 @@ func _creature(root: Node3D, e: Dictionary, presentation: Dictionary) -> void:
 	var scale_by: Array = presentation.get("creatureScales", {}).get(e.kind, [1, 1, 1])
 	root.scale = Vector3(float(scale_by[0]), float(scale_by[1]), float(scale_by[2]))
 	root.set_meta("base_scale", root.scale)
+	if e.kind == "father":
+		_father(root); return
+	if e.kind == "mother":
+		_mother(root); return
 	var shell := Color("6f6d61")
 	piece(root, sphere, Vector3(0, 0.22, 0.05), Vector3(0.45, 0.26, 0.63), shell)
 	piece(root, wedge, Vector3(0, 0.24, -0.28), Vector3(0.27, 0.22, 0.32), BONE)
@@ -198,6 +202,81 @@ func _creature(root: Node3D, e: Dictionary, presentation: Dictionary) -> void:
 		for i in range(5):
 			var spine := piece(root, wedge, Vector3((i - 2) * 0.1, 0.35, 0.08), Vector3(0.075, 0.3, 0.22), BONE)
 			spine.rotation.z = (i - 2) * -0.18
+
+func _mother(root: Node3D) -> void:
+	var skin := Color("777768")
+	var shadow := Color("484d45")
+	var skull := Color("b0a995")
+	piece(root, sphere, Vector3(0, 0.55, 0.1), Vector3(0.33, 0.26, 0.3), shadow, "Pelvis")
+	var torso := Node3D.new(); torso.name = "ShambleTorso"; torso.position = Vector3(0, 0.74, 0.05); torso.rotation.x = -0.22; root.add_child(torso)
+	piece(torso, sphere, Vector3(0, 0.08, 0), Vector3(0.4, 0.54, 0.37), skin)
+	piece(torso, sphere, Vector3(0, 0.21, 0.14), Vector3(0.44, 0.35, 0.36), shadow)
+	for rib in range(3): piece(torso, box, Vector3(0, 0.16 - rib * 0.1, -0.17), Vector3(0.28 - rib * 0.025, 0.035, 0.035), skull.darkened(0.2))
+	piece(torso, cylinder, Vector3(0, 0.36, -0.06), Vector3(0.16, 0.27, 0.16), shadow)
+	var head := Node3D.new(); head.name = "Head"; head.position = Vector3(0.025, 0.63, -0.1); head.rotation = Vector3(0.05, 0, 0.12); torso.add_child(head)
+	piece(head, sphere, Vector3(0, 0.08, 0), Vector3(0.65, 0.57, 0.5), skin.lightened(0.12), "Cranium")
+	for side in [-1, 1]:
+		piece(head, sphere, Vector3(side * 0.14, 0.25, 0.04), Vector3(0.31, 0.28, 0.4), skull.darkened(0.08))
+		piece(head, sphere, Vector3(side * 0.145, 0.24, -0.205), Vector3(0.17, 0.14, 0.07), shadow)
+		piece(head, sphere, Vector3(side * 0.145, 0.25, -0.24), Vector3(0.045, 0.045, 0.025), Color("bdb38b"), "Eye%d" % side, true)
+	piece(head, box, Vector3(0, 0.08, -0.25), Vector3(0.21, 0.085, 0.07), Color("292d29"), "Mouth")
+	var jaw := piece(head, box, Vector3(0.015, 0.005, -0.22), Vector3(0.24, 0.085, 0.16), skull, "SlackJaw"); jaw.rotation.z = -0.12
+	for side in [-1, 1]:
+		var leg := Node3D.new(); leg.name = "ShambleLegL" if side == -1 else "ShambleLegR"; leg.position = Vector3(side * 0.145, 0.52, 0.09); root.add_child(leg)
+		piece(leg, cylinder, Vector3(0, -0.13, 0), Vector3(0.15, 0.27, 0.15), skin)
+		var knee := Node3D.new(); knee.name = "Knee"; knee.position = Vector3(0, -0.24, -0.025); knee.rotation.x = 0.18; leg.add_child(knee)
+		piece(knee, sphere, Vector3.ZERO, Vector3(0.16, 0.15, 0.16), skull.darkened(0.12))
+		piece(knee, cylinder, Vector3(0, -0.1, 0), Vector3(0.11, 0.23, 0.11), shadow)
+		var foot := piece(knee, box, Vector3(side * 0.025, -0.2, -0.085), Vector3(0.16, 0.1, 0.28), skin.darkened(0.12), "Foot"); foot.rotation.y = side * 0.16
+		var arm := Node3D.new(); arm.name = "ArmL" if side == -1 else "ArmR"; arm.position = Vector3(side * 0.34, 0.2, -0.015); arm.rotation.x = 0.5 if side == -1 else 0.15; arm.rotation.z = side * 0.18; torso.add_child(arm)
+		piece(arm, sphere, Vector3.ZERO, Vector3(0.17, 0.2, 0.17), skin)
+		piece(arm, cylinder, Vector3(0, -0.16, 0), Vector3(0.1, 0.32, 0.1), skin)
+		var elbow := Node3D.new(); elbow.position = Vector3(0, -0.3, 0); elbow.rotation.x = 0.35; arm.add_child(elbow)
+		piece(elbow, cylinder, Vector3(0, -0.12, 0), Vector3(0.075, 0.27, 0.075), shadow)
+		piece(elbow, box, Vector3(0, -0.27, 0), Vector3(0.1, 0.14, 0.07), skin)
+		for finger in range(3): piece(elbow, box, Vector3((finger - 1) * 0.033, -0.38, -0.01), Vector3(0.023, 0.14, 0.025), skull.darkened(0.15))
+
+func _father(root: Node3D) -> void:
+	var flesh := Color("756471")
+	var underside := Color("433e50")
+	var shell := Color("a59c91")
+	piece(root, sphere, Vector3(0, 1.35, 0.03), Vector3(0.72, 0.45, 0.83), flesh, "Mantle")
+	piece(root, sphere, Vector3(0, 1.13, -0.1), Vector3(0.55, 0.25, 0.6), underside, "Underside")
+	for i in range(4):
+		var plate := piece(root, sphere, Vector3(0, 1.52 - absf(i - 1.5) * 0.025, -0.28 + i * 0.19), Vector3(0.55 - absf(i - 1.5) * 0.07, 0.19, 0.24), shell)
+		plate.rotation.x = (i - 1.5) * -0.12
+	for side in [-1, 1]:
+		var fin := piece(root, sphere, Vector3(side * 0.34, 1.33, 0.13), Vector3(0.23, 0.07, 0.72), flesh.darkened(0.16), "Fin%d" % side)
+		fin.rotation.z = side * 0.22
+		piece(root, sphere, Vector3(side * 0.19, 1.29, -0.34), Vector3(0.14, 0.16, 0.1), underside)
+		piece(root, sphere, Vector3(side * 0.19, 1.3, -0.39), Vector3(0.065, 0.075, 0.04), Color("e1a77c"), "Eye%d" % side, true)
+	var beak := piece(root, wedge, Vector3(0, 1.06, -0.31), Vector3(0.14, 0.2, 0.17), BONE.darkened(0.15), "Beak")
+	beak.rotation.x = 0.4
+	var joints: Array = []
+	var taper := CylinderMesh.new(); taper.height = 1; taper.radial_segments = 6
+	taper.top_radius = 0.5; taper.bottom_radius = 0.31
+	for i in range(8):
+		var angle := i * TAU / 8
+		var arm := Node3D.new(); arm.name = "Tentacle%d" % i
+		arm.position = Vector3(sin(angle) * 0.36, 1.03, -0.08 + cos(angle) * 0.3)
+		arm.rotation = Vector3(cos(angle) * 0.35, 0, -sin(angle) * 0.4)
+		root.add_child(arm)
+		var parent: Node3D = arm
+		for segment in range(3):
+			if segment > 0:
+				var joint := Node3D.new(); joint.name = "Joint%d" % segment
+				joint.position.y = -float(parent.get_meta("length"))
+				joint.rotation = Vector3(0.12 + segment * 0.16, 0, sin(angle) * 0.12)
+				parent.add_child(joint); parent = joint
+			var length := (0.35 if i in [3, 5] else 0.31) - segment * 0.025
+			parent.set_meta("length", length)
+			joints.append({"node": parent, "rest": parent.rotation, "arm": i, "segment": segment})
+			var width := 0.105 - segment * 0.025
+			piece(parent, taper, Vector3(0, -length * 0.5, 0), Vector3(width, length, width), flesh.lightened(segment * 0.035))
+			if segment == 2:
+				var tip := piece(parent, sphere, Vector3(0, -length, 0), Vector3(0.04, 0.08, 0.04), shell.darkened(0.1))
+				tip.rotation.x = 0.5
+	root.set_meta("tentacles", joints)
 
 func _structure(root: Node3D, e: Dictionary, team: Color) -> void:
 	var stripe := team.darkened(0.2)

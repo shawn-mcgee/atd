@@ -41,6 +41,9 @@ func run() -> void:
 	cargo_worker.cargo.clear()
 	verify(game.state.mission.is_empty() and game.state.cfg.match.extractionMinimumNacre == 500, "Ordinary expeditions restore standard rules after leaving a mission")
 	var anchor: Dictionary = game.state.structures[int(game.state.players[0].anchor)]
+	lightless_control_checks(game)
+	game._start_game(472, 1)
+	anchor = game.state.structures[int(game.state.players[0].anchor)]
 	wall_paint_checks(game, anchor)
 	model_selection_checks(game, anchor)
 	facility_visual_checks(game, anchor)
@@ -402,3 +405,54 @@ func memory_interface_checks(game, builder_id: int, anchor_cell: Vector2i) -> vo
 	verify(game.renderer.bodies.has(enemy), "Hidden destruction does not remove the remembered model")
 	state.visible[0][cell] = true; state._remember_structures(); game.renderer.refresh_entities()
 	verify(not game.renderer.bodies.has(enemy), "Rediscovering an empty footprint removes its remembered model")
+
+func lightless_control_checks(game) -> void:
+	game.lightless_launch_button.pressed.emit()
+	game._update_hud()
+	verify(game.local_owner == -1 and game.state.lightless_controlled and not game.state.commonwealth_ai.is_empty(), "Solo Lightless launch creates a Commonwealth AI opponent")
+	verify(game.mission_label.text.contains("LIGHTLESS") and game.selection.size() == 1, "Lightless launch focuses the Medusa with role-specific objectives")
+	var spawn_button: Button
+	var stance_button: Button
+	for button in game.actions.get_children():
+		if button.text == "Mother": spawn_button = button
+		if button.text == "Defend": stance_button = button
+	verify(spawn_button != null and stance_button != null, "The Medusa exposes real spawn and stance controls")
+	game.state.paused = true
+	stance_button.pressed.emit(); game._physics_process(0)
+	verify(game.state.structures[game.selection[0]].network_stance == "defend", "Clicking a Medusa stance changes authoritative simulation")
+	spawn_button.pressed.emit(); game._physics_process(0); game._update_hud()
+	verify(game.queue_view.cards.size() == 1, "Clicking spawn exposes a cancelable Lightless production queue")
+	game.queue_view.cards[0].button.pressed.emit(); game._physics_process(0); game._update_hud()
+	verify(game.queue_view.cards.is_empty(), "Clicking the Lightless queue chip cancels the order")
+	var father: Dictionary = {}
+	for unit in game.state.units.values():
+		if unit.kind == "father": father = unit; break
+	game.selection = [father.id]; game._refresh_actions()
+	verify(game.actions.get_children().any(func(button): return button.text == "Recruit unit"), "Fathers expose recruitment targeting")
+	var mother: int = game.state.add_unit("mother", father.pos, -1)
+	game.selection = [mother]; game._refresh_actions()
+	verify(not game.actions.get_children().any(func(button): return button is OptionButton), "Mother construction uses an optional submenu rather than a mandatory type dropdown")
+	for button in game.actions.get_children():
+		if button.text == "Grow Womb": button.pressed.emit(); break
+	verify(game.build_kind == "womb" and game.womb_panel.visible and game.lightless_unit_type == "scavenger", "Womb placement defaults to immediately placeable Scavengers with an optional type submenu")
+	game.womb_buttons["stalker"].pressed.emit()
+	verify(game.build_kind == "womb" and not game.womb_panel.visible and game.lightless_unit_type == "stalker", "Choosing a Womb type closes the submenu without leaving placement")
+	game._choose_build("stoma"); game._choose_build("womb")
+	verify(game.lightless_unit_type == "stalker" and game.womb_panel.visible, "The next Womb remembers the last chosen type")
+	game._cancel_modes()
+	var womb: int = game.state.add_structure("womb", Vector2i.ZERO, -1)
+	game.selection = [womb]; game._refresh_actions()
+	for button in game.actions.get_children():
+		if button.text == "Change type": button.pressed.emit(); break
+	verify(game.womb_target == womb and game.womb_panel.visible and game.womb_buttons["scavenger"].disabled, "Existing Wombs reuse the type submenu and disable their current choice")
+	game.womb_buttons["ravager"].pressed.emit(); game._physics_process(0); game._update_hud()
+	verify(game.state.structures[womb].unit_type == "ravager" and float(game.state.structures[womb].configuration_remaining) > 0, "The Womb submenu performs authoritative reconfiguration")
+	var combat: int = game.state.add_unit("scavenger", father.pos, -1)
+	game.selection = [combat]; game._refresh_actions(); game._begin_attack()
+	verify(not game.attack_mode and not game.actions.get_children().any(func(button): return button is CommandCard), "Combat-unit inspection exposes guidance instead of direct order buttons")
+	game._leave()
+	game.network.role = "host"; game.accepted_peers.clear(); game.accepted_peers.append("test-peer")
+	game._refresh_lobby_controls()
+	verify(game.lightless_role.item_count == 3, "Multiplayer offers CPU, host, or exactly one guest Lightless slot")
+	game.network.role = "solo"; game.accepted_peers.clear()
+	game.local_owner = 0

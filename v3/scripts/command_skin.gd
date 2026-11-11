@@ -71,6 +71,7 @@ static func description(world: WorldState, e: Dictionary) -> String:
 		return text
 	var d: Dictionary = world.cfg.structures[e.kind]
 	var text := "HEALTH %d / %d     ARMOR %d\n" % [ceili(e.hp), d.health, int(WorldState.TargetRules.armor(world, e))]
+	if e.kind == "womb": text += "%s POPULATION %d / %d\n%s\n" % [str(e.get("unit_type", "scavenger")).to_upper(), world._population(str(e.get("unit_type", "scavenger"))), WorldState.LightlessColony.cap(world, str(e.get("unit_type", "scavenger"))), "Reconfiguring: %.1fs remaining" % float(e.configuration_remaining) if float(e.get("configuration_remaining", 0)) > 0 else "Produces this type and increases its colony-wide cap."]
 	if e.owner < 0: return text + "GLOOM RANGE %d     REGEN %.1f HP/s" % [int(d.get("gloomRangeBeyondFootprintTiles", 0)), float(world.cfg.gloom.structureRegenerationPerSecond)]
 	text += "GRID %d DEMAND / %d CAPACITY  ·  %s\n" % [int(e.get("grid_demand", 0)), int(e.get("grid_capacity", 0)), "OFF" if not e.enabled else "BLACKOUT" if e.blackout else "BROWNOUT" if e.brownout else "ONLINE" if e.powered else "UNPOWERED"]
 	var shield := WorldState.TargetRules.shield_bonus(world, e)

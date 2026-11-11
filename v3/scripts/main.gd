@@ -6,6 +6,13 @@ var camera: RTSCamera
 var network: NetworkSession
 var active := false
 var local_owner := 0
+var lightless_role: OptionButton
+var lightless_role_count := -1
+var lightless_unit_type := "scavenger"
+var womb_panel: PanelContainer
+var womb_buttons: Dictionary = {}
+var womb_target := 0
+var lightless_launch_button: Button
 var selection: Array = []
 var pending_orders: Array = []
 var accepted_peers: Array[String] = []
@@ -306,6 +313,18 @@ func _build_ui() -> void:
 		button.hotkey = str(Settings.data.controls.depotHotkeys[resource]); button.glyph = CommandSkin.icon("depot")
 		button.focus_mode = Control.FOCUS_NONE; button.pressed.connect(func(): _choose_depot_resource(str(resource)))
 		resources.add_child(button); depot_buttons[resource] = button
+	womb_panel = PanelContainer.new()
+	womb_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	womb_panel.offset_left = -380; womb_panel.offset_right = -14; womb_panel.offset_top = 85
+	womb_panel.add_theme_stylebox_override("panel", CommandSkin.panel()); hud.add_child(womb_panel)
+	var womb_column := VBoxContainer.new(); womb_panel.add_child(womb_column)
+	womb_column.add_child(_label("WOMB / CHOOSE UNIT TYPE", 15))
+	var womb_grid := GridContainer.new(); womb_grid.columns = 3; womb_column.add_child(womb_grid)
+	for kind in WorldState.LightlessControl.TYPES:
+		var button := CommandCard.new(); button.text = str(kind).capitalize(); button.glyph = CommandSkin.icon(kind)
+		button.hotkey = str(Settings.data.controls.wombHotkeys[kind]); button.focus_mode = Control.FOCUS_NONE
+		button.pressed.connect(func(): _choose_womb_type(kind)); womb_grid.add_child(button); womb_buttons[kind] = button
+	womb_panel.hide()
 	depot_panel.hide()
 	_create_control_ui()
 	menu = PanelContainer.new()
@@ -347,6 +366,7 @@ func _build_ui() -> void:
 	var expedition_space := Control.new(); expedition_space.size_flags_vertical = Control.SIZE_EXPAND_FILL; expedition.add_child(expedition_space)
 	expedition.add_child(_label("SINGLE PLAYER  /  PROCEDURAL MAP", 11, Color("9caa8e")))
 	_menu_primary("Deploy expedition", func(): network.leave(); local_owner = 0; _start_game(_deployment_seed(), 1), expedition)
+	lightless_launch_button = _button("Play as Lightless", func(): network.leave(); local_owner = -1; _start_game(_deployment_seed(), 1, "", 0, true), expedition)
 	var missions: VBoxContainer = menu_pages.missions
 	_menu_heading(missions, "Field missions", "Choose an operation. All missions are available.")
 	var mission_keys: Array = Settings.data.missions.keys()
@@ -374,6 +394,7 @@ func _build_ui() -> void:
 	join_room_button = _button("Join", _join, room_row)
 	copy_room_button = _button("Copy", func(): DisplayServer.clipboard_set(network.invitation), room_row); copy_room_button.tooltip_text = "Copy room code"
 	lobby_label = _label("", 14, Color("a5b5ab")); lobby_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART; lobby_label.custom_minimum_size.y = 56; multiplayer_page.add_child(lobby_label)
+	lightless_role = OptionButton.new(); lightless_role.tooltip_text = "Host assigns at most one Lightless player. CPU controls Lightless when unassigned."; multiplayer_page.add_child(lightless_role)
 	var room_space := Control.new(); room_space.size_flags_vertical = Control.SIZE_EXPAND_FILL; multiplayer_page.add_child(room_space)
 	start_button = _menu_primary("Launch expedition", _launch_hosted, multiplayer_page); start_button.hide()
 	leave_room_button = _button("Leave room", func(): network.leave(); accepted_peers.clear(); invitation_edit.clear(); lobby_label.text = ""; _refresh_lobby_controls(), multiplayer_page)
@@ -420,6 +441,13 @@ func _show_menu_page(key: String) -> void:
 	if seed_controls != null: seed_controls.visible = key != "multiplayer" or network.role == "host"
 
 func _refresh_lobby_controls() -> void:
+	lightless_role.visible = network.role == "host"
+	if lightless_role_count != accepted_peers.size():
+		var previous := lightless_role.selected
+		lightless_role.clear(); lightless_role.add_item("Lightless: CPU", -1)
+		lightless_role.add_item("Lightless: Host", 0)
+		for i in range(accepted_peers.size()): lightless_role.add_item("Lightless: Player %d" % (i + 2), i + 1)
+		lightless_role.select(clampi(previous, 0, lightless_role.item_count - 1)); lightless_role_count = accepted_peers.size()
 	host_room_button.disabled = network.role != "solo"
 	join_room_button.visible = network.role != "host"; join_room_button.disabled = network.role == "guest"
 	copy_room_button.visible = network.role == "host" and not network.invitation.is_empty()
@@ -444,11 +472,13 @@ func _deployment_seed() -> int:
 	var text := seed_edit.text.strip_edges()
 	return int(randi()) if text.is_empty() else int(text)
 
-func _start_game(map_seed: int, count: int, mission_key: String = "") -> void:
+func _start_game(map_seed: int, count: int, mission_key: String = "", lightless_slot: int = -1, solo_ai: bool = false) -> void:
+	if lightless_slot < 0 and local_owner == -1: local_owner = 0
 	if not mission_key.is_empty():
 		network.leave(); local_owner = 0
 	state.cfg = Settings.data
 	state.reset(map_seed, count)
+	if lightless_slot >= 0: state.command(0, {"action": "control_lightless", "slot": lightless_slot, "solo_ai": solo_ai})
 	if not mission_key.is_empty(): state.command(0, {"action": "start_mission", "mission": mission_key})
 	camera.bounds = state.radius
 	seed_edit.tooltip_text = "Leave blank for a fresh map, or enter a seed to replay a layout.\nLast deployed seed: %d" % map_seed
@@ -460,6 +490,7 @@ func _start_game(map_seed: int, count: int, mission_key: String = "") -> void:
 	roster_signature = ""
 	resource_cell = Vector2i(99999, 99999)
 	build_kind = ""; build_panel.hide(); selecting = false; interaction_mode = ""; mining_mode = false; attack_mode = false
+	womb_panel.hide(); womb_target = 0
 	depot_panel.hide(); minimap_dragging = false; queue_modifier = false
 	wall_dragging = false; renderer.show_wall_line([])
 	result_shown = false; result_panel.hide(); paused_button.text = "Pause"
@@ -472,6 +503,7 @@ func _start_game(map_seed: int, count: int, mission_key: String = "") -> void:
 	renderer.initialize(state, local_owner)
 	renderer.show()
 	_focus_anchor()
+	if local_owner == -1: selection = [state.players[-1].anchor]
 	active = true
 	menu.visible = false
 	menu_backdrop.hide()
@@ -500,13 +532,15 @@ func _join() -> void:
 
 func _launch_hosted() -> void:
 	if network.role != "host" or network.self_id.is_empty(): return
-	local_owner = 0
+	var role_slot := lightless_role.selected - 1
+	if role_slot >= 0 and accepted_peers.is_empty(): lobby_label.text = "Lightless needs a Commonwealth opponent. Join another player or use Play as Lightless for solo AI."; return
+	local_owner = -1 if role_slot == 0 else 0
 	match_id = "%s-%s" % [network.invitation, str(Time.get_ticks_msec())]
-	_start_game(_deployment_seed(), accepted_peers.size() + 1)
+	_start_game(_deployment_seed(), accepted_peers.size() + 1, "", role_slot)
 	for index in range(accepted_peers.size()):
 		var peer := accepted_peers[index]
-		peer_owners[peer] = index + 1
-		network.send(peer, {"kind": "start", "seed": state.seed_value, "count": state.players.size(), "owner": index + 1, "match": match_id, "hash": Settings.gameplay_hash})
+		peer_owners[peer] = -1 if role_slot == index + 1 else index + 1
+		network.send(peer, {"kind": "start", "seed": state.seed_value, "count": accepted_peers.size() + 1, "lightless_slot": role_slot, "owner": peer_owners[peer], "match": match_id, "hash": Settings.gameplay_hash})
 
 func _network_event(event: Dictionary) -> void:
 	var type := str(event.get("type", ""))
@@ -551,7 +585,7 @@ func _network_event(event: Dictionary) -> void:
 				if packet.hash != Settings.gameplay_hash: return
 				local_owner = int(packet.owner)
 				match_id = str(packet.match)
-				_start_game(int(packet.seed), int(packet.count))
+				_start_game(int(packet.seed), int(packet.count), "", int(packet.get("lightless_slot", -1)))
 			elif kind == "state" and active and packet.get("match", "") == match_id:
 				state.apply_snapshot(packet.data, local_owner)
 		elif kind == "order" and network.role == "host" and peer_owners.has(peer) and packet.get("match", "") == match_id:
@@ -560,7 +594,11 @@ func _network_event(event: Dictionary) -> void:
 				sequences[peer] = number
 				pending_orders.append({"owner": int(peer_owners[peer]), "order": packet.order})
 	elif type == "test":
-		if event.command == "solo": _start_game(472, 1)
+		if event.command == "solo": local_owner = 0; _start_game(472, 1)
+		elif event.command == "lightless": local_owner = -1; _start_game(472, 1, "", 0, true)
+		elif event.command == "lightless_slot" and network.role == "host" and not active:
+			var slot := int(event.value)
+			if slot >= -1 and slot <= accepted_peers.size(): lightless_role.select(slot + 1)
 		elif event.command == "host": _host()
 		elif event.command == "join": invitation_edit.text = str(event.value); _join()
 		elif event.command == "launch": _launch_hosted()
@@ -573,6 +611,9 @@ func _network_event(event: Dictionary) -> void:
 
 func _issue(order: Dictionary) -> void:
 	if not active: return
+	if local_owner == -1 and order.get("action", "") == "build":
+		order.unit_type = lightless_unit_type
+		if order.kind in ["gland", "chyme_gland"]: order.action = "gland"; order.target = selection[0] if not selection.is_empty() else 0
 	if order.get("action", "") == "depot_type" and Settings.data.controls.depotHotkeys.has(str(order.get("resource", ""))): depot_resource = str(order.resource)
 	if not order.has("queued") and str(order.get("action", "")) in ["move", "attack", "mine", "repair", "deposit", "work", "equip", "board", "load_cargo", "excavate", "patrol", "escort", "unload"]: order.queued = queue_modifier or Input.is_physical_key_pressed(KEY_SHIFT)
 	audio.cue("order")
@@ -612,9 +653,9 @@ func _process(delta: float) -> void:
 	if active: audio.update(state, local_owner, delta)
 	camera.enabled = active and not tactical.map_expanded
 	camera.pointer_captured = minimap_dragging or wall_dragging or tactical.minimap_rect().has_point(get_viewport().get_mouse_position()) or (get_viewport().gui_get_hovered_control() != null and camera.edge_direction(get_viewport().get_mouse_position(), get_viewport().get_visible_rect().size) == Vector2.ZERO)
-	camera.letter_pan_blocked = build_panel.visible or depot_panel.visible
+	camera.letter_pan_blocked = build_panel.visible or depot_panel.visible or womb_panel.visible
 	camera.keyboard_pan_blocked = controls_panel.visible or tactical.map_expanded
-	group_bar.visible = not build_panel.visible and not depot_panel.visible
+	group_bar.visible = not build_panel.visible and not depot_panel.visible and not womb_panel.visible
 	placement_strip.visible = build_kind != ""
 	if selecting:
 		var rect := Rect2(drag_start, Vector2.ZERO).expand(get_viewport().get_mouse_position())
@@ -630,7 +671,7 @@ func _process(delta: float) -> void:
 		tactical.placement_kind = build_kind; tactical.placement_cell = cell
 		var issue := state.placement_issue(local_owner, build_kind, cell)
 		renderer.show_preview(cell, true, build_kind, issue == "")
-		placement_text.text = "PLACING %s  /  %s\n%s  /  SHIFT: queue + repeat   ESC: cancel" % [(depot_resource + " depot" if build_kind == "depot" else build_kind).to_upper(), _cost_text(Settings.data.structures[build_kind].cost), "CLEAR SITE" if issue == "" else issue]
+		placement_text.text = "PLACING %s  /  %s\n%s  /  SHIFT: queue + repeat   ESC: cancel" % [(depot_resource + " depot" if build_kind == "depot" else lightless_unit_type + " womb" if build_kind == "womb" else build_kind).to_upper(), _cost_text(Settings.data.structures[build_kind].cost), "CLEAR SITE" if issue == "" else issue]
 		placement_text.modulate = Color("abcdb8") if issue == "" else Color("e0a18b")
 		build_hint.text = "%s · %s\n%s" % [build_kind.capitalize(), _cost_text(Settings.data.structures[build_kind].cost), "Clear site · click to place" if issue == "" else issue]
 	else: renderer.show_preview(Vector2i.ZERO, false); tactical.placement_kind = ""
@@ -661,7 +702,7 @@ func _process(delta: float) -> void:
 			if s.owner != local_owner: continue
 			var p := state.entity_position(s)
 			var screen := camera.unproject_position(Vector3(p.x, 0.4, p.y))
-			structures.append({"id": s.id, "kind": s.kind, "built": s.built, "screen": [screen.x, screen.y]})
+			structures.append({"id": s.id, "kind": s.kind, "built": s.built, "x": p.x, "z": p.y, "screen": [screen.x, screen.y]})
 		var buttons: Dictionary = {}
 		for kind in build_buttons:
 			var point: Vector2 = build_buttons[kind].get_global_rect().get_center()
@@ -736,6 +777,7 @@ func _update_hud() -> void:
 		else:
 			goal += "\n\nNest: map center. Bring your Marines.\nM on remains sends workers to recover Nacre."
 		goal = str(definition.title).to_upper() + "\n\n" + goal
+	if local_owner == -1: goal = "LIGHTLESS / DESTROY THE COMMONWEALTH ANCHORS\nSelect Medusa to spawn or set network stance. Mothers grow organs. Fathers recruit units. Chyme is earned through damage and delivery."
 	mission_label.tooltip_text = goal
 	var compact_goal := goal.split("\n")[0]
 	if not state.mission.is_empty():
@@ -816,6 +858,7 @@ func _update_hud() -> void:
 	for button in actions.get_children():
 		if button.has_meta("cost"):
 			button.disabled = not bool(button.get_meta("available")) or not CommandSkin.affordable(state, local_owner, button.get_meta("cost"))
+	if womb_panel.visible and womb_target != 0: _refresh_womb_choices()
 	status_label.visible = not status_label.text.is_empty()
 	portrait.queue_redraw()
 
@@ -830,7 +873,40 @@ func _command(title: String, icon: String, order: Dictionary, cost: Dictionary =
 	button.tooltip_text = title + "\n" + _cost_text(cost) + "\n" + (reason if reason != "" else "Paid immediately. Unstarted queued orders can be canceled for a refund." if not cost.is_empty() else "Select to issue this command.")
 	return button
 
+func _lightless_actions(e: Dictionary) -> void:
+	if e.has("pos") and not WorldState.LightlessControl.directly_controllable(e):
+		var guidance := _label("AUTONOMOUS\nGuide through the Medusa or a Father.", 12, Color("a5b5ab"))
+		guidance.tooltip_text = "Father %d controls this recruit." % int(e.father_id) if int(e.get("father_id", 0)) != 0 else "This unit follows its network stance. Recruit it with a Father to guide a group."
+		actions.add_child(guidance); return
+	if e.kind == "womb" and (e.built or not e.started):
+		_target_button("Change type", "womb", func(): _open_womb_types(e.id), "Change Womb type. Removing old capacity must support its current population. Clear this Womb's spawn queue first; Glands keep their original type.")
+	if e.has("cell") and not e.built:
+		if not e.started: _command("Cancel blueprint", "stop", {"action": "cancel_build", "target": e.id}, {}, true, "Refunds Chyme before Mother transformation. Gestation cannot be canceled.")
+		return
+	if e.kind in ["medusa", "father"]:
+		for stance in ["attack", "defend", "gather", "probe"]:
+			var current := str(e.get("network_stance", "")) if e.kind == "medusa" else str(e.get("group_stance", ""))
+			var button := _command(str(stance).capitalize(), "aggressive", {"action": "medusa_stance" if e.kind == "medusa" else "father_stance", "stance": stance, "target": e.id}, {}, true, "Medusa: all units standing on Gloom, globally. Father: recruited units override that stance.")
+			button.toggle_mode = true; button.set_pressed_no_signal(current == stance)
+	if e.kind in ["medusa", "womb"]:
+		for kind in WorldState.LightlessControl.TYPES:
+			if not WorldState.LightlessColony.unlocked(state, e, kind): continue
+			var spawn_button := _command(str(kind).capitalize(), kind, {"action": "spawn", "target": e.id, "kind": kind}, Settings.data.units[kind].manualSpawnCost, e.spawn_queue.size() < int(state.cfg.lightless.manualQueueLimit), "Population %d / %d. Paid Chyme immediately. Orders wait at the type cap. Click a queue chip to cancel." % [state._population(kind), WorldState.LightlessColony.cap(state, kind)])
+			spawn_button.badge = "%d/%d" % [state._population(kind), WorldState.LightlessColony.cap(state, kind)]
+	if e.kind == "mother":
+		_target_button("Grow Womb", "build", func(): _choose_build("womb"), "Choose a revealed site. The Mother travels, transforms, then the Womb gestates.")
+		_target_button("Grow Stoma", "build", func(): _choose_build("stoma"), "Choose a revealed site for a Chyme drop-off. Consumes its Mother when gestation starts.")
+	if e.kind == "womb":
+		_target_button("Armor Gland", "upgrade", func(): _choose_build("gland"), "Choose an adjacent unoccupied Gloom tile. Respects colony armor caps and Womb slots.")
+		_target_button("Chyme Gland", "build", func(): _choose_build("chyme_gland"), "Choose an adjacent unoccupied Gloom tile to generate Chyme.")
+	if e.kind == "father":
+		_target_button("Recruit unit", "escort", func(): _target_interaction("recruit"), "Choose a Lightless unit anywhere on Gloom, or within local range off Gloom. Transfers are atomic; roster capacity applies.")
+		_command("Release recruits", "stop", {"action": "release"}, {}, true, "Releases this Father's recruits to their current network stance.")
+	if e.has("pos"):
+		_command("Stop [X]", "stop", {"action": "stop"}, {}, true, "Stop orders for this unrecruited Mother or Father. Combat units act autonomously.")
+
 func _refresh_actions() -> void:
+	if womb_target != 0 and not selection.has(womb_target): womb_panel.hide(); womb_target = 0
 	for parent in [actions, personnel_controls]:
 		for child in parent.get_children(): parent.remove_child(child); child.queue_free()
 	if selection.is_empty(): return
@@ -841,6 +917,7 @@ func _refresh_actions() -> void:
 			var candidate := _observed_entity(int(id))
 			if candidate.get("kind", "") == "engineer": e = candidate; break
 	if e.is_empty() or e.owner != local_owner: return
+	if local_owner == -1: _lightless_actions(e); return
 	if e.has("pos"):
 		if Settings.data.units[e.kind].weapon != null or e.kind == "scout":
 			for stance in ["neutral", "defensive", "aggressive"]:
@@ -1168,6 +1245,10 @@ func _selection_shortcut(event: InputEventKey) -> bool:
 	if selection.is_empty() or state.ended or not state.players[local_owner].alive: return false
 	var e := _observed_entity(int(selection[0]))
 	if e.is_empty() or e.owner != local_owner: return false
+	if local_owner == -1:
+		if not WorldState.LightlessControl.directly_controllable(e): return false
+		if _key_is(event, "stop"): _issue({"action": "stop"}); return true
+		return false
 	if e.has("cell") and _key_is(event, "togglePersonnel"):
 		_issue({"action": "global_personnel", "enabled": not bool(state.players[local_owner].request_personnel)}); return true
 	if e.has("pos"):
@@ -1218,7 +1299,7 @@ func _text_entry_focused() -> bool:
 func _cancel_modes() -> void:
 	wall_dragging = false; renderer.show_wall_line([])
 	build_kind = ""; mining_mode = false; attack_mode = false; interaction_mode = ""; build_panel.hide(); placement_strip.hide()
-	depot_panel.hide()
+	depot_panel.hide(); womb_panel.hide(); womb_target = 0
 
 func _toggle_build() -> void:
 	var eligible := false
@@ -1232,6 +1313,8 @@ func _toggle_build() -> void:
 
 func _choose_build(kind: String) -> void:
 	_cancel_modes()
+	if kind == "womb":
+		build_kind = "womb"; _open_womb_types(); return
 	if kind == "depot":
 		build_kind = "depot"; depot_panel.show()
 		group_bar.hide()
@@ -1240,12 +1323,34 @@ func _choose_build(kind: String) -> void:
 	status_label.text = "Place %s. WASD pans; Shift repeats placement; Esc cancels." % kind.capitalize()
 	audio.cue("order")
 
+func _open_womb_types(target: int = 0) -> void:
+	if target != 0: _cancel_modes()
+	womb_target = target; womb_panel.show(); group_bar.hide()
+	_refresh_womb_choices()
+	status_label.text = "Choose the Womb's new type; population and capacity rules apply." if target != 0 else "Place %s Womb now, or optionally choose a type. Esc cancels." % lightless_unit_type.capitalize()
+
+func _refresh_womb_choices() -> void:
+	var site := _observed_entity(womb_target)
+	for kind in womb_buttons:
+		var issue := WorldState.LightlessColony.reconfigure_issue(state, site, kind) if womb_target != 0 else ""
+		womb_buttons[kind].disabled = not issue.is_empty()
+		womb_buttons[kind].tooltip_text = issue if not issue.is_empty() else "Choose %s Womb. Current population %d / %d." % [str(kind).capitalize(), state._population(kind), WorldState.LightlessColony.cap(state, kind)]
+
+func _choose_womb_type(kind: String) -> void:
+	if not kind in WorldState.LightlessControl.TYPES: return
+	var target := womb_target
+	_cancel_modes(); lightless_unit_type = kind
+	if target != 0: _issue({"action": "womb_type", "target": target, "unit_type": kind})
+	else:
+		build_kind = "womb"; status_label.text = "Place %s Womb. Shift repeats placement." % kind.capitalize()
+
 func _choose_depot_resource(resource: String) -> void:
 	if not Settings.data.controls.depotHotkeys.has(resource): return
 	_cancel_modes(); depot_resource = resource; build_kind = "depot"
 	status_label.text = "Place %s Depot. Shift queues construction and repeats placement." % resource.capitalize()
 
 func _begin_attack() -> void:
+	if local_owner == -1: status_label.text = "Lightless combat units are autonomous; guide them through a Father or the Medusa."; return
 	var eligible := false
 	for id in selection:
 		var unit := _observed_entity(int(id))
@@ -1256,9 +1361,13 @@ func _begin_attack() -> void:
 
 func _handle_key(event: InputEventKey) -> bool:
 	if _key_is(event, "cancel"):
-		if build_panel.visible or depot_panel.visible or build_kind != "" or mining_mode or attack_mode or interaction_mode != "": _cancel_modes()
+		if build_panel.visible or depot_panel.visible or womb_panel.visible or build_kind != "" or mining_mode or attack_mode or interaction_mode != "": _cancel_modes()
 		else: selection.clear(); _refresh_actions()
 		return true
+	if womb_panel.visible:
+		for kind in Settings.data.controls.wombHotkeys:
+			if _matches_key(event, str(Settings.data.controls.wombHotkeys[kind])): _choose_womb_type(kind); return true
+		return false
 	if _key_is(event, "build"): _toggle_build(); return true
 	if depot_panel.visible or build_kind == "depot":
 		for resource in Settings.data.controls.depotHotkeys:
@@ -1412,6 +1521,7 @@ func _refresh_action_signature() -> void:
 	var parts: Array = [state.ended, state.players[local_owner].alive, state.players[local_owner].get("request_personnel", true), int(state.resources(local_owner).get("nacre", 0)) >= int(state.cfg.match.extractionMinimumNacre), state.players[local_owner].upgrades]
 	for id in selection:
 		var e := _observed_entity(int(id))
-		parts.append([id, e.get("kind", ""), e.get("stance", ""), e.get("enabled", true), e.get("open", false), e.get("locked", false), e.get("built", true), e.get("driver", 0), e.get("passengers", []).size(), e.get("buried", false), e.get("transition", ""), e.get("request_personnel", false), e.get("personnel_source", 0), e.get("kits", []).size(), e.get("operators", []).size(), e.get("vehicles", []).size(), e.get("upgrades", []).map(func(item): return item.kind), e.get("configuration_remaining", 0) > 0, e.get("depot_type", "")])
+		parts.append([id, e.get("kind", ""), e.get("stance", ""), e.get("network_stance", ""), e.get("group_stance", ""), e.get("father_id", 0), e.get("enabled", true), e.get("open", false), e.get("locked", false), e.get("built", true), e.get("driver", 0), e.get("passengers", []).size(), e.get("buried", false), e.get("transition", ""), e.get("request_personnel", false), e.get("personnel_source", 0), e.get("kits", []).size(), e.get("operators", []).size(), e.get("vehicles", []).size(), e.get("upgrades", []).map(func(item): return item.kind), e.get("configuration_remaining", 0) > 0, e.get("depot_type", ""), e.get("unit_type", "")])
+	if local_owner == -1: parts.append([state.units.size(), state.structures.values().map(func(site): return [site.id, site.built, site.get("unit_type", ""), float(site.get("configuration_remaining", 0)) > 0])])
 	var signature := JSON.stringify(parts)
 	if signature != action_signature: action_signature = signature; _refresh_actions()

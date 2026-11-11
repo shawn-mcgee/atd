@@ -363,6 +363,7 @@ func _body(e: Dictionary) -> Node3D:
 	footing.mesh = PlaneMesh.new()
 	var width: float = (float(state.cfg.structures[e.kind].footprintRadiusTiles) * 2.0 + 1.6) if e.has("cell") else 0.55
 	if e.has("pos") and int(state.cfg.units[e.kind].get("driverSeats", 0)) > 0: width = 1.65
+	if e.kind == "father": width = 0.95
 	footing.mesh.size = Vector2(width, width)
 	footing.position.y = 0.008
 	footing.material_override = footing_material
@@ -589,9 +590,35 @@ func _animate(body: Node3D, e: Dictionary, pos: Vector2, delta: float) -> void:
 		model.rotation.x = -0.07 if walking else 0.0
 	if e.owner < 0 and e.has("pos"):
 		var anatomy: Vector3 = model.get_meta("base_scale", Vector3.ONE)
-		model.scale = Vector3(anatomy.x, anatomy.y * (1.0 + sin(display_time * 3 + int(e.id)) * 0.025), anatomy.z)
+		if e.kind != "mother": model.scale = Vector3(anatomy.x, anatomy.y * (1.0 + sin(display_time * 3 + int(e.id)) * 0.025), anatomy.z)
 		for claw in body.get_meta("claws"):
 			claw.node.rotation.y = int(claw.side) * (int(claw.index) - 1) * -0.45 + (sin(phase * 1.3 + int(claw.index) * 2) * 0.35 if walking else 0.0)
+		if e.kind == "father":
+			var motion: Dictionary = state.cfg.presentation.fatherMotion
+			var hover := display_time * TAU * float(motion.hoverCyclesPerSecond) + int(e.id) * 0.7
+			model.position.y = sin(hover) * float(motion.hoverHeightTiles)
+			model.rotation.x = -float(motion.movementLeanRadians) if walking else sin(hover) * 0.025
+			model.rotation.z = cos(hover * 0.7) * 0.035
+			for joint in model.get_meta("tentacles", []):
+				var wave := display_time * TAU * float(motion.tentacleCyclesPerSecond) + int(joint.arm) * 0.8 - int(joint.segment) * 0.75
+				joint.node.rotation = joint.rest + Vector3(sin(wave), 0, cos(wave * 0.85)) * float(motion.tentacleSwayRadians)
+		elif e.kind == "mother" and not state.paused:
+			var motion: Dictionary = state.cfg.presentation.motherMotion
+			var shamble := display_time * TAU * float(motion.stepCyclesPerSecond) + int(e.id) * 0.7
+			var left := sin(shamble) if walking else 0.0
+			var right := sin(shamble + PI + 0.55) * float(motion.dragRatio) if walking else 0.0
+			model.scale = anatomy
+			model.position.y = maxf(0, left) * 0.018
+			model.rotation.z = sin(shamble - 0.35) * float(motion.swayRadians) * (1.0 if walking else 0.2)
+			parts["ShambleLegL"].rotation.x = left * float(motion.legSwingRadians)
+			parts["ShambleLegR"].rotation.x = right * float(motion.legSwingRadians)
+			parts["ShambleLegL/Knee"].rotation.x = 0.18 + maxf(0, -left) * 0.2
+			parts["ShambleLegR/Knee"].rotation.x = 0.18 + maxf(0, -right) * 0.14
+			parts["ShambleTorso"].rotation.x = -0.22 + left * 0.04
+			parts["ShambleTorso"].rotation.y = left * float(motion.swayRadians)
+			parts["ShambleTorso/Head"].rotation.x = 0.05 + sin(shamble - 1.1) * float(motion.headLagRadians) * (1.0 if walking else 0.25)
+			parts["ShambleTorso/ArmL"].rotation.x = 0.5 + left * 0.12
+			parts["ShambleTorso/ArmR"].rotation.x = 0.15 + right * 0.16
 	var recoil := float(body.get_meta("recoil")) if body.get_meta("recoil_fresh") else maxf(0, float(body.get_meta("recoil")) - delta * 9)
 	body.set_meta("recoil_fresh", false)
 	body.set_meta("recoil", recoil)

@@ -36,6 +36,8 @@ func run() -> void:
 			config.signaling.url = arg.trim_prefix("--coordinator="); config.ice.servers = []
 		if arg == "--live": count = 2; config.ice.transportPolicy = "relay"
 		if arg.begins_with("--join="): join_code = arg.trim_prefix("--join=")
+	if "--main-host-lightless" in OS.get_cmdline_user_args():
+		await main_host_lightless(config); return
 	if not join_code.is_empty():
 		await crossplay_guest(config, join_code); return
 	for i in range(count):
@@ -64,6 +66,25 @@ func run() -> void:
 		verify(await wait_until(func(): return guest_lost == 1), "Guest departure is reported once")
 	sessions[0].leave()
 	verify(await wait_until(func(): return host_lost == count - (2 if count > 2 else 1)), "Host loss ends every remaining guest session")
+	finish()
+
+func main_host_lightless(config: Dictionary) -> void:
+	var game = load("res://scenes/main.tscn").instantiate()
+	root.add_child(game)
+	await process_frame
+	game.audio.muted = true; game.network.configuration = config
+	game._host()
+	if not await wait_until(func(): return not game.network.invitation.is_empty(), 20): verify(false, "Main host starts"); finish(); return
+	print("Lightless host ready: ", game.network.invitation)
+	if not await wait_until(func(): return game.accepted_peers.size() == 1, 60): verify(false, "Main host admits guest"); finish(); return
+	game._refresh_lobby_controls(); game.lightless_role.select(2)
+	game._launch_hosted()
+	verify(game.peer_owners.values().has(-1), "Host maps exactly one guest to the Lightless owner")
+	if await wait_until(func(): return game.state.units.values().any(func(unit): return unit.kind == "father" and unit.get("manual_order", false)), 60):
+		print("Native Lightless move accepted")
+	else: verify(false, "Lightless guest sends an authoritative move"); finish(); return
+	await wait_until(func(): return game.accepted_peers.is_empty(), 60)
+	game._leave(); game.queue_free()
 	finish()
 
 func crossplay_guest(config: Dictionary, code: String) -> void:

@@ -12,6 +12,10 @@ func capture() -> void:
 	game.audio.muted = true
 	game._start_game(472, 1)
 	game.state.paused = true; game.paused_button.text = "Resume"
+	if "--mother" in OS.get_cmdline_user_args():
+		await father_review(game, "mother"); return
+	if "--father" in OS.get_cmdline_user_args():
+		await father_review(game); return
 	var anchor: Dictionary = game.state.structures[int(game.state.players[0].anchor)]
 	var center: Vector2i = anchor.cell - anchor.cell.sign() * 6
 	if "--relay" in OS.get_cmdline_user_args():
@@ -308,3 +312,33 @@ func building_review(game, center: Vector2i) -> void:
 	game.audio.stop(); game.queue_free(); await process_frame
 	print("Building silhouettes, offline state, and physical queues captured")
 	quit()
+
+func father_review(game, kind: String = "father") -> void:
+	game.local_owner = -1; game._start_game(472, 1, "", 0, true)
+	game.state.paused = true; game.paused_button.text = "Resume"
+	game.state.units.clear(); game.state.structures.clear(); game.state.gloom.clear()
+	for cell in HexGrid.disk(Vector2i.ZERO, 8):
+		game.state.tiles[cell].cliff = false; game.state.tiles[cell].resource = ""
+		game.state.gloom[cell] = 100.0
+		game.state.visible[-1][cell] = true; game.state.known[-1][cell] = true
+	var creature: int = game.state.add_unit(kind, Vector2.ZERO, -1)
+	game.state.units[creature].heading = PI
+	game.state.add_unit("scavenger", Vector2(1.7, 0.6), -1)
+	game.state._rebuild_navigation()
+	game.renderer.initialize(game.state, -1)
+	game.camera.focus = Vector3(0, 0.6, 0)
+	game.camera.distance = 7; game.camera.target_distance = 7; game.camera._update_transform()
+	game.selection = [creature]; game._update_hud()
+	if "--womb-menu" in OS.get_cmdline_user_args(): game._choose_build("womb")
+	game.set_process(false); game.set_physics_process(false); game.camera.set_process(false)
+	DirAccess.make_dir_recursive_absolute("res://build/visual-review")
+	for phase in range(2):
+		game.renderer.display_time = phase * (0.6 if kind == "mother" else 1.2)
+		if kind == "mother":
+			game.state.paused = false
+			game.renderer.bodies[creature].set_meta("last_position", Vector2(-0.1, 0))
+		game.renderer.selection = [creature]; game.renderer.refresh_entities()
+		for i in range(4): await process_frame
+		RenderingServer.force_draw()
+		root.get_texture().get_image().save_png("res://build/visual-review/%s-%d.png" % ["womb-menu" if "--womb-menu" in OS.get_cmdline_user_args() else kind, phase])
+	print(kind.capitalize(), " review captured"); quit()

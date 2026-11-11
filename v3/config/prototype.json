@@ -309,6 +309,7 @@
     "postMedusaWombSpawnRateMultiplier": 2,
     "glandGestationSeconds": 12,
     "structureGestationSeconds": 20,
+    "wombReconfigureSeconds": 5,
     "extractionRecruitedOverrideAllowed": true,
     "brainDecisionIntervalSeconds": 2,
     "cpuMinimumChymeReserve": 25,
@@ -324,11 +325,18 @@
     ],
     "cpuDesiredFathers": 1,
     "cpuDesiredMothers": 2,
+    "soloCommonwealthAI": {
+      "decisionIntervalSeconds": 2,
+      "desiredMarines": 6,
+      "attackGroupSize": 3
+    },
+    "cpuDesiredStomas": 2,
+    "cpuStomaMinOrganDistanceTiles": 6,
     "cpuArmorGlandsPerTypeBeforeMoreExpansion": 1,
     "cpuChymeGlandsPerWombTarget": 1,
     "cpuAutomaticFatherTransfer": false,
     "extractionTargetPolicy": "lowest_remaining_countdown_then_path_distance",
-    "gloomDisconnectionPolicy": "retain_last_stance_until_reconnected_or_overridden",
+    "gloomDisconnectionPolicy": "retain_last_stance_off_gloom_until_return_or_override",
     "darkPathLightPenalty": 40
   },
   "units": {
@@ -1377,6 +1385,20 @@
       "shieldSoundIntervalSeconds": 0.12,
       "depositSoundIntervalSeconds": 0.1
     },
+    "motherMotion": {
+      "stepCyclesPerSecond": 0.8,
+      "legSwingRadians": 0.28,
+      "dragRatio": 0.48,
+      "swayRadians": 0.07,
+      "headLagRadians": 0.08
+    },
+    "fatherMotion": {
+      "hoverHeightTiles": 0.07,
+      "hoverCyclesPerSecond": 0.45,
+      "tentacleSwayRadians": 0.14,
+      "tentacleCyclesPerSecond": 0.7,
+      "movementLeanRadians": 0.1
+    },
     "creatureScales": {
       "scavenger": [
         0.72,
@@ -1525,6 +1547,15 @@
       "reaper": "H",
       "cremator": "C",
       "javelin": "J"
+    },
+    "wombHotkeys": {
+      "scavenger": "C",
+      "mother": "M",
+      "father": "F",
+      "stalker": "S",
+      "ravager": "R",
+      "thresher": "T",
+      "shade": "H"
     },
     "depotHotkeys": {
       "ore": "O",
