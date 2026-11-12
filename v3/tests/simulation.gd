@@ -2067,7 +2067,55 @@ func movement_world() -> WorldState:
 	w._rebuild_navigation()
 	return w
 
+func probe_contact_planning_checks() -> void:
+	var w := thresher_fixture()
+	var probe: Dictionary = w.units[w.add_unit("scavenger", Vector2.ZERO, -1)]
+	var victim: Dictionary = w.units[w.add_unit("marine", Vector2(0.5, 0), 0)]
+	probe.stance = "probe"; w.path_queries = 0
+	w._unit_step(probe, 0.05)
+	verify(w.path_queries == 0 and victim.hp < float(w.cfg.units.marine.health), "A Probe engages an adjacent visible enemy without first planning an unused route to the distant Anchor")
+
+func movement_filter_equivalence_checks() -> void:
+	var w := movement_world()
+	var unit: Dictionary = w.units[w.add_unit("ravager", Vector2.ZERO, -1)]
+	var random := RandomNumberGenerator.new(); random.seed = 472
+	var matches := true; var checks := 0
+	for layout in range(64):
+		for cell in HexGrid.disk(Vector2i.ZERO, 3): w.tiles[cell].cliff = random.randf() < 0.3
+		w.tiles[Vector2i.ZERO].cliff = false
+		w.tiles[Vector2i(1, 0)].cliff = false
+		w._rebuild_navigation()
+		w.navigation.query_world = weakref(w); w.navigation.query_unit = unit
+		for radius in [0.15, HexGrid.RADIUS * 0.5, 0.289, 0.37, 0.49, 0.5, 0.6]:
+			w.cfg.units.ravager.collisionRadiusTiles = radius - float(w.cfg.movement.pathfinding.clearancePaddingTiles)
+			for direction in HexGrid.DIRECTIONS:
+				if w.tiles[direction].cliff: continue
+				var filtered: bool = not w.wide_navigation.are_points_connected(w.point_ids[Vector2i.ZERO], w.point_ids[direction]) if WorldState.RouteNavigation.uses_wide_graph(radius) else w.navigation._filter_neighbor(w.point_ids[Vector2i.ZERO], w.point_ids[direction])
+				var exact: bool = not WorldState.RouteNavigation.clear_segment(w, unit, Vector2.ZERO, HexGrid.world(direction), true)
+				if filtered != exact: matches = false
+				checks += 1
+	verify(matches, "Fast adjacent-edge clearance matches exact swept geometry across %d seeded obstacle/radius cases" % checks)
+	w = movement_world(); unit = w.units[w.add_unit("ravager", Vector2.ZERO, -1)]
+	var gate: Dictionary = w.structures[w.add_structure("gate", Vector2i(0, 1), 0)]
+	for owner in [-1, 0]:
+		unit.owner = owner
+		for opened in [false, true]:
+			gate.open = opened
+			for locked in [false, true]:
+				gate.locked = locked; w._rebuild_navigation()
+				w.navigation.query_world = weakref(w); w.navigation.query_unit = unit
+				var admitted := {gate.cell: true} if gate.owner == owner and not locked and not opened else {}
+				w._refresh_wide_edges(admitted, admitted, w.wide_navigation)
+				verify(w.wide_navigation.are_points_connected(w.point_ids[Vector2i.ZERO], w.point_ids[Vector2i(1, 0)]) == WorldState.RouteNavigation.clear_segment(w, unit, Vector2.ZERO, Vector2.RIGHT, true), "Native clearance preserves friendly/enemy gate opening and locking")
+				w._refresh_wide_edges(admitted, {}, w.wide_navigation)
+				var before: bool = w.wide_navigation.are_points_connected(w.point_ids[Vector2i.ZERO], w.point_ids[Vector2i(1, 0)])
+				unit.job = {"kind": "attack"}
+				w._route_path(unit, Vector2i.ZERO, Vector2i(1, 0))
+				verify(w.wide_navigation.are_points_connected(w.point_ids[Vector2i.ZERO], w.point_ids[Vector2i(1, 0)]) == before and w.wide_navigation.is_point_disabled(w.point_ids[gate.cell]) == w.blocked(gate.cell), "Temporary gate admission cannot leak into later native path queries")
+
 func movement_checks() -> void:
+	probe_contact_planning_checks()
+	movement_filter_equivalence_checks()
 	var w := movement_world()
 	var id := w.add_unit("operator", Vector2(0.42, 0.12), 0)
 	var u: Dictionary = w.units[id]

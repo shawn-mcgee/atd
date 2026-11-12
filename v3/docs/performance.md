@@ -37,3 +37,12 @@ omitting routes through a preliminary shallow copy (100 units, 8 or 64 waypoints
 On this desktop, the candidate increased mean batch cost from roughly 0.30?0.33 ms
 to 0.43?0.44 ms. It was therefore rejected; production retains the original unit
 copy. These are isolated native copy timings, not end-to-end multiplayer FPS.
+
+## Host hitches during a match
+
+The [host hitch investigation](host-hitch-investigation.md) reproduces expensive
+large-body A* callbacks and synchronized route-planning/smoothing bursts. Native
+clearance graphs, contact-first Probe planning and progressive smoothing reduced
+the recorded worst aging-match tick from 111.59 to 18.18 ms, and the worst tick in
+a 200-unit combat fixture from 363.28 to 40.50 ms. These are native CPU captures,
+not browser FPS guarantees. The report includes limitations and repeatable commands.

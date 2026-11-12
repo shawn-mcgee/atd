@@ -1,5 +1,44 @@
 extends SceneTree
 
+class TimelineWorld:
+	extends WorldState
+	var costs: Dictionary = {}
+	var slow_paths: Array = []
+	var max_path_us := 0
+	var path_queries := 0
+	var slow_units: Array = []
+	func record(key: String, start: int) -> void:
+		costs[key] = int(costs.get(key, 0)) + Time.get_ticks_usec() - start
+	func _route_path(unit: Dictionary, start: Vector2i, finish: Vector2i, partial: bool = false) -> PackedVector2Array:
+		var began := Time.get_ticks_usec()
+		var result := super._route_path(unit, start, finish, partial)
+		record("path_us", began); costs.path_count = int(costs.get("path_count", 0)) + 1
+		var elapsed := Time.get_ticks_usec() - began
+		max_path_us = maxi(max_path_us, elapsed); path_queries += 1
+		if elapsed > 2000 and slow_paths.size() < 12:
+			var stack: Array = []
+			for frame in get_stack().slice(1, 5): stack.append(str(frame.function) + ":" + str(frame.line))
+			slow_paths.append({"kind": unit.kind, "job": unit.job.kind, "ms": elapsed / 1000.0, "from": HexGrid.key(start), "to": HexGrid.key(finish), "found": not result.is_empty(), "callers": stack})
+		return result
+	func _unit_step(unit: Dictionary, delta: float) -> void:
+		var began := Time.get_ticks_usec(); super._unit_step(unit, delta); record("units_us", began)
+		var elapsed := Time.get_ticks_usec() - began
+		if elapsed > 2000 and slow_units.size() < 12: slow_units.append({"id": unit.id, "kind": unit.kind, "job": unit.job.kind, "ms": elapsed / 1000.0})
+	func move_to(unit: Dictionary, destination: Vector2) -> void:
+		var began := Time.get_ticks_usec(); super.move_to(unit, destination); record("move_planning_us", began)
+	func update_visibility() -> void:
+		var began := Time.get_ticks_usec(); super.update_visibility(); record("visibility_us", began)
+	func _update_gloom(delta: float) -> void:
+		var began := Time.get_ticks_usec(); super._update_gloom(delta); record("gloom_us", began)
+	func _update_power(delta: float) -> void:
+		var began := Time.get_ticks_usec(); super._update_power(delta); record("power_us", began)
+	func _rebuild_navigation() -> void:
+		var began := Time.get_ticks_usec(); super._rebuild_navigation(); record("navigation_us", began)
+	func _separate_units(delta: float) -> void:
+		var began := Time.get_ticks_usec(); super._separate_units(delta); record("separation_us", began)
+	func _production(site: Dictionary, delta: float) -> void:
+		var began := Time.get_ticks_usec(); super._production(site, delta); record("production_us", began)
+
 # Bounded, repeatable CPU benchmark; excludes loading, GPU work and frame pacing.
 func _initialize() -> void:
 	call_deferred("run")
@@ -21,6 +60,10 @@ func report(label: String, samples: Array[float]) -> Dictionary:
 	return result
 
 func run() -> void:
+	if "--match-timeline" in OS.get_cmdline_user_args():
+		await match_timeline(); return
+	if "--path-query" in OS.get_cmdline_user_args():
+		path_query_profile(); quit(); return
 	if "--snapshot-copy" in OS.get_cmdline_user_args():
 		snapshot_copy_profile(); quit(); return
 	var game = load("res://scenes/main.tscn").instantiate()
@@ -175,3 +218,83 @@ func copy_batch(units: Array, optimized: bool) -> void:
 			copy = fields.duplicate(true)
 		else: copy = unit.duplicate(true)
 		copy.erase("route")
+
+func timeline_argument(name: String, fallback: int) -> int:
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with(name + "="): return int(argument.trim_prefix(name + "="))
+	return fallback
+
+func match_timeline() -> void:
+	var count := clampi(timeline_argument("--timeline-players", 1), 1, 5)
+	var seed_value := timeline_argument("--timeline-seed", 472)
+	var duration := maxi(1, timeline_argument("--timeline-seconds", 600))
+	var budget := maxi(1000, timeline_argument("--timeline-budget-ms", 35000))
+	var cfg: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	cfg.structures.anchor.health *= 1000 # Keep a defended match alive for aging; not a balance fixture.
+	var world := TimelineWorld.new(cfg); world.reset(seed_value, count)
+	var added_units := maxi(0, timeline_argument("--timeline-units", 0))
+	var added_structures := maxi(0, timeline_argument("--timeline-structures", 0))
+	for owner in range(count):
+		var anchor: Dictionary = world.structures[int(world.players[owner].anchor)]
+		world.resources(owner).ore = 100000; world.resources(owner).gas = 100000
+		var candidates := HexGrid.disk(anchor.cell, 10)
+		var placed := 0
+		for cell in candidates:
+			if placed >= added_structures: break
+			var kinds := ["relay", "floodlight", "sentry", "depot", "radar", "generator"]
+			var kind: String = kinds[placed % kinds.size()]
+			if world.placement_issue(owner, kind, cell) != "" or world.tiles[cell].resource != "": continue
+			world.add_structure(kind, cell, owner); placed += 1
+		placed = 0
+		for cell in candidates:
+			if placed >= added_units: break
+			if world.blocked(cell): continue
+			world.add_unit("engineer" if placed % 5 == 0 else "marine", HexGrid.world(cell), owner); placed += 1
+	if "--stress" in OS.get_cmdline_user_args() and not stress_fixture(world, 1): quit(1); return
+	world._rebuild_navigation(); world._update_power(0); world.update_visibility()
+	var samples: Array[float] = []; var slowest: Array = []; var windows: Array = []
+	var wall_start := Time.get_ticks_msec()
+	var next_report := 60.0
+	for index in range(duration * 20):
+		world.costs = {}; world.slow_paths = []; world.slow_units = []
+		var began := Time.get_ticks_usec(); world.step(0.05)
+		var simulation_us := Time.get_ticks_usec() - began
+		var snapshot_us := 0; var bytes := 0
+		if count > 1 and world.tick % 2 == 0:
+			began = Time.get_ticks_usec()
+			for owner in range(1, count):
+				var packet := var_to_bytes({"kind": "state", "data": world.snapshot(owner)})
+				bytes += packet.compress(FileAccess.COMPRESSION_ZSTD).size()
+			snapshot_us = Time.get_ticks_usec() - began
+		var elapsed := (simulation_us + snapshot_us) / 1000.0
+		samples.append(elapsed)
+		if slowest.size() < 12 or elapsed > float(slowest.back().ms):
+			slowest.append({"tick": world.tick, "seconds": world.time_seconds, "ms": elapsed, "simulation_ms": simulation_us / 1000.0, "snapshot_ms": snapshot_us / 1000.0, "wire_bytes": bytes, "units": world.units.size(), "structures": world.structures.size(), "gloom": world.gloom.size(), "costs_us": world.costs.duplicate(true), "paths": world.slow_paths.duplicate(true), "slow_units": world.slow_units.duplicate(true)})
+			slowest.sort_custom(func(a, b): return a.ms > b.ms)
+			if slowest.size() > 12: slowest.resize(12)
+		if world.time_seconds >= next_report or world.ended or Time.get_ticks_msec() - wall_start >= budget or index == duration * 20 - 1:
+			var stats := report("host_at_%ds" % roundi(world.time_seconds), samples)
+			stats.seconds = world.time_seconds; stats.units = world.units.size(); stats.structures = world.structures.size(); stats.gloom = world.gloom.size()
+			windows.append(stats); samples.clear(); next_report += 60
+			await process_frame
+			if world.ended or Time.get_ticks_msec() - wall_start >= budget: break
+	var result := {"engine": Engine.get_version_info().string, "cpu": OS.get_processor_name(), "seed": seed_value, "players": count, "requested_seconds": duration, "simulated_seconds": world.time_seconds, "wall_ms": Time.get_ticks_msec() - wall_start, "max_path_ms": world.max_path_us / 1000.0, "path_queries": world.path_queries, "stress": "--stress" in OS.get_cmdline_user_args(), "added_units_per_player": added_units, "added_structures_per_player": added_structures, "windows": windows, "worst_ticks": slowest}
+	DirAccess.make_dir_recursive_absolute("res://build/profiles")
+	var path := "res://build/profiles/match-timeline-%dp%s.json" % [count, "-stress" if "--stress" in OS.get_cmdline_user_args() else ""]
+	var file := FileAccess.open(path, FileAccess.WRITE); file.store_string(JSON.stringify(result, "	")); file.close()
+	print("Worst host ticks: ", JSON.stringify(slowest.slice(0, 3)))
+	print("Timeline saved: ", path); quit()
+
+func path_query_profile() -> void:
+	var config: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://config/prototype.json"))
+	var world := WorldState.new(config); world.reset(472, 1)
+	var start := world.nearest_free(Vector2i(-32, 3))
+	var finish := world.nearest_free(world.structures[int(world.players[0].anchor)].cell)
+	var unit: Dictionary = world.units[world.add_unit("ravager", HexGrid.world(start), -1)]
+	var graph = world.dark_navigation
+	graph.query_world = weakref(world); graph.query_unit = unit; graph.query_radius = WorldState.RouteNavigation.clearance(world, unit); graph.neighbor_filter_enabled = true
+	print("Path fixture: ", HexGrid.key(start), " to ", HexGrid.key(finish), "; ", world.tiles.size(), " tiles")
+	measure("legacy_filtered_cold_path", func():
+		graph.edge_cache.clear(); graph.get_point_path(world.point_ids[start], world.point_ids[finish], true), 10)
+	measure("legacy_filtered_warm_path", func(): graph.get_point_path(world.point_ids[start], world.point_ids[finish], true), 10)
+	measure("native_clearance_path", func(): world._route_path(unit, start, finish, true), 10)

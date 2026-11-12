@@ -8,6 +8,12 @@ The current art pass combines procedural industrial models, basic procedural ani
 
 ## Current completion pass
 
+The [host hitch investigation](host-hitch-investigation.md) reproduced late-match
+large-body pathfinding stalls and combat route-planning bursts. Native clearance
+graphs, contact-first Probe acquisition, progressive smoothing and indexed gate
+checks reduce these measured spikes. Native timing instrumentation remains in the
+offline profiler; simulation remains deterministic.
+
 Multiplayer now defers snapshot compression until transmission, shares compressed
 broadcast payloads, and coalesces received guest snapshots to one application per
 presentation frame. Commands and packet formats are unchanged. A measured route-
@@ -172,6 +178,14 @@ All listed Commonwealth construction buttons are now available, including Radar 
 | Release and persistence | Web packaging and build/test CI. Public deployment, saved Nacre wallet, account/cross-origin persistence policy, and final release verification remain pending. |
 
 ## Verification
+
+2026-11-11 host-hitch pass: full npm tests, web export and four focused browser
+checks passed (native/browser admission, Lightless controls, authoritative guest
+movement/host loss, and complex mining). Collision/radius equivalence, temporary
+gate restoration and contact-first Probe planning have native regressions. Aged
+match, fixed-path and dense-combat CPU captures are recorded in the
+[host hitch investigation](host-hitch-investigation.md); they are native timings,
+not browser FPS guarantees.
 
 2026-11-11 multiplayer snapshot pass: full npm tests passed, including five native
 peers and the new compression/backpressure regressions. Final simulation/interface

@@ -30,6 +30,8 @@ var next_id := 1
 var random := RandomNumberGenerator.new()
 var navigation := MovementGraph.new()
 var dark_navigation := MovementGraph.new()
+var wide_navigation := AStar2D.new()
+var wide_dark_navigation := AStar2D.new()
 var point_ids: Dictionary = {}
 var structure_cells: Dictionary = {}
 var corpse: Variant = null
@@ -294,18 +296,24 @@ func _index_structures() -> void:
 func _rebuild_navigation() -> void:
 	_sight_topology_valid = false; _sight_areas.clear()
 	_index_structures()
-	if point_ids.size() == tiles.size() and navigation.get_point_count() == tiles.size():
+	if point_ids.size() == tiles.size() and navigation.get_point_count() == tiles.size() and wide_navigation.get_point_count() == tiles.size() and wide_dark_navigation.get_point_count() == tiles.size():
 		# The hex topology is static. Construction, doors and excavation only
 		# change admission; retain the native graph and its existing edges.
 		navigation.edge_cache.clear(); dark_navigation.edge_cache.clear()
+		var changed: Dictionary = {}
 		for cell in point_ids:
 			var disabled := blocked(cell)
 			var point: int = point_ids[cell]
-			if navigation.is_point_disabled(point) != disabled: navigation.set_point_disabled(point, disabled)
+			if navigation.is_point_disabled(point) != disabled:
+				changed[cell] = true
+				navigation.set_point_disabled(point, disabled)
+				wide_navigation.set_point_disabled(point, disabled); wide_dark_navigation.set_point_disabled(point, disabled)
 			if dark_navigation.is_point_disabled(point) != disabled: dark_navigation.set_point_disabled(point, disabled)
+		_refresh_wide_edges(changed)
 		return
 	navigation.clear(); navigation.edge_cache.clear()
 	dark_navigation.clear(); dark_navigation.edge_cache.clear()
+	wide_navigation.clear(); wide_dark_navigation.clear()
 	point_ids.clear()
 	var id := 0
 	for cell in tiles:
@@ -314,6 +322,8 @@ func _rebuild_navigation() -> void:
 		navigation.set_point_disabled(id, blocked(cell))
 		dark_navigation.add_point(id, HexGrid.world(cell), float(cfg.lightless.darkPathLightPenalty) if is_lit(cell) else 1.0)
 		dark_navigation.set_point_disabled(id, blocked(cell))
+		wide_navigation.add_point(id, HexGrid.world(cell)); wide_navigation.set_point_disabled(id, blocked(cell))
+		wide_dark_navigation.add_point(id, HexGrid.world(cell), dark_navigation.get_point_weight_scale(id)); wide_dark_navigation.set_point_disabled(id, blocked(cell))
 		id += 1
 	for cell in tiles:
 		for direction in HexGrid.DIRECTIONS:
@@ -321,6 +331,9 @@ func _rebuild_navigation() -> void:
 			if point_ids.has(neighbour) and point_ids[cell] < point_ids[neighbour]:
 				navigation.connect_points(point_ids[cell], point_ids[neighbour])
 				dark_navigation.connect_points(point_ids[cell], point_ids[neighbour])
+				if _wide_edge_open(cell, neighbour):
+					wide_navigation.connect_points(point_ids[cell], point_ids[neighbour])
+					wide_dark_navigation.connect_points(point_ids[cell], point_ids[neighbour])
 
 func is_lit(cell: Vector2i) -> bool:
 	for area in illuminated.values():
@@ -333,19 +346,49 @@ func nearest_free(cell: Vector2i) -> Vector2i:
 			if not blocked(c): return c
 	return cell
 
+func _wide_edge_open(start: Vector2i, finish: Vector2i, admitted: Dictionary = {}) -> bool:
+	var direction := HexGrid.DIRECTIONS.find(finish - start)
+	for side in [-1, 1]:
+		var cell: Vector2i = start + HexGrid.DIRECTIONS[(direction + side + 6) % 6]
+		if not admitted.has(cell) and blocked(cell): return false
+	return true
+
+func _refresh_wide_edges(changed: Dictionary, admitted: Dictionary = {}, selected: AStar2D = null) -> void:
+	var graphs: Array = [selected] if selected != null else [wide_navigation, wide_dark_navigation]
+	for cell in changed:
+		# A changed hex affects only the six edges between its surrounding cells.
+		for index in range(6):
+			var start: Vector2i = cell + HexGrid.DIRECTIONS[index]
+			var finish: Vector2i = cell + HexGrid.DIRECTIONS[(index + 1) % 6]
+			if not point_ids.has(start) or not point_ids.has(finish): continue
+			var a: int = point_ids[start]; var b: int = point_ids[finish]
+			var clear := _wide_edge_open(start, finish, admitted)
+			for graph in graphs:
+				if clear == graph.are_points_connected(a, b): continue
+				if clear: graph.connect_points(a, b)
+				else: graph.disconnect_points(a, b)
+
 func _route_path(u: Dictionary, start: Vector2i, finish: Vector2i, partial: bool = false) -> PackedVector2Array:
 	if not point_ids.has(start) or not point_ids.has(finish): return PackedVector2Array()
-	var graph := dark_navigation if u.owner < 0 and u.job.kind != "attack" else navigation
-	var admitted: Array[int] = []
+	var clearance := RouteNavigation.clearance(self, u)
+	var wide := RouteNavigation.uses_wide_graph(clearance)
+	var dark: bool = u.owner < 0 and u.job.kind != "attack"
+	var graph: AStar2D = (wide_dark_navigation if dark else wide_navigation) if wide else (dark_navigation if dark else navigation)
+	var admitted: Dictionary = {}
 	for gate in structures.values():
 		if gate.kind != "gate" or gate.owner != u.owner or not gate.built or gate.locked or gate.open: continue
 		for cell in footprint(gate):
-			if point_ids.has(cell): graph.set_point_disabled(point_ids[cell], false); admitted.append(point_ids[cell])
-	graph.query_world = weakref(self); graph.query_unit = u
-	graph.neighbor_filter_enabled = RouteNavigation.clearance(self, u) >= HexGrid.RADIUS * 0.5
+			if point_ids.has(cell): graph.set_point_disabled(point_ids[cell], false); admitted[cell] = true
+	if wide:
+		if not admitted.is_empty(): _refresh_wide_edges(admitted, admitted, graph)
+	else:
+		graph.query_world = weakref(self); graph.query_unit = u; graph.query_radius = clearance
+		graph.neighbor_filter_enabled = clearance >= HexGrid.RADIUS * 0.5
 	var path := graph.get_point_path(point_ids[start], point_ids[finish], partial)
-	graph.neighbor_filter_enabled = false; graph.query_unit = {}; graph.query_world = null
-	for id in admitted: graph.set_point_disabled(id, true)
+	if not wide:
+		graph.neighbor_filter_enabled = false; graph.query_unit = {}; graph.query_world = null; graph.query_radius = 0.0
+	for cell in admitted: graph.set_point_disabled(point_ids[cell], true)
+	if wide and not admitted.is_empty(): _refresh_wide_edges(admitted, {}, graph)
 	return path
 
 func move_to(u: Dictionary, destination: Vector2) -> void:
@@ -365,7 +408,7 @@ func _move(u: Dictionary, delta: float) -> bool:
 		var goal: Vector2 = u.route[0]
 		var distance: float = u.pos.distance_to(goal)
 		if distance <= float(cfg.movement.pathfinding.waypointToleranceTiles) and u.route.size() > 1:
-			u.route.pop_front(); continue
+			u.route.pop_front(); RouteNavigation.assign(self, u, PackedVector2Array(u.route)); continue
 		var travel := minf(budget, distance)
 		var proposed: Vector2 = u.pos.move_toward(goal, travel)
 		for gate in structures.values():
@@ -382,7 +425,9 @@ func _move(u: Dictionary, delta: float) -> bool:
 			u.heading = atan2(-direction.x, -direction.y)
 			u.pos = proposed; moved = true
 		budget -= travel
-		if travel >= distance: u.route.pop_front()
+		if travel >= distance:
+			u.route.pop_front()
+			if not u.route.is_empty(): RouteNavigation.assign(self, u, PackedVector2Array(u.route))
 	return moved
 
 func clearance_obstacles(cell: Vector2i, reach: int, avoid_light: bool) -> Array[Vector2i]:
@@ -1322,8 +1367,6 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		LightlessTactics.retreat(self, u)
 		return
 	var goal := LightlessTactics.assigned_anchor(self, u)
-	if u.route.is_empty() and not goal.is_empty() and not u.get("buried", false) and float(u.job.get("repath_remaining", 0)) <= 0:
-		move_to(u, entity_position(goal)); u.job.repath_remaining = float(cfg.lightless.combatRepathSeconds)
 	var candidate: Dictionary = {}
 	var nearest := INF
 	var vision := _cached_sight(HexGrid.cell(u.pos), int(cfg.units[u.kind].visionRangeTiles))
@@ -1340,6 +1383,8 @@ func _probe_step(u: Dictionary, delta: float) -> void:
 		if not seen: continue
 		var d: float = u.pos.distance_to(entity_position(e))
 		if d < nearest: nearest = d; candidate = e
+	if candidate.is_empty() and u.route.is_empty() and not goal.is_empty() and not u.get("buried", false) and float(u.job.get("repath_remaining", 0)) <= 0:
+		move_to(u, entity_position(goal)); u.job.repath_remaining = float(cfg.lightless.combatRepathSeconds)
 	# The CPU already knows Anchor locations. A light perimeter must not create
 	# a permanent blind spot between its shorter vision and the Anchor's light.
 	if candidate.is_empty() and not goal.is_empty() and not u.route.is_empty() and is_lit(HexGrid.cell(u.route[0])):
@@ -2118,9 +2163,11 @@ func update_visibility() -> void:
 	for area in illuminated.values(): new_light.merge(area, true)
 	if old_light != new_light: _dark_clearance_neighborhoods.clear()
 	for cell in old_light:
-		if not new_light.has(cell) and point_ids.has(cell): dark_navigation.set_point_weight_scale(point_ids[cell], 1.0)
+		if not new_light.has(cell) and point_ids.has(cell):
+			dark_navigation.set_point_weight_scale(point_ids[cell], 1.0); wide_dark_navigation.set_point_weight_scale(point_ids[cell], 1.0)
 	for cell in new_light:
-		if not old_light.has(cell) and point_ids.has(cell): dark_navigation.set_point_weight_scale(point_ids[cell], float(cfg.lightless.darkPathLightPenalty))
+		if not old_light.has(cell) and point_ids.has(cell):
+			dark_navigation.set_point_weight_scale(point_ids[cell], float(cfg.lightless.darkPathLightPenalty)); wide_dark_navigation.set_point_weight_scale(point_ids[cell], float(cfg.lightless.darkPathLightPenalty))
 
 func unknown_contacts(owner: int) -> Array[Vector2i]:
 	## Public UI contract: contacts contain coordinates, never enemy IDs or counts.
@@ -2268,6 +2315,7 @@ class MovementGraph:
 	extends AStar2D
 	var query_world: WeakRef
 	var query_unit: Dictionary = {}
+	var query_radius := 0.0
 	var edge_cache: Dictionary = {}
 
 	func _filter_neighbor(from_id: int, to_id: int) -> bool:
@@ -2275,7 +2323,7 @@ class MovementGraph:
 		if world == null: return false
 		# Adjacent free hex centers have at least this much corner clearance.
 		# Infantry need no extra graph filtering; larger bodies sometimes do.
-		var radius := RouteNavigation.clearance(world, query_unit)
+		var radius: float = query_radius if query_radius > 0 else RouteNavigation.clearance(world, query_unit)
 		if radius < HexGrid.RADIUS * 0.5: return false
 		var key := "%d:%s:%d:%d" % [query_unit.owner, radius, mini(from_id, to_id), maxi(from_id, to_id)]
 		if not edge_cache.has(key):
@@ -2283,6 +2331,11 @@ class MovementGraph:
 		return bool(edge_cache[key])
 
 class RouteNavigation:
+	static func uses_wide_graph(radius: float) -> bool:
+		# For center-to-center edges in this band, only the two shared hexes
+		# can intersect the body. Boundary radii keep exact swept geometry.
+		return radius * radius > HexGrid.RADIUS * HexGrid.RADIUS * 0.25 + 0.00001 and radius * radius < 0.25 - 0.00001
+
 	static var hex_polygons: Dictionary = {}
 	# Hexes choose topology; swept body clearance and string-pulling choose actual
 	# movement. This layer is shared by manual orders, work, combat and retreats.
@@ -2328,8 +2381,9 @@ class RouteNavigation:
 			if distance >= radius * radius - 0.000001: continue
 			var admitted := false
 			if gates:
-				for gate in world.structures.values():
-					if gate.kind == "gate" and gate.built and gate.owner == unit.owner and not gate.locked and cell in world.footprint(gate): admitted = true; break
+				for id in world.structure_cells.get(cell, []):
+					var gate: Dictionary = world.structures.get(id, {})
+					if gate.get("kind", "") == "gate" and gate.built and gate.owner == unit.owner and not gate.locked: admitted = true; break
 			if admitted: continue
 			# Steering or a newly placed obstacle may leave a body too close to an
 			# edge. Permit movement out of that overlap, never deeper through it.
@@ -2366,6 +2420,10 @@ class RouteNavigation:
 			while chosen > index and not clear_segment(world, unit, origin, path[chosen], true, dark):
 				chosen = index + (chosen - index) / 2
 			unit.route.append(path[chosen]); origin = path[chosen]; index = chosen + 1
+			# Smooth the segment needed now; retain the safe native remainder.
+			# Continuing movement smooths subsequent segments as they are reached,
+			# avoiding a whole-path geometry burst when many units replan together.
+			while index < path.size(): unit.route.append(path[index]); index += 1
 
 class LightlessTactics:
 	# Navigation and target decisions only; no renderer, input, or wall-clock state.

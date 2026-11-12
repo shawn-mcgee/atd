@@ -61,3 +61,18 @@ and `expeditions.repathIntervalSeconds`, including directly controlled Lightless
 support units. Clearing terrain or unlocking a gate resumes the order; Stop cancels
 it. Unavailable destinations remain pending rather than falsely reporting arrival.
 The move completion goal uses the normal nearest-free endpoint for occupied cells.
+
+## Native clearance graphs and progressive smoothing
+
+Vehicles, Ravagers and Threshers use cached native A* connectivity for clearances
+strictly between half the hex circumradius and its apothem, with a numerical margin
+at the boundaries. Adjacent edges in this band depend only on their two shared
+neighboring hexes. Changed obstacle cells update six surrounding edges; other
+radii retain exact neighbor filtering. Dark weights follow illumination changes,
+and temporary friendly-gate admission is restored after each query.
+
+Smoothing computes the next route segment and retains the remaining native path.
+Movement smooths the next segment after reaching a waypoint, preserving collision
+checks, gates, final click positions and the full per-tick travel budget while
+avoiding an entire-route geometry burst. See the
+[host hitch investigation](host-hitch-investigation.md) for measurements.
